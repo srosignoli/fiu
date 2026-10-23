@@ -51,6 +51,10 @@ _Avoid_: Source link, reference
 Why a Workout exists: requested by the human for a chosen file (manual), or generated in the background from a commit.
 _Avoid_: Source (that's the code it was derived from), trigger, mode
 
+**Generator**:
+Who wrote a Workout's content: Kintsugi itself (calling an LLM with the user's API key), or the user's own coding agent (through Kintsugi's tools). Independent of Origin.
+_Avoid_: Provider, mode, backend
+
 **Regression Test**:
 The test in a Drill that specifically exposes the injected bug.
 

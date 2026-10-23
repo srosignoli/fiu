@@ -101,16 +101,17 @@ Users may declare additional profiles (`"profiles": [...]`) in `.kintsugi/config
 
 ## 6. The Verified Gate
 
-No Workout is written to `.kintsugi/workouts/` unless every check passes. Each test run executes in a fresh temp directory, inside the sandbox (§7), with a 10 s timeout.
+No Workout is written to `.kintsugi/workouts/` unless every check passes. Each test run executes in a fresh temp directory, inside the sandbox (§7), with a 10 s timeout. All checks run and every failure is reported (not just the first), so a retry learns everything that was wrong.
 
 1. **Reference passes:** running the tests against the Reference Solution: `ran` is true and every test is `pass`.
 2. **Starting Code fails meaningfully:** running the tests against the Starting Code: `ran` is true, at least one test is `assertion-failure`, and at least one test is `pass`. No test may be `error`.
-3. **Drill only:** the Regression Test is among the `assertion-failure`s.
+3. **Drill only:** the Regression Test is among the `assertion-failure`s. Its name must match exactly one test, either exactly or as the trailing segment(s) of the test's path (`starves late jobs` matches `scheduler > starves late jobs`; `test_x` matches `Class.test_x`).
 4. **Minimal diff:**
-   - *Drill:* Starting Code differs from the Reference Solution in one contiguous region of ≤ 3 changed lines.
-   - *Kata:* Starting Code is the Reference Solution with exactly one region replaced by a gap; for a Quick Workout the removed region is 5–12 lines. (Katas aren't generated in v1, but the rule is part of what Verified means.)
+   - *Drill:* Starting Code differs from the Reference Solution in one contiguous region of ≤ 3 changed lines (the larger of lines removed and lines added).
+   - *Kata:* Starting Code is the Reference Solution with exactly one region replaced by a gap of ≤ 3 placeholder lines; for a Quick Workout the removed region is 5–12 lines. (Katas aren't generated in v1, but the rule is part of what Verified means.)
+   - The comparison is a line diff that ignores line endings, trailing whitespace, and trailing blank lines.
 
-**On failure:** retry generation up to 2 more times, feeding the exact failing check and test output back to the LLM. If the third attempt fails, report `Couldn't produce a Verified Workout from <target>` and write nothing.
+**On failure:** retry generation up to 2 more times, feeding each failing check and its test output (the last 4,000 characters) back to the LLM. If the third attempt fails, report `Couldn't produce a Verified Workout from <target>` and write nothing.
 
 ## 7. Sandbox
 

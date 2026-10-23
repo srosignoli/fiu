@@ -1,0 +1,38 @@
+test_adds (test_kata.AddTest.test_adds) ... ok
+test_sub (test_kata.AddTest.test_sub) ... 
+  test_sub (test_kata.AddTest.test_sub) (i=1) ... FAIL
+test_throws (test_kata.AddTest.test_throws) ... ERROR
+test_wrong (test_kata.AddTest.test_wrong)
+Adding one and two gives four. ... noise
+FAIL
+test_adds (test_kata.Other.test_adds) ... ok
+
+======================================================================
+ERROR: test_throws (test_kata.AddTest.test_throws)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/work/py/test_kata.py", line 11, in test_throws
+    raise TypeError("boom")
+TypeError: boom
+
+======================================================================
+FAIL: test_sub (test_kata.AddTest.test_sub) (i=1)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/work/py/test_kata.py", line 15, in test_sub
+    self.assertEqual(i, 0)
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_wrong (test_kata.AddTest.test_wrong)
+Adding one and two gives four.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/work/py/test_kata.py", line 9, in test_wrong
+    self.assertEqual(add(1, 2), 4)
+AssertionError: 3 != 4
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.001s
+
+FAILED (failures=2, errors=1)

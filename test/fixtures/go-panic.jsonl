@@ -1,0 +1,27 @@
+{"Time":"2026-10-23T12:21:05.735183442+02:00","Action":"start","Package":"kata"}
+{"Time":"2026-10-23T12:21:05.738187738+02:00","Action":"run","Package":"kata","Test":"TestAdds"}
+{"Time":"2026-10-23T12:21:05.73825582+02:00","Action":"output","Package":"kata","Test":"TestAdds","Output":"=== RUN   TestAdds\n"}
+{"Time":"2026-10-23T12:21:05.738331172+02:00","Action":"output","Package":"kata","Test":"TestAdds","Output":"--- PASS: TestAdds (0.00s)\n"}
+{"Time":"2026-10-23T12:21:05.738334138+02:00","Action":"pass","Package":"kata","Test":"TestAdds","Elapsed":0}
+{"Time":"2026-10-23T12:21:05.738356587+02:00","Action":"run","Package":"kata","Test":"TestPanics"}
+{"Time":"2026-10-23T12:21:05.738358282+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"=== RUN   TestPanics\n"}
+{"Time":"2026-10-23T12:21:05.738360622+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"--- FAIL: TestPanics (0.00s)\n"}
+{"Time":"2026-10-23T12:21:05.74057438+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"panic: assignment to entry in nil map [recovered]\n"}
+{"Time":"2026-10-23T12:21:05.740643179+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"\tpanic: assignment to entry in nil map\n"}
+{"Time":"2026-10-23T12:21:05.740664803+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"\n"}
+{"Time":"2026-10-23T12:21:05.740669466+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"goroutine 7 [running]:\n"}
+{"Time":"2026-10-23T12:21:05.740673698+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"testing.tRunner.func1.2({0x51b700, 0x56ea10})\n"}
+{"Time":"2026-10-23T12:21:05.740682647+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"\t/usr/lib/go-1.22/src/testing/testing.go:1631 +0x24a\n"}
+{"Time":"2026-10-23T12:21:05.740686234+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"testing.tRunner.func1()\n"}
+{"Time":"2026-10-23T12:21:05.7406895+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"\t/usr/lib/go-1.22/src/testing/testing.go:1634 +0x377\n"}
+{"Time":"2026-10-23T12:21:05.740692783+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"panic({0x51b700?, 0x56ea10?})\n"}
+{"Time":"2026-10-23T12:21:05.74069766+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"\t/usr/lib/go-1.22/src/runtime/panic.go:770 +0x132\n"}
+{"Time":"2026-10-23T12:21:05.740701112+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"kata.TestPanics(0xc0000b2680?)\n"}
+{"Time":"2026-10-23T12:21:05.740704449+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"\t/work/gopanic/kata_test.go:6 +0x28\n"}
+{"Time":"2026-10-23T12:21:05.74071494+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"testing.tRunner(0xc0000b2680, 0x5483e8)\n"}
+{"Time":"2026-10-23T12:21:05.740718655+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"\t/usr/lib/go-1.22/src/testing/testing.go:1689 +0xfb\n"}
+{"Time":"2026-10-23T12:21:05.740722072+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"created by testing.(*T).Run in goroutine 1\n"}
+{"Time":"2026-10-23T12:21:05.740725442+02:00","Action":"output","Package":"kata","Test":"TestPanics","Output":"\t/usr/lib/go-1.22/src/testing/testing.go:1742 +0x390\n"}
+{"Time":"2026-10-23T12:21:05.741269375+02:00","Action":"fail","Package":"kata","Test":"TestPanics","Elapsed":0}
+{"Time":"2026-10-23T12:21:05.741321849+02:00","Action":"output","Package":"kata","Output":"FAIL\tkata\t0.005s\n"}
+{"Time":"2026-10-23T12:21:05.741334597+02:00","Action":"fail","Package":"kata","Elapsed":0.006}

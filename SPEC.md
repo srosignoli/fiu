@@ -41,22 +41,24 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 
 ## 5. Language Profiles
 
-A Language Profile is pure data plus a result parser. No language-specific logic exists outside a profile.
+A Language Profile is pure data; the only per-language code is the parser for its result format. No language-specific logic exists outside a profile.
 
 ```typescript
 export interface LanguageProfile {
   id: string;
-  extensions: string[];          // matched against the drilled source file
+  extensions: string[];                  // matched against the drilled source file
   codeFilename: string;
   testFilename: string;
-  promptRules: string;           // language-specific generation constraints
-  preflightCmd: string;          // cheap toolchain check, run before any LLM call
-  testCmd: string;               // runs the tests once in the Workout directory
+  supportFiles: Record<string, string>;  // written into every Workout, e.g. Go's go.mod
+  promptRules: string;                   // language-specific generation constraints
+  preflightCmd: string;                  // cheap toolchain check, run in the sandbox before any LLM call
+  testCmd: string;                       // runs the tests once in the Workout directory
   resultFormat: 'tap' | 'junit-xml' | 'go-json' | 'unittest-verbose';
-  env: Record<string, string>;   // added to the scrubbed environment, e.g. GOPROXY=off
-  cacheDirs: string[];           // env vars pointed at ~/.cache/kintsugi/<id>/, e.g. GOCACHE
-  extraReadPaths?: string[];     // sandbox allowances (never network)
-  extraWritePaths?: string[];
+  resultFile?: string;                   // results file inside the Workout directory; stdout when absent
+  env: Record<string, string>;           // added to the scrubbed environment, e.g. GOPROXY=off
+  cacheDirs: string[];                   // env vars pointed at ~/.cache/kintsugi/<id>/<VAR>/, e.g. GOCACHE
+  extraReadPaths: string[];              // sandbox allowances (never network)
+  extraWritePaths: string[];
 }
 ```
 
@@ -65,19 +67,27 @@ Every test run is normalised to:
 ```typescript
 type TestOutcome = 'pass' | 'assertion-failure' | 'error';
 interface TestRun {
-  ran: boolean;                  // false on compile/syntax/import failure or timeout
-  tests: { name: string; outcome: TestOutcome }[];
+  ran: boolean;                          // false on compile/syntax/import failure, missing result file, or timeout
+  tests: { name: string; outcome: TestOutcome }[];   // skipped tests are left out
+  output: string;                        // combined runner output, for humans and LLM retry feedback
 }
 ```
 
 ### Built-in profiles (v1)
 
-| id | Extensions | Files | Test command | Results |
-| :--- | :--- | :--- | :--- | :--- |
-| `typescript` | `.ts`, `.mts`, `.cts` | `kata.ts`, `kata.test.ts` | `node --test --test-reporter=tap kata.test.ts` | TAP |
-| `javascript` | `.js`, `.mjs`, `.cjs` | `kata.mjs`, `kata.test.mjs` | `node --test --test-reporter=tap kata.test.mjs` | TAP |
-| `python` | `.py` | `kata.py`, `test_kata.py` | `python3 -m unittest -v test_kata` | unittest verbose (`ok` / `FAIL` / `ERROR`) |
-| `go` | `.go` | `kata.go`, `kata_test.go`, `go.mod` | `go test -json .` | `go test -json` |
+| id | Extensions | Files | Test command | Results | Test names |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `typescript` | `.ts`, `.mts`, `.cts`, `.tsx` | `kata.ts`, `kata.test.ts` | `node --experimental-strip-types --test --test-reporter=tap kata.test.ts` | TAP | `suite > test` |
+| `javascript` | `.js`, `.mjs`, `.cjs`, `.jsx` | `kata.mjs`, `kata.test.mjs` | `node --test --test-reporter=tap kata.test.mjs` | TAP | `suite > test` |
+| `python` | `.py` | `kata.py`, `test_kata.py` | `python3 -m unittest -v test_kata` | unittest verbose | `Class.test_method` |
+| `go` | `.go` | `kata.go`, `kata_test.go`, `go.mod` (`go 1.21`) | `go test -json .` | `go test -json` | `TestName/subtest` |
+
+Notes:
+
+- **TypeScript:** `--experimental-strip-types` is a no-op from Node 22.18 and keeps older 22.x working. The preflight evaluates a typed snippet, so it proves type-stripping works rather than just that `node` exists.
+- **Outcome mapping:** TAP failures with `code: 'ERR_ASSERTION'` are assertion failures, other failures are errors, and a file that fails to load (a synthetic test carrying `exitCode`) means not run. unittest takes test names from the verbose lines but outcomes from the final `FAIL:`/`ERROR:` report (the verbose lines are split by docstrings and test output); no `Ran N tests` line, or a `_FailedTest`, means not run. Go has no assertion library, so `t.Error`/`t.Fatal` failures are assertion failures and panics are errors; a build failure produces no test events, which means not run.
+- **Go** runs with `GOPROXY=off`, `GOFLAGS=-mod=mod`, `GOTOOLCHAIN=local`, `GOWORK=off`, and a persistent `GOCACHE`.
+- **JSX** is never generated: `.tsx`/`.jsx` sources are drilled into plain functions.
 
 Profile prompt rules include, e.g.: TypeScript uses only erasable syntax (no `enum`, `namespace`, parameter properties) and imports with explicit `.ts` extensions; Go uses `package kata` with `testing` only; Python uses `unittest` only.
 
@@ -87,7 +97,7 @@ A language is officially supported only if its toolchain ships a built-in test r
 
 ### User-defined profiles
 
-Users may declare additional profiles in `.kintsugi/config.json` or the user-level config. They must use a machine-readable `resultFormat` (`tap` or `junit-xml`). Their commands run in the same sandbox and may declare extra read/write paths, but never network access.
+Users may declare additional profiles (`"profiles": [...]`) in `.kintsugi/config.json` or the user-level config. They must use a machine-readable `resultFormat` (`tap` or `junit-xml`, optionally read from a `resultFile`). Their commands run in the same sandbox and may declare extra read/write paths, but never network access. A declared profile replaces a built-in one with the same id and wins for any extension it claims; repo-level declarations win over user-level ones.
 
 ## 6. The Verified Gate
 

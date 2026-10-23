@@ -56,14 +56,14 @@ describe('loadRepoConfig', () => {
 
 describe('resolveConfig', () => {
   it('falls back to defaults', () => {
-    assert.deepEqual(resolveConfig({}, {}), DEFAULTS);
+    const { provider, model, profiles } = resolveConfig({}, {});
+    assert.deepEqual({ provider, model }, DEFAULTS);
+    assert.deepEqual(profiles.map((p) => p.id), ['typescript', 'javascript', 'python', 'go']);
   });
 
   it('prefers repo over user settings', () => {
-    assert.deepEqual(
-      resolveConfig({ model: 'repo-model' }, { provider: 'openai', model: 'user-model' }),
-      { provider: 'openai', model: 'repo-model' },
-    );
+    const { provider, model } = resolveConfig({ model: 'repo-model' }, { provider: 'openai', model: 'user-model' });
+    assert.deepEqual({ provider, model }, { provider: 'openai', model: 'repo-model' });
   });
 });
 

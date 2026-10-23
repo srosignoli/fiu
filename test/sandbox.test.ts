@@ -73,6 +73,12 @@ describe('OS sandbox', { skip: osSandbox ? false : 'sandbox dependencies are not
     assert.equal(result.stdout, 'hi\n');
   });
 
+  it("gives commands the run's own writable TMPDIR", async () => {
+    const result = await osSandbox!.run({ command: 'echo "$TMPDIR" && touch "$TMPDIR/probe"', cwd: await tempDir() });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.match(result.stdout, /kintsugi-run-.*\/tmp$/m);
+  });
+
   it('keeps the repository unreadable except for the Workout directory', async () => {
     const repoRoot = await tempDir();
     const sandbox = await openSandbox({ repoRoot });

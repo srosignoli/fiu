@@ -15,6 +15,8 @@ export interface RunProcessOptions {
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
+export const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;
+
 /**
  * Runs a shell command in its own process group, so a timeout kills everything it spawned.
  * Output beyond 1 MiB per stream is dropped.

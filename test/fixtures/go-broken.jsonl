@@ -1,0 +1,3 @@
+{"Time":"2026-10-23T12:21:05.976337277+02:00","Action":"start","Package":"kata"}
+{"Time":"2026-10-23T12:21:05.976449376+02:00","Action":"output","Package":"kata","Output":"FAIL\tkata [build failed]\n"}
+{"Time":"2026-10-23T12:21:05.976455713+02:00","Action":"fail","Package":"kata","Elapsed":0}

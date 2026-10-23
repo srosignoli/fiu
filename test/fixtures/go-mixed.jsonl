@@ -1,0 +1,26 @@
+{"Time":"2026-10-23T12:21:05.400071647+02:00","Action":"start","Package":"kata"}
+{"Time":"2026-10-23T12:21:05.403047033+02:00","Action":"run","Package":"kata","Test":"TestAdds"}
+{"Time":"2026-10-23T12:21:05.40312914+02:00","Action":"output","Package":"kata","Test":"TestAdds","Output":"=== RUN   TestAdds\n"}
+{"Time":"2026-10-23T12:21:05.403358029+02:00","Action":"output","Package":"kata","Test":"TestAdds","Output":"--- PASS: TestAdds (0.00s)\n"}
+{"Time":"2026-10-23T12:21:05.403367974+02:00","Action":"pass","Package":"kata","Test":"TestAdds","Elapsed":0}
+{"Time":"2026-10-23T12:21:05.403393954+02:00","Action":"run","Package":"kata","Test":"TestWrong"}
+{"Time":"2026-10-23T12:21:05.403395947+02:00","Action":"output","Package":"kata","Test":"TestWrong","Output":"=== RUN   TestWrong\n"}
+{"Time":"2026-10-23T12:21:05.403397798+02:00","Action":"output","Package":"kata","Test":"TestWrong","Output":"    kata_test.go:6: Add(1,2) = 3, want 4\n"}
+{"Time":"2026-10-23T12:21:05.403415172+02:00","Action":"output","Package":"kata","Test":"TestWrong","Output":"--- FAIL: TestWrong (0.00s)\n"}
+{"Time":"2026-10-23T12:21:05.403417142+02:00","Action":"fail","Package":"kata","Test":"TestWrong","Elapsed":0}
+{"Time":"2026-10-23T12:21:05.403419042+02:00","Action":"run","Package":"kata","Test":"TestTable"}
+{"Time":"2026-10-23T12:21:05.403420483+02:00","Action":"output","Package":"kata","Test":"TestTable","Output":"=== RUN   TestTable\n"}
+{"Time":"2026-10-23T12:21:05.403422315+02:00","Action":"run","Package":"kata","Test":"TestTable/one"}
+{"Time":"2026-10-23T12:21:05.403423875+02:00","Action":"output","Package":"kata","Test":"TestTable/one","Output":"=== RUN   TestTable/one\n"}
+{"Time":"2026-10-23T12:21:05.403425703+02:00","Action":"output","Package":"kata","Test":"TestTable/one","Output":"--- PASS: TestTable/one (0.00s)\n"}
+{"Time":"2026-10-23T12:21:05.403427606+02:00","Action":"pass","Package":"kata","Test":"TestTable/one","Elapsed":0}
+{"Time":"2026-10-23T12:21:05.403432451+02:00","Action":"run","Package":"kata","Test":"TestTable/two"}
+{"Time":"2026-10-23T12:21:05.403433949+02:00","Action":"output","Package":"kata","Test":"TestTable/two","Output":"=== RUN   TestTable/two\n"}
+{"Time":"2026-10-23T12:21:05.403435511+02:00","Action":"output","Package":"kata","Test":"TestTable/two","Output":"    kata_test.go:9: nope\n"}
+{"Time":"2026-10-23T12:21:05.403437516+02:00","Action":"output","Package":"kata","Test":"TestTable/two","Output":"--- FAIL: TestTable/two (0.00s)\n"}
+{"Time":"2026-10-23T12:21:05.40343924+02:00","Action":"fail","Package":"kata","Test":"TestTable/two","Elapsed":0}
+{"Time":"2026-10-23T12:21:05.403441009+02:00","Action":"output","Package":"kata","Test":"TestTable","Output":"--- FAIL: TestTable (0.00s)\n"}
+{"Time":"2026-10-23T12:21:05.403442631+02:00","Action":"fail","Package":"kata","Test":"TestTable","Elapsed":0}
+{"Time":"2026-10-23T12:21:05.403444295+02:00","Action":"output","Package":"kata","Output":"FAIL\n"}
+{"Time":"2026-10-23T12:21:05.403627522+02:00","Action":"output","Package":"kata","Output":"FAIL\tkata\t0.003s\n"}
+{"Time":"2026-10-23T12:21:05.403695585+02:00","Action":"fail","Package":"kata","Elapsed":0.004}

@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { userCacheDir } from '../config.ts';
 import { SECRET_HOME_PATHS } from './policy.ts';
+import { shellQuote } from './process.ts';
 import { SandboxUnavailableError, type Sandbox } from './sandbox.ts';
 
 const CANARY_ENV_VAR = 'KINTSUGI_CANARY_SECRET';
@@ -161,5 +162,3 @@ function parseOutput(stdout: string): CanaryOutput | undefined {
 }
 
 const fail = (failures: string[]): CanaryReport => ({ passed: false, failures });
-
-const shellQuote = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`;

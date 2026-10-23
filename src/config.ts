@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { UserProfileSchema, type LanguageProfile } from './languages/profile.ts';
+import { profiles } from './languages/registry.ts';
 
 export const PROVIDERS = ['anthropic', 'openai', 'google'] as const;
 export const ProviderSchema = z.enum(PROVIDERS);
@@ -11,7 +13,7 @@ export type Provider = z.infer<typeof ProviderSchema>;
 export const DEFAULTS = {
   provider: 'anthropic',
   model: 'claude-opus-5-5',
-} as const satisfies ResolvedConfig;
+} as const satisfies Partial<ResolvedConfig>;
 
 /** `.kintsugi/config.json`: lives inside the repo, so it must never hold secrets. */
 export const RepoConfigSchema = z.strictObject({
@@ -23,6 +25,7 @@ export const RepoConfigSchema = z.strictObject({
       grantedAt: z.iso.datetime(),
     })
     .optional(),
+  profiles: z.array(UserProfileSchema).optional(),
 });
 export type RepoConfig = z.infer<typeof RepoConfigSchema>;
 
@@ -31,12 +34,15 @@ export const UserConfigSchema = z.strictObject({
   provider: ProviderSchema.optional(),
   model: z.string().min(1).optional(),
   apiKeys: z.partialRecord(ProviderSchema, z.string().min(1)).optional(),
+  profiles: z.array(UserProfileSchema).optional(),
 });
 export type UserConfig = z.infer<typeof UserConfigSchema>;
 
 export interface ResolvedConfig {
   provider: Provider;
   model: string;
+  /** Built-in Language Profiles plus those declared in either config. */
+  profiles: LanguageProfile[];
 }
 
 export class ConfigError extends Error {}
@@ -81,6 +87,7 @@ export function resolveConfig(repo: RepoConfig, user: UserConfig): ResolvedConfi
   return {
     provider: repo.provider ?? user.provider ?? DEFAULTS.provider,
     model: repo.model ?? user.model ?? DEFAULTS.model,
+    profiles: profiles(repo.profiles, user.profiles),
   };
 }
 

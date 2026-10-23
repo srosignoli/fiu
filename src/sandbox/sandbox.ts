@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_TIMEOUT_MS, filesystemPolicy, scrubbedEnv, type FilesystemPolicy, type PolicyContext } from './policy.ts';
-import { runProcess, type ProcessResult } from './process.ts';
+import { runProcess, shellQuote, type ProcessResult } from './process.ts';
 
 export interface RunRequest {
   /** A shell command taken from a Language Profile, never from model output. */
@@ -14,6 +14,8 @@ export interface RunRequest {
   env?: Record<string, string>;
   /** Further writable directories, e.g. toolchain caches. */
   writable?: string[];
+  /** Further paths to make readable even inside a denied region. */
+  readable?: string[];
   /** Further paths to make unreadable. */
   denyRead?: string[];
   timeoutMs?: number;
@@ -78,10 +80,16 @@ class ProcessSandbox implements Sandbox {
       await mkdir(tmp);
 
       const policy = filesystemPolicy(
-        { writable: [request.cwd, home, tmp, ...(request.writable ?? [])], denyRead: request.denyRead },
+        {
+          writable: [request.cwd, home, tmp, ...(request.writable ?? [])],
+          readable: request.readable,
+          denyRead: request.denyRead,
+        },
         this.#context,
       );
-      const command = await this.#wrap(request.command, policy, randomBytes(16).toString('base64url'));
+      // The sandbox runtime forces its own TMPDIR inside the sandbox; point it back at this run's scratch dir.
+      const inner = `export TMPDIR=${shellQuote(tmp)}; ${request.command}`;
+      const command = await this.#wrap(inner, policy, randomBytes(16).toString('base64url'));
       return await runProcess(command, {
         cwd: request.cwd,
         env: scrubbedEnv({ home, tmp, extra: request.env }),

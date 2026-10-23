@@ -22,6 +22,8 @@ export interface PolicyContext {
 export interface PolicyPaths {
   /** Directories that must be readable and writable: the Workout directory, the run's scratch HOME and TMPDIR, toolchain caches. */
   writable: string[];
+  /** Extra paths to make readable even inside a denied region. */
+  readable?: string[];
   /** Extra paths to make unreadable. */
   denyRead?: string[];
 }
@@ -38,7 +40,7 @@ export function filesystemPolicy(paths: PolicyPaths, context: PolicyContext): Fi
       ...(paths.denyRead ?? []),
     ],
     // allowRead wins over a broader denyRead, which keeps a Workout directory inside the repo readable.
-    allowRead: paths.writable,
+    allowRead: [...paths.writable, ...(paths.readable ?? [])],
     allowWrite: paths.writable,
     denyWrite: [],
   };

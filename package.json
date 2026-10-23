@@ -1,6 +1,6 @@
 {
   "name": "kintsugi",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Turn real code from your repository into small, verified practice Workouts.",
   "license": "MIT",

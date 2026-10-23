@@ -262,6 +262,8 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
 
 ### 11.1 Before v1.0 (release blockers)
 
+*v1.0.0 was tagged on 2026-10-23 with the package still private. Carried over as open items: your ratings of dogfooded Drills (generation side done: 16 Drills, every real target Verified, spoiler fix applied), the macOS and native Linux sandbox check, and choosing an npm scope.*
+
 1. **Dogfooding milestone.** About 10 real Drills across ≥ 3 languages in ≥ 2 real repositories, logging generation attempts, cost, and ratings, then a review. v2's plan may change on what it shows (Verified rate, cost per Drill, subtlety). With agent mode (§11.1.1) it can run on an existing coding-agent subscription at no API cost.
 2. ~~**Cost recording** (§11.2.1).~~ Done.
 3. **npm scope** chosen; `"private": true` removed.

@@ -1,0 +1,32 @@
+{
+  "name": "kintsugi",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Turn real code from your repository into small, verified practice Workouts.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "kintsugi": "dist/cli.js",
+    "kin": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --no-warnings=ExperimentalWarning --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "commander": "^15.0.0",
+    "execa": "^10.2.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
+  }
+}

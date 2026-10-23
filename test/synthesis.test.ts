@@ -36,6 +36,39 @@ describe('checkDrillOutput', () => {
     );
     assert.equal(problems.length, 5, problems.join('\n'));
   });
+
+  // Anchor explanations from the first dogfooding run (2026-10-23).
+  const anchors = (...explanations: string[]) => explanations.map((explanation) => ({ startLine: 1, endLine: 3, explanation }));
+
+  it('catches anchor explanations that give the bug away', () => {
+    const spoilers = [
+      "LCS table and the walk that groups edits into contiguous hunks; the bug is in the walk's matching-line branch.",
+      'toFloat64 and toDuration kept verbatim; the bug is injected into toDuration\'s string branch.',
+      'parseN4L is the unit under test; the bug is injected in the _sequence_ context cleanup (lines 102-106).',
+      'Equirectangular distance and initial great-circle bearing are reproduced verbatim (bug injected in the bearing normalization).',
+      'maskSpecial: blanks LaTeX and single-quoted regions with the apostrophe opening/closing rules; the bug is in the closing-quote rule.',
+      'parseGoJson and its GoEvent shape are extracted nearly verbatim; the bug is injected into the leaf-test filter at lines 125-127.',
+    ];
+    const problems = checkDrillOutput(goodDrill({ sourceAnchors: anchors(...spoilers) }), 10);
+    assert.equal(problems.length, spoilers.length, problems.join('\n'));
+    assert.match(problems[0]!, /gives the bug away/);
+  });
+
+  it('accepts neutral anchor explanations', () => {
+    const neutral = [
+      'Hunk type and line normalisation copied verbatim.',
+      'withMessage is inlined so failure messages attach the same way.',
+      'buildSchedule kept verbatim, with ScheduleConfig defined inline.',
+      'stripLineComment: finds the first unmasked // that is not a URL scheme separator and cuts the line there.',
+      'Hint reveal counting, kept as is.',
+    ];
+    assert.deepEqual(checkDrillOutput(goodDrill({ sourceAnchors: anchors(...neutral) }), 10), []);
+  });
+
+  it('catches a README that mentions the injected change', () => {
+    const readmeMarkdown = '## Symptom\nJobs run out of order.\n\n## Mission\nFind the injected bug.';
+    assert.match(checkDrillOutput(goodDrill({ readmeMarkdown }), 10).join(), /mentions the injected change/);
+  });
 });
 
 const sandbox = await openSandbox({ allowUnsandboxed: true });

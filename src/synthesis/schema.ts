@@ -19,7 +19,7 @@ export const DrillOutputSchema = z.object({
       z.object({
         startLine: z.number().describe('First line in the source file (1-based) this Drill is derived from.'),
         endLine: z.number().describe('Last line in the source file (inclusive).'),
-        explanation: z.string().describe('How these lines map to the Drill.'),
+        explanation: z.string().describe('What this region does in the original file. Shown to the developer before solving: neutral, silent about the bug.'),
       }),
     )
     .describe('At least one region of the source file the Drill is derived from.'),
@@ -36,6 +36,10 @@ export const DrillOutputSchema = z.object({
 export type DrillOutput = z.infer<typeof DrillOutputSchema>;
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Words that, in text the developer reads before solving, point at the bug. */
+const ANCHOR_SPOILER = /\b(bugs?|buggy|inject\w*|mutat(ed|ion)|faulty|the fix)\b/i;
+const README_SPOILER = /\b(inject\w*|mutat(ed|ion))\b/i;
 
 /** A Quick Workout fits in a short wait. */
 export const QUICK = { maxMinutes: 5, maxStartingCodeLines: 60 };
@@ -55,10 +59,16 @@ export function checkDrillOutput(output: DrillOutput, sourceLineCount: number, {
   }
   if (output.hints.length !== 2 || output.hints.some((h) => h.trim() === '')) problems.push('hints must contain exactly 2 non-empty hints.');
   if (output.sourceAnchors.length === 0) problems.push('sourceAnchors must name at least one region of the source file.');
-  for (const { startLine, endLine } of output.sourceAnchors) {
+  for (const { startLine, endLine, explanation } of output.sourceAnchors) {
+    if (ANCHOR_SPOILER.test(explanation)) {
+      problems.push(`source anchor ${startLine}-${endLine}'s explanation gives the bug away ("${explanation}"): describe what the region does in the original, nothing about the bug.`);
+    }
     if (!Number.isInteger(startLine) || !Number.isInteger(endLine) || startLine < 1 || endLine < startLine || endLine > sourceLineCount) {
       problems.push(`source anchor ${startLine}-${endLine} is not a valid range within the file's ${sourceLineCount} lines.`);
     }
+  }
+  if (README_SPOILER.test(output.readmeMarkdown)) {
+    problems.push('readmeMarkdown mentions the injected change: describe only what users observed.');
   }
   for (const field of ['readmeMarkdown', 'startingCode', 'referenceSolution', 'testSuiteCode', 'regressionTestName', 'injectedBugDescription'] as const) {
     if (output[field].trim() === '') problems.push(`${field} is empty.`);

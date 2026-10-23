@@ -33,7 +33,7 @@ How to build the Drill:
 - The Regression Test is the test that exposes the bug. Name and describe it by the observable symptom ("serves late jobs first when priorities tie"), never by the cause. The developer can read every test.
 - readmeMarkdown is a 3 AM incident report: "## Symptom" describes what production users observed, never the cause; "## Mission" says: make all tests pass without changing function signatures.
 - Write exactly 2 hints in hints (not in the README), gentle first, then sharper. Neither may state the fix.
-- sourceAnchors point at the line ranges of the source file the Drill was derived from, using the line numbers shown.
+- sourceAnchors point at the line ranges of the source file the Drill was derived from, using the line numbers shown. The developer reads them in the README before solving, so each explanation is neutral documentation of what that region does in the original file, the same for every line of it, and silent about the bug and the changes you made.
 
 If the file is trivial (CRUD, configuration, glue code, declarations only) and holds no logic worth practicing, set worthPracticing to false, explain why in notWorthReason, and leave the other fields empty.
 

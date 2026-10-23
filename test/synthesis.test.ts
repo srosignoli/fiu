@@ -48,10 +48,15 @@ async function synthesize(model: ReturnType<typeof scriptedModel>['model'], sour
     profile: TYPESCRIPT,
     sandbox,
     model,
+    modelId: 'mock-model-id',
     cacheRoot: await tempDir(),
     onEvent: (event) => events.push(event),
   });
-  return { result, events: events.map((e) => `${e.type}:${e.attempt}`) };
+  return {
+    result,
+    events: events.filter((e) => e.type !== 'usage').map((e) => `${e.type}:${e.attempt}`),
+    usage: events.flatMap((e) => (e.type === 'usage' ? e.usage : [])),
+  };
 }
 
 describe(`synthesizeDrill (${sandbox.isolated ? 'sandboxed' : 'UNSANDBOXED'})`, () => {

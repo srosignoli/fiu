@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { ModelPriceSchema, type ModelPrice } from './cost/prices.ts';
 import { UserProfileSchema, type LanguageProfile } from './languages/profile.ts';
 import { profiles } from './languages/registry.ts';
 
@@ -26,6 +27,7 @@ export const RepoConfigSchema = z.strictObject({
     })
     .optional(),
   profiles: z.array(UserProfileSchema).optional(),
+  prices: z.record(z.string(), ModelPriceSchema).optional(),
 });
 export type RepoConfig = z.infer<typeof RepoConfigSchema>;
 
@@ -35,6 +37,7 @@ export const UserConfigSchema = z.strictObject({
   model: z.string().min(1).optional(),
   apiKeys: z.partialRecord(ProviderSchema, z.string().min(1)).optional(),
   profiles: z.array(UserProfileSchema).optional(),
+  prices: z.record(z.string(), ModelPriceSchema).optional(),
 });
 export type UserConfig = z.infer<typeof UserConfigSchema>;
 
@@ -43,6 +46,8 @@ export interface ResolvedConfig {
   model: string;
   /** Built-in Language Profiles plus those declared in either config. */
   profiles: LanguageProfile[];
+  /** Per-model price overrides (US dollars per million tokens), repo over user. */
+  prices: Record<string, ModelPrice>;
 }
 
 export class ConfigError extends Error {}
@@ -88,6 +93,7 @@ export function resolveConfig(repo: RepoConfig, user: UserConfig): ResolvedConfi
     provider: repo.provider ?? user.provider ?? DEFAULTS.provider,
     model: repo.model ?? user.model ?? DEFAULTS.model,
     profiles: profiles(repo.profiles, user.profiles),
+    prices: { ...user.prices, ...repo.prices },
   };
 }
 

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { emitKeypressEvents } from 'node:readline';
 import { isCancel, log, select } from '@clack/prompts';
 import type { TrainIo } from './commands/train.ts';
+import { describeCost } from './cost/usage.ts';
 import { shellQuote } from './sandbox/process.ts';
 
 export class NotInteractiveError extends Error {
@@ -58,7 +59,11 @@ export function terminalTrainIo(): TrainIo & { close(): void } {
       // The picker needs cooked mode; it runs before any key reading starts.
       const choice = await select({
         message: 'Which Workout?',
-        options: workouts.map((w) => ({ value: w.record.id, label: w.record.title, hint: w.record.id })),
+        options: workouts.map((w) => ({
+          value: w.record.id,
+          label: w.record.title,
+          hint: w.record.cost ? `${w.record.id}, ${describeCost(w.record.cost)}` : w.record.id,
+        })),
       });
       return isCancel(choice) ? undefined : workouts.find((w) => w.record.id === choice);
     },

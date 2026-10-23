@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
+import { describeCost } from '../cost/usage.ts';
 import { watchForChanges } from '../runner/watch.ts';
 import { formatRun } from '../runner/render.ts';
 import { ignoredByWatcher, TrainingSession } from '../runner/session.ts';
@@ -87,7 +88,10 @@ async function runSession(
 ): Promise<TrainResult> {
   const { record, dir } = session.workout;
   const files = [join(dir, 'README.md'), join(dir, record.files.code)];
-  io.print([`${record.title} (${record.id})`, `  Incident report: ${files[0]}`, `  Fix the bug in:  ${files[1]}`].join('\n'));
+  const header = [`${record.title} (${record.id})`, `  Incident report: ${files[0]}`, `  Fix the bug in:  ${files[1]}`];
+  // Workouts saved before cost recording have none.
+  if (record.cost) header.push(`  Generated for:   ${describeCost(record.cost)}`);
+  io.print(header.join('\n'));
   if (await session.sourceChanged()) io.print('Source has changed since this Workout was made.');
   io.openEditor?.(files);
 

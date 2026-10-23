@@ -16,7 +16,62 @@ export const OutcomeSchema = z.object({
 });
 export type Outcome = z.infer<typeof OutcomeSchema>;
 
-const StateSchema = z.object({ outcomes: z.array(OutcomeSchema) });
+export const ModelUsageSchema = z.object({
+  model: z.string(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  cacheReadTokens: z.number(),
+  cacheWriteTokens: z.number(),
+});
+
+export const CostSchema = z.object({
+  usage: z.array(ModelUsageSchema),
+  usd: z.number(),
+  unpricedModels: z.array(z.string()),
+  pricesAsOf: z.string(),
+});
+
+/** One request for a Workout and everything it cost, whether or not it produced one. */
+export const SpendSchema = z.object({
+  at: z.iso.datetime(),
+  origin: z.literal('manual'),
+  /** The source file, relative to the repository root. */
+  source: z.string(),
+  result: z.enum(['verified', 'not-verified', 'not-worth-practicing', 'error']),
+  workoutId: z.string().optional(),
+  generationAttempts: z.number().int().nonnegative(),
+  cost: CostSchema,
+});
+export type Spend = z.infer<typeof SpendSchema>;
+
+const StateSchema = z.object({
+  outcomes: z.array(OutcomeSchema),
+  /** The spend ledger: every generation request, including those that produced nothing. */
+  spend: z.array(SpendSchema).default([]),
+});
+export type State = z.infer<typeof StateSchema>;
+
+export async function readState(paths: WorkspacePaths): Promise<State> {
+  const raw = existsSync(paths.stateFile) ? JSON.parse(await readFile(paths.stateFile, 'utf8')) : { outcomes: [] };
+  return StateSchema.parse(raw);
+}
+
+async function writeState(paths: WorkspacePaths, state: State): Promise<void> {
+  await writeFile(paths.stateFile, JSON.stringify(state, null, 2) + '\n');
+}
+
+export async function recordSpend(paths: WorkspacePaths, spend: Spend): Promise<void> {
+  const state = await readState(paths);
+  state.spend.push(SpendSchema.parse(spend));
+  await writeState(paths, state);
+}
+
+/** The mean cost of recent generation requests, counting only fully priced ones. */
+export function averageSpend(spend: Spend[], last = 10): { usd: number; count: number } | undefined {
+  const priced = spend.filter((s) => s.cost.unpricedModels.length === 0).slice(-last);
+  if (priced.length === 0) return undefined;
+  return { usd: priced.reduce((sum, s) => sum + s.cost.usd, 0) / priced.length, count: priced.length };
+}
 
 export class WorkoutNotFoundError extends Error {
   constructor(id: string) {
@@ -50,10 +105,9 @@ export async function loadPending(paths: WorkspacePaths, id: string): Promise<Pe
 
 /** Appends the outcome to state.json and moves the Workout to done/. */
 export async function finishWorkout(paths: WorkspacePaths, workout: PendingWorkout, outcome: Outcome): Promise<string> {
-  const raw = existsSync(paths.stateFile) ? JSON.parse(await readFile(paths.stateFile, 'utf8')) : { outcomes: [] };
-  const state = StateSchema.parse(raw);
+  const state = await readState(paths);
   state.outcomes.push(OutcomeSchema.parse(outcome));
-  await writeFile(paths.stateFile, JSON.stringify(state, null, 2) + '\n');
+  await writeState(paths, state);
 
   await mkdir(paths.doneDir, { recursive: true });
   const destination = join(paths.doneDir, workout.record.id);

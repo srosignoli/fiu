@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { execa } from 'execa';
+import { describeCost, type Cost } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import type { DrillOutput } from '../synthesis/schema.ts';
 import type { WorkspacePaths } from '../workspace.ts';
@@ -39,6 +40,8 @@ export interface WorkoutRecord {
   hints: string[];
   regressionTestName: string;
   injectedBugDescription: string;
+  /** What generating this Workout cost, across all its generation attempts. Absent on Workouts made before cost recording. */
+  cost?: Cost & { generationAttempts: number };
   /** `solution` is the Reference Solution; `originalTest` the tests the Workout was Verified with. */
   files: { code: string; test: string; solution: string; originalTest: string };
 }
@@ -58,11 +61,23 @@ export interface SaveDrillOptions {
   sourcePath: string;
   symbol?: string;
   revision: SourceRevision;
+  cost: Cost;
+  generationAttempts: number;
   now?: Date;
 }
 
 /** Writes a Verified Drill into .kintsugi/workouts/<id>/ and returns its record. */
-export async function saveDrill({ paths, profile, drill, sourcePath, symbol, revision, now = new Date() }: SaveDrillOptions): Promise<WorkoutRecord> {
+export async function saveDrill({
+  paths,
+  profile,
+  drill,
+  sourcePath,
+  symbol,
+  revision,
+  cost,
+  generationAttempts,
+  now = new Date(),
+}: SaveDrillOptions): Promise<WorkoutRecord> {
   const id = uniqueId(paths, `drill_${now.toISOString().slice(0, 10).replaceAll('-', '')}_${drill.slug}`);
   const dir = join(paths.workoutsDir, id);
   const solution = join(SOLUTION_DIRNAME, profile.codeFilename);
@@ -82,6 +97,7 @@ export async function saveDrill({ paths, profile, drill, sourcePath, symbol, rev
     hints: drill.hints,
     regressionTestName: drill.regressionTestName,
     injectedBugDescription: drill.injectedBugDescription,
+    cost: { ...cost, generationAttempts },
     files: { code: profile.codeFilename, test: profile.testFilename, solution, originalTest },
   };
 
@@ -117,5 +133,7 @@ function readme(drill: DrillOutput, record: WorkoutRecord, dir: string, repoRoot
   const revision = commit
     ? `Derived from commit \`${commit.slice(0, 12)}\`${dirty ? ' plus uncommitted changes' : ''}.`
     : 'Derived from uncommitted code.';
-  return [`# ${drill.title}`, '', drill.readmeMarkdown.trim(), '', '## Source', '', ...anchors, '', revision, ''].join('\n');
+  const { generationAttempts, pricesAsOf } = record.cost!;
+  const cost = `Generated for ${describeCost(record.cost!)} over ${generationAttempts} attempt${generationAttempts === 1 ? '' : 's'} (estimated with prices as of ${pricesAsOf}).`;
+  return [`# ${drill.title}`, '', drill.readmeMarkdown.trim(), '', '## Source', '', ...anchors, '', revision, '', cost, ''].join('\n');
 }

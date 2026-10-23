@@ -4,6 +4,10 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execa } from 'execa';
+import { APICallError } from 'ai';
+import { costReport, startOfMonth } from '../src/commands/cost.ts';
+import { finishWorkout, loadPending } from '../src/workouts/store.ts';
+import { workspacePaths } from '../src/workspace.ts';
 import { drill, DrillTargetError, parseTarget, type DrillCommandOptions, type DrillUi } from '../src/commands/drill.ts';
 import { ConsentDeclinedError, ConsentRequiredError } from '../src/consent.ts';
 import { MissingApiKeyError } from '../src/credentials.ts';
@@ -168,5 +172,103 @@ describe('parseTarget', () => {
     await writeFile(join(repo, '.kintsugi', 'workouts', 'w', 'kata.ts'), '');
     await assert.rejects(run({ repo, target: '.kintsugi/workouts/w/kata.ts' }), /not a Workout/);
     assert.ok(!existsSync(join(repo, '.kintsugi', 'workouts', 'w', 'workout.json')));
+  });
+});
+
+describe('cost recording', () => {
+  // The mock model reports 10 input and 20 output tokens per call as "mock-model-id": $0.05 per call at these prices.
+  async function pricedRepo(): Promise<string> {
+    const repo = await repoWithSource();
+    await mkdir(join(repo, '.kintsugi'), { recursive: true });
+    await writeFile(join(repo, '.kintsugi', 'config.json'), JSON.stringify({ prices: { 'mock-model-id': { input: 1000, output: 2000 } } }));
+    return repo;
+  }
+  const ledger = async (repo: string) => (await readJson(join(repo, '.kintsugi', 'state.json'))).spend;
+
+  it('records what a Workout cost in workout.json, its README, and the spend ledger', async () => {
+    const repo = await pricedRepo();
+    const { result } = await run({ repo, options: { yes: true }, replies: [goodDrill({ hints: ['one'] }), goodDrill()] });
+    const { record, workoutDir, cost } = result.status === 'saved' ? result : assert.fail(JSON.stringify(result));
+
+    assert.equal(cost.usd.toFixed(2), '0.10');
+    const saved: WorkoutRecord = await readJson(join(workoutDir, 'workout.json'));
+    assert.equal(saved.cost?.generationAttempts, 2);
+    assert.deepEqual(saved.cost?.usage, [{ model: 'mock-model-id', inputTokens: 20, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0 }]);
+    assert.match(await readFile(join(workoutDir, 'README.md'), 'utf8'), /Generated for ≈ \$0\.10 over 2 attempts \(estimated with prices as of \d{4}-\d{2}\)\./);
+
+    const [entry] = await ledger(repo);
+    assert.deepEqual({ ...entry, at: undefined, cost: undefined }, {
+      at: undefined,
+      origin: 'manual',
+      source: 'src/queue.ts',
+      result: 'verified',
+      workoutId: record.id,
+      generationAttempts: 2,
+      cost: undefined,
+    });
+  });
+
+  it('records spend that produced no Workout, including when the provider fails midway', async () => {
+    const repo = await pricedRepo();
+    const unverified = await run({ repo, options: { yes: true }, replies: [goodDrill({ startingCode: TS_REFERENCE })] });
+    assert.equal(unverified.result.cost.usd.toFixed(2), '0.15');
+
+    await run({ repo, options: { yes: true }, replies: [goodDrill({ worthPracticing: false, notWorthReason: 'Constants only.' })] });
+
+    const outage = new APICallError({ message: 'overloaded', url: 'https://api', requestBodyValues: {}, statusCode: 529, isRetryable: true });
+    // The AI SDK retries the overloaded call itself before giving up.
+    await assert.rejects(run({ repo, options: { yes: true }, replies: [goodDrill({ hints: [] }), outage] }), /overloaded/);
+
+    const entries = await ledger(repo);
+    assert.deepEqual(
+      entries.map((e: { result: string; generationAttempts: number; cost: { usd: number } }) => [e.result, e.generationAttempts, e.cost.usd.toFixed(2)]),
+      [
+        ['not-verified', 3, '0.15'],
+        ['not-worth-practicing', 1, '0.05'],
+        ['error', 1, '0.05'],
+      ],
+    );
+    assert.deepEqual(await readdir(join(repo, '.kintsugi', 'workouts')), []);
+  });
+
+  it('shows the average cost of recent Drills once there is history', async () => {
+    const repo = await pricedRepo();
+    const first = await run({ repo, options: { yes: true } });
+    assert.ok(!first.steps.some((s) => s.includes('averaged')));
+    const second = await run({ repo, options: { yes: true } });
+    assert.ok(second.steps.includes('Your Drills have averaged $0.05 (last 1)'), second.steps.join('\n'));
+  });
+
+  it('kin cost splits spend into finished, not finished, and produced nothing', async () => {
+    const repo = await pricedRepo();
+    const saved = await run({ repo, options: { yes: true } });
+    await run({ repo, options: { yes: true } });
+    await run({ repo, options: { yes: true }, replies: [goodDrill({ startingCode: TS_REFERENCE })] });
+    const paths = workspacePaths(repo);
+    const id = saved.result.status === 'saved' ? saved.result.record.id : assert.fail();
+    await finishWorkout(paths, await loadPending(paths, id), {
+      workoutId: id,
+      outcome: 'completed',
+      at: new Date().toISOString(),
+      attempts: 1,
+      hintsUsed: 0,
+    });
+
+    const report = await costReport(repo, startOfMonth());
+    const usd = (b: { usd: number; count: number }) => [b.usd.toFixed(2), b.count];
+    assert.deepEqual(usd(report.total), ['0.25', 3]);
+    assert.deepEqual(usd(report.finished), ['0.05', 1]);
+    assert.deepEqual(usd(report.notFinished), ['0.05', 1]);
+    assert.deepEqual(usd(report.producedNothing), ['0.15', 1]);
+    assert.deepEqual(Object.keys(report.byOrigin), ['manual']);
+    assert.deepEqual(usd(await costReport(repo, new Date(Date.now() + 60_000)).then((r) => r.total)), ['0.00', 0]);
+  });
+
+  it('reports tokens when the model has no known price', async () => {
+    const repo = await repoWithSource();
+    const { result } = await run({ repo, options: { yes: true } });
+    assert.deepEqual(result.cost.unpricedModels, ['mock-model-id']);
+    const report = await costReport(repo);
+    assert.deepEqual(report.unpriced.map((u) => [u.model, u.inputTokens, u.outputTokens]), [['mock-model-id', 10, 20]]);
   });
 });

@@ -1,4 +1,5 @@
 import { generateText, NoObjectGeneratedError, Output, type LanguageModel, type ModelMessage } from 'ai';
+import { usageOf, type ModelUsage } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
 import { describeFailures, verify, type Verification } from '../verify/gate.ts';
@@ -11,6 +12,8 @@ export const MAX_ATTEMPTS = 3;
 
 export type SynthesisEvent =
   | { type: 'generating'; attempt: number }
+  /** What one LLM call used, reported as soon as it returns, so spend is known even if a later call fails. */
+  | { type: 'usage'; attempt: number; usage: ModelUsage[] }
   | { type: 'verifying'; attempt: number }
   | { type: 'rejected'; attempt: number; feedback: string };
 
@@ -19,6 +22,8 @@ export interface SynthesizeDrillOptions {
   profile: LanguageProfile;
   sandbox: Sandbox;
   model: LanguageModel;
+  /** The model id requested, for attributing usage when the response doesn't name one. */
+  modelId: string;
   providerOptions?: ProviderOptions;
   onEvent?: (event: SynthesisEvent) => void;
   /** Root for the profile's persistent caches (tests use a temp dir). */
@@ -45,6 +50,7 @@ export async function synthesizeDrill({
   profile,
   sandbox,
   model,
+  modelId,
   providerOptions,
   onEvent = () => {},
   cacheRoot,
@@ -58,7 +64,8 @@ export async function synthesizeDrill({
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     onEvent({ type: 'generating', attempt });
-    const generated = await generate(model, profile, messages, providerOptions);
+    const generated = await generate(model, modelId, profile, messages, providerOptions);
+    onEvent({ type: 'usage', attempt, usage: generated.usage });
     messages.push(...generated.responseMessages);
 
     if (generated.output?.worthPracticing === false) {
@@ -100,10 +107,12 @@ interface Generated {
   output?: DrillOutput;
   error?: string;
   responseMessages: ModelMessage[];
+  usage: ModelUsage[];
 }
 
 async function generate(
   model: LanguageModel,
+  modelId: string,
   profile: LanguageProfile,
   messages: ModelMessage[],
   providerOptions: ProviderOptions | undefined,
@@ -117,7 +126,7 @@ async function generate(
       providerOptions,
       maxOutputTokens: 32_000,
     });
-    return { output: result.output, responseMessages: result.response.messages };
+    return { output: result.output, responseMessages: result.response.messages, usage: usageOf(result, modelId) };
   } catch (error) {
     // A malformed object is worth a retry; anything else (auth, network, quota) is not.
     if (!NoObjectGeneratedError.isInstance(error)) throw error;
@@ -125,6 +134,8 @@ async function generate(
       error: String(error.cause ?? error.message),
       // Keep the model's answer in the conversation so the retry can see what it got wrong.
       responseMessages: error.text ? [{ role: 'assistant', content: error.text }] : [],
+      // A malformed answer is still billed.
+      usage: usageOf({ usage: error.usage, response: error.response }, modelId),
     };
   }
 }

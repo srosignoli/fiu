@@ -39,6 +39,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin init` | Creates `.kintsugi/`, appends `.kintsugi/` to `.git/info/exclude`, runs the sandbox canary (§7), prints a tip on disabling AI completions inside `.kintsugi/` in your editor. |
 | `kin drill <file>[#symbol] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
 | `kin train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
+| `kin cost [--since <date>]` | What generating Workouts has cost since a date (default: the start of this month), split into finished Workouts, Workouts not finished yet, and requests that produced nothing (§11.2.1). |
 
 ## 5. Language Profiles
 
@@ -240,6 +241,8 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
 }
 ```
 
+`state.json` also holds the **spend ledger** (`"spend": [...]`): one entry per `kin drill` request that reached the model, with its `result` (`verified`, `not-verified`, `not-worth-practicing`, `error`), the Workout id if one was saved, the number of generation attempts, and its `cost` (usage per model, estimated dollars, unpriced models, and the price table's date).
+
 `attempts` counts test runs triggered by saves (not the initial run). `hintsUsed` counts Hints revealed. Ratings are local only and exist to tune prompts. Leaving with `[q]` records nothing.
 
 ## 11. Release Plan
@@ -247,7 +250,7 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
 ### 11.1 Before v1.0 (release blockers)
 
 1. **Dogfooding milestone.** About 10 real Drills across ≥ 3 languages in ≥ 2 real repositories, logging generation attempts, cost, and ratings, then a review. v2's plan may change on what it shows (Verified rate, cost per Drill, subtlety).
-2. **Cost recording** (§11.2.1).
+2. ~~**Cost recording** (§11.2.1).~~ Done.
 3. **npm scope** chosen; `"private": true` removed.
 4. **Sandbox resource limits** (§7 known gap): solved, or documented prominently.
 5. **Sandbox verified** on macOS and native Linux (so far only WSL).
@@ -256,13 +259,14 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
 
 Turn Drills into a habit: Workouts are pre-generated from your commits in the background, and `kin quick` serves one instantly during the waits of agent-driven work. Out of scope for v2: `--while`, Katas.
 
-#### 11.2.1 Cost visibility (ships in v1.0)
+#### 11.2.1 Cost visibility (implemented in v1.0)
 
 - Every LLM call's usage is recorded: input, output, and cached tokens, and the model that actually answered (a refusal fallback may switch models).
 - Dollars are **estimates** from a price table built into each Kintsugi release, overridable per model in config. A model with no known price shows tokens only, marked "cost unknown".
 - A Workout's cost is the sum of **all** its generation attempts, including rejected ones. It is stored in `workout.json` and shown in its README ("Generated for ≈ $0.38 over 2 attempts"), the runner's header, and the `kin train` picker.
 - A **spend ledger** in `state.json` records every generation, including those that produced no Workout (not Verified, not worth practicing).
-- **`kin cost [--since <date>]`** (default: this month) splits spend into: Workouts attempted; Workouts never attempted, including Discarded ("money left on the table"); generations that produced nothing; and background versus manual.
+- **`kin cost [--since <date>]`** (default: this month) splits spend into: Workouts attempted; Workouts never attempted, including Discarded ("money left on the table"); generations that produced nothing; and background versus manual. Until Attempts exist (§11.2.2), v1 splits Workouts into *finished* (Completed or Abandoned) and *not finished*.
+- A failure partway through (e.g. the provider is overloaded on a retry) still records what the earlier calls cost, with `result: "error"`.
 - No estimate is shown before generating. Once the ledger has history, `kin drill` and `kin auto on` show "your Drills have averaged $X (last N)".
 
 #### 11.2.2 Workouts and Attempts

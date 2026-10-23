@@ -9,6 +9,7 @@ import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { ignoredByWatcher, TrainingSession } from '../src/runner/session.ts';
 import { watchForChanges } from '../src/runner/watch.ts';
 import { openSandbox, openUnsandboxed, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
+import { estimateCost } from '../src/cost/usage.ts';
 import { saveDrill, sourceRevision } from '../src/workouts/save.ts';
 import { listPending, type Outcome, type PendingWorkout } from '../src/workouts/store.ts';
 import { ensureWorkspace, workspacePaths } from '../src/workspace.ts';
@@ -37,6 +38,8 @@ async function repoWithDrill(slug = 'tie-breaker') {
     drill: goodDrill({ slug }),
     sourcePath: 'queue.ts',
     revision: await sourceRevision(repo, 'queue.ts'),
+    cost: estimateCost([{ model: 'claude-opus-5-5', inputTokens: 10_000, outputTokens: 20_000, cacheReadTokens: 0, cacheWriteTokens: 0 }]),
+    generationAttempts: 1,
   });
   return { repo, paths, record, dir: join(paths.workoutsDir, record.id) };
 }
@@ -205,6 +208,8 @@ describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
       drill: goodDrill({ slug: 'second' }),
       sourcePath: 'queue.ts',
       revision: { dirty: false },
+      cost: estimateCost([]),
+      generationAttempts: 1,
       now: new Date(Date.now() + 1000),
     });
     const io = new ScriptedIo();

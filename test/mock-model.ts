@@ -1,0 +1,74 @@
+import { MockLanguageModelV4 } from 'ai/test';
+import type { DrillOutput } from '../src/synthesis/schema.ts';
+
+export interface ScriptedModel {
+  model: MockLanguageModelV4;
+  /** Each call's full prompt, serialised, for asserting on what the model was told. */
+  prompts: string[];
+}
+
+/** A model that answers successive calls with the given replies (objects are sent as JSON; Errors are thrown). */
+export function scriptedModel(...replies: (Partial<DrillOutput> | string | Error)[]): ScriptedModel {
+  const prompts: string[] = [];
+  const model = new MockLanguageModelV4({
+    doGenerate: async (options) => {
+      prompts.push(JSON.stringify(options.prompt));
+      const reply = replies[Math.min(prompts.length - 1, replies.length - 1)]!;
+      if (reply instanceof Error) throw reply;
+      return {
+        content: [{ type: 'text', text: typeof reply === 'string' ? reply : JSON.stringify(reply) }],
+        finishReason: { unified: 'stop', raw: undefined },
+        usage: {
+          inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
+          outputTokens: { total: 20, text: 20, reasoning: undefined },
+        },
+        warnings: [],
+      };
+    },
+  });
+  return { model, prompts };
+}
+
+export const TS_TESTS = `import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { pickNext } from './kata.ts';
+
+describe('pickNext', () => {
+  it('picks the highest priority', () => assert.equal(pickNext([{ id: 'a', priority: 1, at: 0 }, { id: 'b', priority: 5, at: 1 }]), 'b'));
+  it('returns nothing when the queue is empty', () => assert.equal(pickNext([]), undefined));
+  it('serves equal priorities first come, first served', () =>
+    assert.equal(pickNext([{ id: 'early', priority: 3, at: 1 }, { id: 'late', priority: 3, at: 2 }]), 'early'));
+});
+`;
+
+export const TS_REFERENCE = `export interface Job { id: string; priority: number; at: number }
+
+export function pickNext(jobs: Job[]): string | undefined {
+  let best: Job | undefined;
+  for (const job of jobs) {
+    if (!best || job.priority > best.priority || (job.priority === best.priority && job.at < best.at)) best = job;
+  }
+  return best?.id;
+}
+`;
+
+/** A Drill that passes the Verified gate with the TypeScript profile. */
+export function goodDrill(overrides: Partial<DrillOutput> = {}): DrillOutput {
+  return {
+    worthPracticing: true,
+    notWorthReason: '',
+    slug: 'tie-breaker',
+    title: 'Late jobs jump the queue',
+    pillar: 'algorithm',
+    estimatedMinutes: 5,
+    sourceAnchors: [{ startLine: 1, endLine: 3, explanation: 'The scheduler picks the next job here.' }],
+    readmeMarkdown: '## Symptom\nJobs submitted later run first when priorities tie.\n\n## Mission\nMake all tests pass.',
+    hints: ['Look at how ties are broken.', 'Which job arrived first?'],
+    startingCode: TS_REFERENCE.replace('job.at < best.at', 'job.at > best.at'),
+    referenceSolution: TS_REFERENCE,
+    testSuiteCode: TS_TESTS,
+    regressionTestName: 'serves equal priorities first come, first served',
+    injectedBugDescription: 'The tie-breaker compares arrival times the wrong way round.',
+    ...overrides,
+  };
+}

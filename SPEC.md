@@ -141,42 +141,37 @@ All execution goes through one internal `Sandbox` interface; `@anthropic-ai/sand
 
 1. **Resolve target:** pick the Language Profile by file extension; error if none matches.
 2. **Preflight:** check the sandbox (canary, cached) and run the profile's `preflightCmd`; on failure, stop with a clear message (no tokens spent).
-3. **Consent:** on the first generation in a repo, show the files that will be sent and the provider, ask `Send code to <provider>? [y/N]`, and remember the answer in `.kintsugi/config.json`. `--yes` bypasses.
-4. **Synthesize:** send the target (and `#symbol` if given) to the LLM with the Drill prompt (§9).
+3. **Consent:** on the first generation in a repo (and again whenever the provider changes), show the file that will be sent and the provider, ask `Send code to <provider>? [y/N]`, and remember a yes in `.kintsugi/config.json`. `--yes` grants it without asking; with no terminal to ask in and no `--yes`, Kintsugi refuses. The API key is resolved before any of this, so a missing key fails fast.
+4. **Synthesize:** send the target, with numbered lines (and `#symbol` if given), to the LLM with the Drill prompt (§9).
 5. **Verify:** run the Verified gate (§6), with retries.
 6. **Persist:** write the Workout (§10), stamping Source Anchors with the current commit SHA.
-7. **Train:** open the runner (§10) unless `--no-train`.
+7. **Train:** open the runner (§10) unless `--no-train`. Until the runner exists, `kin drill` prints the README, code file, and test command instead.
 
 Progress is shown as steps in the foreground throughout (expect ~30–120 s).
 
 ## 9. LLM Output Schema & Drill Prompt Rules
 
-```typescript
-import { z } from 'zod';
+The model answers with structured output (`generateText` + `Output.object` from the AI SDK) against `DrillOutputSchema` (`src/synthesis/schema.ts`):
 
-export const WorkoutSchema = z.object({
-  worthPracticing: z.boolean().describe('False if the target is trivial CRUD, config, or glue code.'),
-  kind: z.enum(['kata', 'drill']),
-  slug: z.string().describe('URL-safe short slug, e.g. edf-tie-breaker'),
-  title: z.string(),
-  pillar: z.enum(['algorithm', 'pattern', 'library']),
-  estimatedMinutes: z.number().min(2).max(15),
-  sourceAnchors: z.array(z.object({
-    filePath: z.string(),
-    lineRange: z.string(),
-    explanation: z.string(),
-  })),
-  readmeMarkdown: z.string(),
-  hints: z.array(z.string()).length(2).describe('Ordered: gentle nudge first, sharper second. Neither states the fix.'),
-  startingCode: z.string(),
-  referenceSolution: z.string(),
-  testSuiteCode: z.string().describe('3 to 5 tests.'),
-  regressionTestName: z.string().optional().describe('Drill only: the test that exposes the injected bug.'),
-  injectedBugDescription: z.string().optional().describe('Drill only: internal note on the exact bug.'),
-});
-```
+| Field | Notes |
+| :--- | :--- |
+| `worthPracticing`, `notWorthReason` | When false, every other field is left empty. |
+| `slug`, `title`, `pillar`, `estimatedMinutes` | `pillar` is `algorithm` \| `pattern` \| `library`. |
+| `sourceAnchors[]` | `{ startLine, endLine, explanation }` against the numbered source shown in the prompt. |
+| `readmeMarkdown` | The incident report. |
+| `hints` | Exactly 2. |
+| `startingCode`, `referenceSolution`, `testSuiteCode` | Complete files. |
+| `regressionTestName`, `injectedBugDescription` | The Regression Test and the internal note on the bug. |
 
-If `worthPracticing` is false, Kintsugi reports that and stops (no retry).
+The schema itself carries only types, enums, and descriptions, because providers' structured output support for numeric, length, and pattern constraints varies. The remaining rules (kebab-case slug ≤ 48 chars, 2–15 minutes, exactly 2 hints, anchors within the file, no empty fields) are checked afterwards and, like Verified-gate failures, fed back as retry feedback (`[schema] …`). A response that isn't valid JSON for the schema is also retried; API errors (auth, quota, network) are not.
+
+**Model settings.** Anthropic requests on Claude Opus 5+, Fable 5+, and Sonnet 5.5 use adaptive thinking, `effort: 'high'`, and server-side refusal fallbacks (`fallbacks: 'default'`); other models and providers get their defaults. `maxOutputTokens` is 32,000.
+
+**Retries** continue the same conversation: the model's previous answer (including its reasoning parts) stays in the history, followed by the verifier's findings, so it never loses what it tried.
+
+**Source size.** Files over 3,000 lines are refused with a request to move the unit into a smaller file, rather than truncated.
+
+If `worthPracticing` is false, Kintsugi reports the reason and stops (no retry).
 
 **Drill prompt rules**
 
@@ -205,7 +200,7 @@ target-repo/
     │       ├── README.md
     │       ├── kata.ts
     │       ├── kata.test.ts
-    │       ├── workout.json       # hints, regression test, bug note, anchors, metadata
+    │       ├── workout.json       # hints, regression test, bug note, anchors (with commit), metadata
     │       └── .solution/kata.ts  # Reference Solution: out of the way, not secret
     └── done/                      # Completed and Abandoned Workouts move here
 ```

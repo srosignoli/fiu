@@ -18,6 +18,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 - **The LLM never chooses what runs.** Commands come only from Language Profiles, never from model output.
 - **Secrets never live in the repo.** Code leaves the machine only with per-repo consent.
 - **Generated code is untrusted.** Every Workout test run happens in an OS sandbox with no network ([ADR 0002](./docs/adr/0002-workouts-run-sandboxed-without-network.md)).
+- **No telemetry.** Nothing about Kintsugi's use leaves the machine, not even opt-in ([ADR 0004](./docs/adr/0004-no-telemetry.md)).
 
 ## 3. Packaging & Requirements
 
@@ -241,16 +242,70 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
 
 `attempts` counts test runs triggered by saves (not the initial run). `hintsUsed` counts Hints revealed. Ratings are local only and exist to tune prompts. Leaving with `[q]` records nothing.
 
-## 11. Beyond v1 (not yet designed)
+## 11. Release Plan
 
-Each item below needs its own design round before implementation.
+### 11.1 Before v1.0 (release blockers)
 
-- **Kata generation:** the gap-filling Workout kind (the Verified rule already exists).
-- **Commit watcher:** a non-blocking `post-commit` hook that pre-generates Workouts from new commits (especially AI-authored ones) into a ready queue.
-- **`kin quick [--while "<cmd>"]`:** instantly launch a Quick Workout from the queue, optionally while a slow build/CI command runs in the background; fall back to the uncommitted diff if the queue is empty.
+1. **Dogfooding milestone.** About 10 real Drills across ≥ 3 languages in ≥ 2 real repositories, logging generation attempts, cost, and ratings, then a review. v2's plan may change on what it shows (Verified rate, cost per Drill, subtlety).
+2. **Cost recording** (§11.2.1).
+3. **npm scope** chosen; `"private": true` removed.
+4. **Sandbox resource limits** (§7 known gap): solved, or documented prominently.
+5. **Sandbox verified** on macOS and native Linux (so far only WSL).
+
+### 11.2 v2: Habit and automation
+
+Turn Drills into a habit: Workouts are pre-generated from your commits in the background, and `kin quick` serves one instantly during the waits of agent-driven work. Out of scope for v2: `--while`, Katas.
+
+#### 11.2.1 Cost visibility (ships in v1.0)
+
+- Every LLM call's usage is recorded: input, output, and cached tokens, and the model that actually answered (a refusal fallback may switch models).
+- Dollars are **estimates** from a price table built into each Kintsugi release, overridable per model in config. A model with no known price shows tokens only, marked "cost unknown".
+- A Workout's cost is the sum of **all** its generation attempts, including rejected ones. It is stored in `workout.json` and shown in its README ("Generated for ≈ $0.38 over 2 attempts"), the runner's header, and the `kin train` picker.
+- A **spend ledger** in `state.json` records every generation, including those that produced no Workout (not Verified, not worth practicing).
+- **`kin cost [--since <date>]`** (default: this month) splits spend into: Workouts attempted; Workouts never attempted, including Discarded ("money left on the table"); generations that produced nothing; and background versus manual.
+- No estimate is shown before generating. Once the ledger has history, `kin drill` and `kin auto on` show "your Drills have averaged $X (last N)".
+
+#### 11.2.2 Workouts and Attempts
+
+Per [ADR 0003](./docs/adr/0003-workouts-are-immutable-attempts-hold-outcomes.md):
+
+- A **Workout** (`.kintsugi/workouts/<id>/`) is an immutable, Verified definition; it never moves or changes. `done/` goes away.
+- An **Attempt** is one try at a Workout, in a fresh copy at `.kintsugi/attempts/<workout-id>/<n>/`. Outcomes (Completed, Abandoned), Hints used, and **runs** (test runs triggered by saves; v1's `attempts` counter) belong to the Attempt. Finished Attempts are kept, with the human's final code.
+- At most one open Attempt per Workout: `kin train <id>` resumes it, or starts a new one. Redoing a Workout is always explicit.
+- **Discarded** is a Workout-level state meaning archived: hidden from the queue and not counted against its cap, but kept and restorable (`kin discard <id>`, `kin restore <id>`). Workouts from commits expire into it after 14 days (configurable).
+- v1 data is migrated on first run (each `done/` Workout becomes a Workout with one finished Attempt).
+
+#### 11.2.3 The queue and `kin quick`
+
+- The **queue** is the Workouts that have never been attempted and aren't Discarded: one pool for manual and background Workouts. Each Workout records its **Origin**: `manual` or `commit:<sha>`.
+- **`kin quick`** picks the best queued **Quick** Workout (from AI-authored commits first, then newest; skipping any whose source file no longer exists) and opens the runner at once: no picker, no prompts, and it exits when done. With nothing ready, it offers to run `kin refill` in the foreground. There is no uncommitted-diff fallback.
+- **Quick** is enforced mechanically: `estimatedMinutes ≤ 5` and Starting Code ≤ 60 lines, as `[schema]` retry feedback. Workouts from commits are always Quick; manual ones with `kin drill --quick`.
+
+#### 11.2.4 Background generation from commits
+
+- **Opt-in only.** `kin auto on` asks a separate consent covering background spending and its caps, records it in `.kintsugi/config.json`, and installs the hook. `kin auto off` removes exactly what Kintsugi added. `kin auto status` shows on/off, today's budget used, the queue size, and the latest failures. `kin init` never enables it, only mentions it.
+- **The hook.** `.git/hooks/post-commit` (untracked): written if absent, otherwise a clearly marked block is appended and the user's lines are never rewritten. With `core.hooksPath` set (husky, lefthook), Kintsugi prints the snippet to add instead of editing tracked files. The hook only starts `kin refill --commit <sha>` detached; the commit never waits. `kin refill` can also be run by hand.
+- **Which commits.** Every commit by you is a candidate; commits with known AI `Co-Authored-By` trailers (Claude, Copilot, Cursor, …) get priority, and config can restrict generation to them. Skipped before any LLM call: merges; commits made mid-rebase or mid-cherry-pick; other authors' commits; commits touching only docs, config, lockfiles, tests, generated or vendored code; tiny diffs.
+- **What a commit becomes.** At most one Drill: among changed files a Language Profile recognises (minus tests, generated, and vendored paths), the one with the most changed lines. The model gets that file as of the commit plus its diff, and builds the Drill around the change.
+- **No paying twice.** At most one queued Workout from commits per source file; the backlog collapses entries for the same file.
+- **Caps.** Nothing is generated while the queue holds 3 Workouts, and at most 5 generations (retries included) run per day. Both are configurable.
+- **Running unattended.** Never prompts. A per-repo lock allows one generator at a time; commits arriving meanwhile join a backlog that keeps the newest 5. With no consent, no `kin auto on`, or no API key, it skips and logs. Results go to `.kintsugi/log` (`kin log`); the next `kin quick`/`kin train` shows a one-line summary of failures. Docs recommend keeping the API key in the user config, since commits made from GUI tools may not see shell environment variables.
+
+### 11.3 v3: Onboarding and team sharing
+
 - **`kin explore <path>`:** rank a module's files by complexity and centrality, and generate a Track (algorithm → pattern → library).
-- **`kin map`:** a repo heatmap of practiced, recently changed and unpracticed, and unexplored complex areas.
+- **Team sharing:** Workouts (definitions only, never Attempts) shared with exactly the people who can read the repository, so nobody pays to regenerate what a teammate already generated. The mechanism needs its own design round.
+- **`kin map`:** a repository heatmap of practiced, recently changed and unpracticed, and unexplored complex areas.
+
+### 11.4 Later (not yet designed)
+
+Each item needs its own design round before implementation.
+
+- **`kin quick --while "<cmd>"`:** serve a Quick Workout while a slow build or CI command runs in the background, with a status line (v2.1).
+- **Kata generation:** the gap-filling Workout kind (the Verified rule already exists; gaps must fail by assertion, not raise).
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.
+- **Spaced repetition:** resurfacing attempted Workouts on a schedule.
+- **A public Workout library** for open-source codebases (a hosted service; a separate decision from team sharing).
 - **`kin drill` with no path:** auto-pick the riskiest unpracticed file.
 - **Opt-in editor integration:** disabling AI completions inside `.kintsugi/`.
 - **LLM judge pass:** for Drill subtlety, if ratings show it's needed.

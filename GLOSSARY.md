@@ -7,8 +7,12 @@ Kintsugi is a CLI that turns code in a developer's own repository into small, ve
 ### Exercises
 
 **Workout**:
-A single, verified practice exercise derived from real code in the user's repository.
+A single, verified practice exercise derived from real code in the user's repository. A Workout is an immutable definition: it can be attempted any number of times.
 _Avoid_: Exercise, challenge, kata (as the umbrella term)
+
+**Attempt**:
+One try at a Workout, worked on in its own fresh copy of the Workout's Starting Code. Outcomes belong to Attempts, not to Workouts.
+_Avoid_: Session, try, run (a run is one execution of the tests)
 
 **Kata**:
 A Workout where the human fills a deliberate gap in otherwise working code.
@@ -43,6 +47,10 @@ _Avoid_: Clue, tip
 A pointer from a Workout back to the exact file, lines, and commit in the repository it was derived from.
 _Avoid_: Source link, reference
 
+**Origin**:
+Why a Workout exists: requested by the human for a chosen file (manual), or generated in the background from a commit.
+_Avoid_: Source (that's the code it was derived from), trigger, mode
+
 **Regression Test**:
 The test in a Drill that specifically exposes the injected bug.
 
@@ -59,9 +67,13 @@ _Avoid_: Adapter, language plugin, runtime
 ### Progress
 
 **Completed**:
-A Workout is Completed when the human's code passes every one of its original tests (editing the tests to pass doesn't count).
+An Attempt is Completed when the human's code passes every one of the Workout's original tests (editing the tests to pass doesn't count).
 _Avoid_: Solved, passed, mastered
 
 **Abandoned**:
-A Workout is Abandoned when the human gives up and reveals its Reference Solution before Completing it.
+An Attempt is Abandoned when the human gives up and reveals the Reference Solution before Completing it.
 _Avoid_: Skipped, failed, given up
+
+**Discarded**:
+A Workout is Discarded when it is removed without being attempted, by the human or because it went stale.
+_Avoid_: Deleted, expired, skipped

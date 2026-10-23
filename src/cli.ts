@@ -4,6 +4,8 @@ import { confirm, log, spinner } from '@clack/prompts';
 import { Command } from 'commander';
 import { drill, type DrillUi } from './commands/drill.ts';
 import { EDITOR_TIP, init } from './commands/init.ts';
+import { train, type TrainResult } from './commands/train.ts';
+import { terminalTrainIo } from './terminal.ts';
 
 const program = new Command()
   .name('kintsugi')
@@ -44,20 +46,46 @@ program
         log.error(`Couldn't produce a Verified Workout from ${target}. The last attempt failed with:\n${result.feedback}`);
         process.exitCode = 1;
       } else {
-        const { record, workoutDir, testCmd } = result;
+        const { record, workoutDir } = result;
         log.success(`Saved Drill "${record.title}" (${record.id})`);
-        log.message(
-          [
-            `Read the incident report: ${join(workoutDir, 'README.md')}`,
-            `Fix the bug in:           ${join(workoutDir, record.files.code)}`,
-            `Run the tests with:       cd ${workoutDir} && ${testCmd}`,
-          ].join('\n'),
-        );
+        if (options.train && process.stdin.isTTY) {
+          ui.settle();
+          await runTrain(record.id, options);
+        } else {
+          log.message(
+            [
+              `Read the incident report: ${join(workoutDir, 'README.md')}`,
+              `Fix the bug in:           ${join(workoutDir, record.files.code)}`,
+              `Then train with:          kin train ${record.id}`,
+            ].join('\n'),
+          );
+        }
       }
     } finally {
       ui.settle();
     }
   });
+
+program
+  .command('train')
+  .description('Work on a pending Workout: its tests re-run in the sandbox on every save.')
+  .argument('[workout-id]', 'the Workout to train on (a picker opens when omitted)')
+  .option('--no-sandbox', 'run the tests without isolation, for this invocation only')
+  .action(async (id: string | undefined, options: { sandbox: boolean }) => {
+    await runTrain(id, options);
+  });
+
+async function runTrain(id: string | undefined, options: { sandbox: boolean }): Promise<void> {
+  const io = terminalTrainIo();
+  let result: TrainResult;
+  try {
+    result = await train(process.cwd(), id, options, io);
+  } finally {
+    io.close();
+  }
+  if (result.status === 'nothing-pending') log.info('No pending Workouts. Create one with: kin drill <file>');
+  else if (result.status === 'completed' || result.status === 'abandoned') log.info(`Moved to ${result.dir}`);
+}
 
 /** Shows each step as a spinner until the next one starts. */
 function terminalUi(): DrillUi & { settle(): void } {

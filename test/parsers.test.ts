@@ -3,18 +3,25 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { parseGoJson, parseJunitXml, parseTap, parseUnittestVerbose } from '../src/languages/parsers.ts';
+import type { TestResult } from '../src/languages/profile.ts';
 
 // Captured from real runs of node 22, Python 3.12, and Go 1.22.
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, 'fixtures', name), 'utf8');
+const outcomes = (tests: TestResult[] | undefined) => tests?.map(({ name, outcome }) => ({ name, outcome }));
+const messageOf = (tests: TestResult[] | undefined, name: string) => tests?.find((t) => t.name === name)?.message;
 
 describe('parseTap (node --test)', () => {
   it('reports leaf tests by path, telling assertion failures from errors', () => {
-    assert.deepEqual(parseTap(fixture('node-mixed.tap')), [
+    const tests = parseTap(fixture('node-mixed.tap'));
+    assert.deepEqual(outcomes(tests), [
       { name: 'add > adds', outcome: 'pass' },
       { name: 'add > wrong', outcome: 'assertion-failure' },
       { name: 'add > throws', outcome: 'error' },
       { name: 'top level', outcome: 'pass' },
     ]);
+    assert.equal(messageOf(tests, 'add > wrong'), 'Expected values to be strictly equal:\n\n3 !== 4');
+    assert.equal(messageOf(tests, 'add > throws'), 'boom');
+    assert.equal(messageOf(tests, 'add > adds'), undefined);
   });
 
   it('treats a file that fails to load as not run', () => {
@@ -34,13 +41,16 @@ describe('parseTap (node --test)', () => {
 describe('parseUnittestVerbose', () => {
   it('names tests Class.method and takes outcomes from the final report', () => {
     // The fixture has a docstring, a failing subTest, and stderr noise mid-line.
-    assert.deepEqual(parseUnittestVerbose(fixture('unittest-mixed.txt')), [
+    const tests = parseUnittestVerbose(fixture('unittest-mixed.txt'));
+    assert.deepEqual(outcomes(tests), [
       { name: 'AddTest.test_adds', outcome: 'pass' },
       { name: 'AddTest.test_sub', outcome: 'assertion-failure' },
       { name: 'AddTest.test_throws', outcome: 'error' },
       { name: 'AddTest.test_wrong', outcome: 'assertion-failure' },
       { name: 'Other.test_adds', outcome: 'pass' },
     ]);
+    assert.match(messageOf(tests, 'AddTest.test_wrong')!, /^Traceback[\s\S]*\nAssertionError: 3 != 4$/);
+    assert.match(messageOf(tests, 'AddTest.test_throws')!, /TypeError: boom$/);
   });
 
   it('treats an import or syntax error as not run', () => {
@@ -67,16 +77,20 @@ describe('parseUnittestVerbose', () => {
 
 describe('parseGoJson', () => {
   it('reports leaf tests; t.Error failures are assertion failures', () => {
-    assert.deepEqual(parseGoJson(fixture('go-mixed.jsonl')), [
+    const tests = parseGoJson(fixture('go-mixed.jsonl'));
+    assert.deepEqual(outcomes(tests), [
       { name: 'TestAdds', outcome: 'pass' },
       { name: 'TestWrong', outcome: 'assertion-failure' },
       { name: 'TestTable/one', outcome: 'pass' },
       { name: 'TestTable/two', outcome: 'assertion-failure' },
     ]);
+    assert.equal(messageOf(tests, 'TestWrong'), 'kata_test.go:6: Add(1,2) = 3, want 4');
   });
 
   it('reports a panic as an error', () => {
-    assert.deepEqual(parseGoJson(fixture('go-panic.jsonl')), [
+    const tests = parseGoJson(fixture('go-panic.jsonl'));
+    assert.match(messageOf(tests, 'TestPanics')!, /^panic: assignment to entry in nil map/);
+    assert.deepEqual(outcomes(tests), [
       { name: 'TestAdds', outcome: 'pass' },
       { name: 'TestPanics', outcome: 'error' },
     ]);
@@ -96,7 +110,9 @@ describe('parseJunitXml', () => {
         <testcase name='throws'><error type="TypeError"/></testcase>
         <testcase name="later"><skipped/></testcase>
       </testsuite></testsuites>`;
-    assert.deepEqual(parseJunitXml(xml), [
+    const tests = parseJunitXml(xml);
+    assert.equal(messageOf(tests, 'calc.AddTest.handles <0>'), '3 != 4\ntrace');
+    assert.deepEqual(outcomes(tests), [
       { name: 'calc.AddTest.adds', outcome: 'pass' },
       { name: 'calc.AddTest.handles <0>', outcome: 'assertion-failure' },
       { name: 'throws', outcome: 'error' },

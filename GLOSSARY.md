@@ -59,7 +59,7 @@ _Avoid_: Adapter, language plugin, runtime
 ### Progress
 
 **Completed**:
-A Workout is Completed when the human's code passes every one of its tests.
+A Workout is Completed when the human's code passes every one of its original tests (editing the tests to pass doesn't count).
 _Avoid_: Solved, passed, mastered
 
 **Abandoned**:

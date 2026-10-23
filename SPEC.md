@@ -145,7 +145,7 @@ All execution goes through one internal `Sandbox` interface; `@anthropic-ai/sand
 4. **Synthesize:** send the target, with numbered lines (and `#symbol` if given), to the LLM with the Drill prompt (§9).
 5. **Verify:** run the Verified gate (§6), with retries.
 6. **Persist:** write the Workout (§10), stamping Source Anchors with the current commit SHA.
-7. **Train:** open the runner (§10) unless `--no-train`. Until the runner exists, `kin drill` prints the README, code file, and test command instead.
+7. **Train:** open the runner (§10) unless `--no-train` or there is no terminal, in which case `kin drill` prints the README, the code file, and `kin train <id>`.
 
 Progress is shown as steps in the foreground throughout (expect ~30–120 s).
 
@@ -201,7 +201,7 @@ target-repo/
     │       ├── kata.ts
     │       ├── kata.test.ts
     │       ├── workout.json       # hints, regression test, bug note, anchors (with commit), metadata
-    │       └── .solution/kata.ts  # Reference Solution: out of the way, not secret
+    │       └── .solution/         # Reference Solution and the original tests: out of the way, not secret
     └── done/                      # Completed and Abandoned Workouts move here
 ```
 
@@ -209,15 +209,18 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
 
 ### Runner (`kin train`)
 
-- Prints clickable paths to `README.md` and the code file, and opens them in `$VISUAL` if set.
-- Watches the Workout directory itself (language-agnostic) and re-runs `testCmd` (sandboxed) on every save, showing per-test results.
+- `kin drill` opens the runner on the new Workout when run in a terminal (unless `--no-train`); `kin train` with no id picks among pending Workouts (newest first), and needs an interactive terminal.
+- Prints clickable paths to `README.md` and the code file, and opens them in `$VISUAL` if set (spawned detached, so it should be a GUI editor).
+- Watches the Workout directory itself (language-agnostic) and re-runs `testCmd` (sandboxed) whenever a file's *content* changes, ignoring `README.md`, `workout.json`, `.solution/`, the result file, and editor temp files. Runs never overlap: a save during a run queues one more.
+- Shows per-test results with each failure's message (the assertion text, traceback, or `t.Error` output); when a failure has no message, the tail of the runner output instead.
 - If the source file has changed since the anchored commit, shows: *"Source has changed since this Workout was made."*
 - Keys:
   - `[h]` reveals the next Hint (counted).
   - `[g]` gives up: shows the diff against the Reference Solution and marks the Workout **Abandoned**.
   - `[q]` quits, leaving the Workout pending.
-- When every test passes, the Workout is **Completed**.
-- On Completed or Abandoned, asks *"Was this a good Workout? [👍/👎]"* and moves the Workout to `done/`.
+  - Ctrl+C behaves like `[q]`.
+- When every test passes against the original tests, the Workout is **Completed**. If the test file was edited (compared with `.solution/`), passing doesn't count and the runner says so.
+- On Completed or Abandoned, asks *"Was this a good Workout? [y] 👍 [n] 👎"* (any other key skips) and moves the Workout to `done/`.
 
 ### `state.json`
 
@@ -236,7 +239,7 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
 }
 ```
 
-`attempts` counts test runs triggered by saves. Ratings are local only and exist to tune prompts.
+`attempts` counts test runs triggered by saves (not the initial run). `hintsUsed` counts Hints revealed. Ratings are local only and exist to tune prompts. Leaving with `[q]` records nothing.
 
 ## 11. Beyond v1 (not yet designed)
 

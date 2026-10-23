@@ -39,7 +39,8 @@ export interface WorkoutRecord {
   hints: string[];
   regressionTestName: string;
   injectedBugDescription: string;
-  files: { code: string; test: string; solution: string };
+  /** `solution` is the Reference Solution; `originalTest` the tests the Workout was Verified with. */
+  files: { code: string; test: string; solution: string; originalTest: string };
 }
 
 export async function sourceRevision(repoRoot: string, path: string): Promise<SourceRevision> {
@@ -65,6 +66,7 @@ export async function saveDrill({ paths, profile, drill, sourcePath, symbol, rev
   const id = uniqueId(paths, `drill_${now.toISOString().slice(0, 10).replaceAll('-', '')}_${drill.slug}`);
   const dir = join(paths.workoutsDir, id);
   const solution = join(SOLUTION_DIRNAME, profile.codeFilename);
+  const originalTest = join(SOLUTION_DIRNAME, profile.testFilename);
 
   const record: WorkoutRecord = {
     id,
@@ -80,7 +82,7 @@ export async function saveDrill({ paths, profile, drill, sourcePath, symbol, rev
     hints: drill.hints,
     regressionTestName: drill.regressionTestName,
     injectedBugDescription: drill.injectedBugDescription,
-    files: { code: profile.codeFilename, test: profile.testFilename, solution },
+    files: { code: profile.codeFilename, test: profile.testFilename, solution, originalTest },
   };
 
   const files: Record<string, string> = {
@@ -89,6 +91,7 @@ export async function saveDrill({ paths, profile, drill, sourcePath, symbol, rev
     [profile.codeFilename]: drill.startingCode,
     [profile.testFilename]: drill.testSuiteCode,
     [solution]: drill.referenceSolution,
+    [originalTest]: drill.testSuiteCode,
     'workout.json': JSON.stringify(record, null, 2) + '\n',
   };
   for (const [name, content] of Object.entries(files)) {

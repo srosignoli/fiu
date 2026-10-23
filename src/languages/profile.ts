@@ -34,6 +34,8 @@ export type TestOutcome = 'pass' | 'assertion-failure' | 'error';
 export interface TestResult {
   name: string;
   outcome: TestOutcome;
+  /** For a failure: the assertion message or error the runner reported, when it can be found. */
+  message?: string;
 }
 
 /** A test run, normalised across languages. */

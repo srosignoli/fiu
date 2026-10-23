@@ -216,3 +216,28 @@ describe('declared profiles', () => {
     assert.equal(await readFile(join(cacheRoot, 'rust', 'MY_CACHE', 'seen'), 'utf8'), 'hi\n');
   });
 });
+
+describe('resource limits on test runs', () => {
+  it('report a run that hits a limit as stopped, with a reason', async () => {
+    // A test that keeps 20 children alive for 2 s: long enough for the watchdog's 250 ms sampling to see.
+    const spawning = `import { it } from 'node:test';
+import { spawn } from 'node:child_process';
+it('spawns', async () => {
+  const children = Array.from({ length: 20 }, () => spawn('sleep', ['2']));
+  await Promise.all(children.map((c) => new Promise((resolve) => c.on('exit', resolve))));
+});
+`;
+    const profile: LanguageProfile = { ...TYPESCRIPT, limits: { processes: 10 } };
+    const dir = await workout(profile, { [profile.codeFilename]: SAMPLES[0]!.code, [profile.testFilename]: spawning });
+    const run = await runTests(sandbox, profile, dir, await tempDir());
+    assert.equal(run.ran, false, run.output);
+    assert.equal(run.stopped, 'processes');
+    assert.match(run.output, /Stopped: the tests started more than 10 processes\. Look for runaway forking or spawning\.$/);
+  });
+
+  it('can be raised by declared profiles, but not switched off', () => {
+    assert.deepEqual(userProfile({ limits: { memoryMiB: 4096 } }).limits, { memoryMiB: 4096 });
+    assert.throws(() => userProfile({ limits: { processes: 0 } }));
+    assert.throws(() => userProfile({ limits: { unlimited: true } as never }));
+  });
+});

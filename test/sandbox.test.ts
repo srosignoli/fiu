@@ -10,13 +10,13 @@ import { tempDir } from './helpers.ts';
 describe('runProcess', () => {
   it('captures output and the exit code', async () => {
     const result = await runProcess('echo out; echo err >&2; exit 3', { cwd: await tempDir(), env: {}, timeoutMs: 5000 });
-    assert.deepEqual(result, { exitCode: 3, stdout: 'out\n', stderr: 'err\n', timedOut: false });
+    assert.deepEqual(result, { exitCode: 3, stdout: 'out\n', stderr: 'err\n' });
   });
 
   it('kills the whole process group on timeout', async () => {
     const started = Date.now();
     const result = await runProcess('sleep 30 & sleep 30', { cwd: await tempDir(), env: { PATH: process.env.PATH! }, timeoutMs: 300 });
-    assert.equal(result.timedOut, true);
+    assert.equal(result.stopped, 'timeout');
     assert.ok(Date.now() - started < 5000);
   });
 });
@@ -107,5 +107,51 @@ describe('openSandbox', () => {
     } finally {
       await sandbox.dispose();
     }
+  });
+});
+
+describe('resource limits', () => {
+  const node = JSON.stringify(process.execPath);
+  const env = { PATH: process.env.PATH! };
+  const hog = (mib: number) =>
+    `${node} -e "const a = []; for (let i = 0; i < ${mib / 10}; i++) a.push(Buffer.alloc(10 * 1024 * 1024, 1)); setTimeout(() => {}, 5000)"`;
+
+  it('stop a process tree whose total memory exceeds the limit', async () => {
+    const started = Date.now();
+    const result = await runProcess(`for i in 1 2 3; do ${hog(150)} & done; wait`, {
+      cwd: await tempDir(),
+      env,
+      timeoutMs: 8000,
+      limits: { processMemoryMiB: 512, memoryMiB: 300, processes: 64 },
+    });
+    assert.equal(result.stopped, 'memory');
+    assert.ok(Date.now() - started < 4000);
+  });
+
+  it('stop a process tree that starts too many processes', async () => {
+    const result = await runProcess('for i in $(seq 60); do sleep 5 & done; wait', {
+      cwd: await tempDir(),
+      env,
+      timeoutMs: 8000,
+      limits: { processMemoryMiB: 512, memoryMiB: 2048, processes: 20 },
+    });
+    assert.equal(result.stopped, 'processes');
+  });
+
+  it('cap each process with the kernel, and the command cannot lift the caps', async () => {
+    const result = await runProcess(`${hog(300)}; echo "exit=$?"; ulimit -d unlimited 2>/dev/null || echo cannot-raise`, {
+      cwd: await tempDir(),
+      env,
+      timeoutMs: 8000,
+      limits: { processMemoryMiB: 128, memoryMiB: 2048, processes: 64 },
+    });
+    assert.equal(result.stopped, undefined);
+    assert.doesNotMatch(result.stdout, /exit=0/, 'the hog must fail under a 128 MiB per-process cap');
+    assert.match(result.stdout, /cannot-raise/);
+  });
+
+  it('leave ordinary commands alone', async () => {
+    const result = await runProcess(`${node} -e "console.log(Buffer.alloc(50 * 1024 * 1024).length)"`, { cwd: await tempDir(), env, timeoutMs: 8000 });
+    assert.deepEqual({ ...result, stderr: '' }, { exitCode: 0, stdout: '52428800\n', stderr: '' });
   });
 });

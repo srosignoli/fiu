@@ -61,6 +61,7 @@ export interface LanguageProfile {
   cacheDirs: string[];                   // env vars pointed at ~/.cache/kintsugi/<id>/<VAR>/, e.g. GOCACHE
   extraReadPaths: string[];              // sandbox allowances (never network)
   extraWritePaths: string[];
+  limits?: { processMemoryMiB?: number; memoryMiB?: number; processes?: number };  // raise or lower the defaults (§7)
 }
 ```
 
@@ -69,7 +70,8 @@ Every test run is normalised to:
 ```typescript
 type TestOutcome = 'pass' | 'assertion-failure' | 'error';
 interface TestRun {
-  ran: boolean;                          // false on compile/syntax/import failure, missing result file, or timeout
+  ran: boolean;                          // false on compile/syntax/import failure, missing result file, or a stop
+  stopped?: 'timeout' | 'memory' | 'processes';  // why Kintsugi stopped the run (§7)
   tests: { name: string; outcome: TestOutcome }[];   // skipped tests are left out
   output: string;                        // combined runner output, for humans and LLM retry feedback
 }
@@ -129,13 +131,21 @@ All Workout code (verification and runner alike) is untrusted: users drill code 
 | Writes | Only the Workout directory and the profile's cache dirs under `~/.cache/kintsugi/<profile>/` (persistent, per user, for speed). |
 | Reads | Allowed, except `~/.ssh`, `~/.aws`, `~/.config`, `~/.gnupg`, `~/.netrc`, and the **entire repository** (Workouts never need it, and it may hold `.env` files, credentials, or state files). The Workout directory is re-allowed even when it lives inside the repo. |
 | Environment | Empty, plus an allowlist: `PATH`, `LANG`, `HOME` and `TMPDIR` (pointed at per-run scratch dirs), and the profile's `env` / `cacheDirs`. No API keys or tokens ever reach Workout code. |
-| Resources | 10 s wall-clock timeout that kills the command's whole process group; output capped at 1 MiB per stream. |
+| Resources | 10 s wall-clock timeout; at most 1 GiB per process (`RLIMIT_DATA`); at most 2 GiB in total and 256 processes across the command's whole process tree (a watchdog); a process-count backstop at the user's current task count + 2,048 (`RLIMIT_NPROC`). Output is capped at 1 MiB per stream. See *Resource limits* below. |
 
-**Known gap: no memory or process-count limits.** `ulimit -v` breaks Node (V8 reserves large virtual address ranges), `ulimit -u` counts all of the user's processes rather than the command's, and cgroups (`systemd-run --user`) are unavailable on macOS and many WSL setups. A fork bomb or memory spike is bounded only by the timeout. Revisit before public release.
+**Resource limits.** The bar is that the user's machine stays responsive: a runaway Workout (buggy or prompt-injected) is stopped well before it swaps or freezes the machine, and the user is told why. Three layers sit on top of the timeout (which already kills the whole sandbox: bubblewrap runs it in its own PID namespace):
+
+1. **Per-process memory:** `ulimit -d` (`RLIMIT_DATA`, 1 GiB) caps what any single process can allocate. Unlike `ulimit -v`, it doesn't count the large address-space reservations V8 and Go make, so ordinary tests are unaffected. Likely not enforced on macOS (to confirm during the macOS check).
+2. **Process backstop:** `ulimit -u` (`RLIMIT_NPROC`) at the user's current task count + 2,048. The kernel counts all of the user's processes (and, on Linux, threads), not just the command's, so this is only a coarse wall against fork bombs; a tight value breaks the sandbox itself.
+3. **Watchdog:** every 250 ms Kintsugi reads the command's process tree (`ps`, the same on Linux and macOS) and kills it if the tree holds more than 2 GiB resident memory or more than 256 processes. Short-lived bursts between samples are left to layers 1 and 2.
+
+The limits apply to every run, including under `--no-sandbox` (which only drops isolation). The command can't lift them (they're set as hard limits). A Language Profile can raise or lower them (`limits: { processMemoryMiB, memoryMiB, processes }`) but not switch them off. A run stopped by the timeout or the watchdog counts as not run, with `stopped: 'timeout' | 'memory' | 'processes'` and a plain message ("Stopped: the tests used more than 2 GiB of memory. Look for a runaway loop or allocation."), shown in the runner and fed back to the LLM on retry. A process killed by the per-process cap fails with its runtime's own out-of-memory error instead.
+
+*Rejected:* cgroups via `systemd-run --user`. On WSL with hybrid cgroups, `MemoryMax` and `TasksMax` were accepted and silently not enforced (512 MiB passed a 150 MiB limit; 40 processes passed a limit of 20), which is worse than no limit.
 
 All execution goes through one internal `Sandbox` interface; `@anthropic-ai/sandbox-runtime` is the v1 implementation and can be swapped.
 
-**Canary:** `kin init` (always fresh) and the preflight (cached for a week per platform, Node version, and sandbox-runtime version) run a canary inside the sandbox that tries to open a network connection, write outside the Workout directory, read a planted secret and every existing secret path above, and read a scrubbed env var. All must be refused, and a write inside the Workout directory must succeed (so a canary that can't run at all never counts as a pass); otherwise the sandbox is treated as unavailable.
+**Canary:** `kin init` (always fresh) and the preflight (cached for a week per platform, Node version, and sandbox-runtime version) run a canary inside the sandbox that tries to open a network connection, write outside the Workout directory, read a planted secret and every existing secret path above, and read a scrubbed env var. All must be refused. Two more probes, under deliberately low limits, must be stopped for the right reason: four processes holding ~600 MiB against a 256 MiB total, and a loop starting 100 processes against a limit of 32. A write inside the Workout directory must succeed (so a canary that can't run at all never counts as a pass); otherwise the sandbox is treated as unavailable.
 
 **Unavailable sandbox:** Kintsugi refuses to run Workout code and prints install instructions (Linux: `bubblewrap`, `socat`, `ripgrep`; macOS: `ripgrep`). `--no-sandbox` overrides for that single invocation and is never persisted. Environment scrubbing applies regardless.
 
@@ -252,8 +262,8 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
 1. **Dogfooding milestone.** About 10 real Drills across ≥ 3 languages in ≥ 2 real repositories, logging generation attempts, cost, and ratings, then a review. v2's plan may change on what it shows (Verified rate, cost per Drill, subtlety).
 2. ~~**Cost recording** (§11.2.1).~~ Done.
 3. **npm scope** chosen; `"private": true` removed.
-4. **Sandbox resource limits** (§7 known gap): solved, or documented prominently.
-5. **Sandbox verified** on macOS and native Linux (so far only WSL).
+4. ~~**Sandbox resource limits**~~ Done (§7 *Resource limits*).
+5. **Sandbox verified** on macOS and native Linux (so far only WSL), including whether `RLIMIT_DATA` is enforced on macOS.
 
 ### 11.2 v2: Habit and automation
 

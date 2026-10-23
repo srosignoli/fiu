@@ -78,6 +78,7 @@ export async function runCanary(sandbox: Sandbox, home: string = homedir()): Pro
       if (outcome !== 'refused') failures.push(`Reading ${path} was not blocked.`);
     }
     if (output.env.includes(CANARY_ENV_VAR)) failures.push('Environment variables leaked into the sandbox.');
+    failures.push(...(await probeResourceLimits(sandbox, workDir)));
     return failures.length === 0 ? { passed: true, failures } : fail(failures);
   } finally {
     if (previousEnvValue === undefined) delete process.env[CANARY_ENV_VAR];
@@ -113,6 +114,32 @@ async function findFile(path: string, depth: number): Promise<string | undefined
     // Unreadable or vanished: nothing to probe.
   }
   return undefined;
+}
+
+/**
+ * Proves the resource limits are enforced, under deliberately low limits so the probes stay cheap:
+ * four processes that together hold ~600 MiB against a 256 MiB total, and a loop starting 100
+ * processes against a limit of 32. Each must be stopped for the right reason.
+ */
+async function probeResourceLimits(sandbox: Sandbox, cwd: string): Promise<string[]> {
+  const node = shellQuote(process.execPath);
+  const hog = `${node} -e "const a = []; for (let i = 0; i < 15; i++) a.push(Buffer.alloc(10 * 1024 * 1024, 1)); setTimeout(() => {}, 6000)"`;
+  const memory = await sandbox.run({
+    command: `for i in 1 2 3 4; do ${hog} & done; wait`,
+    cwd,
+    timeoutMs: 8000,
+    limits: { processMemoryMiB: 512, memoryMiB: 256, processes: 64 },
+  });
+  const processes = await sandbox.run({
+    command: 'for i in $(seq 100); do sleep 6 & done; wait',
+    cwd,
+    timeoutMs: 8000,
+    limits: { processes: 32 },
+  });
+  const failures: string[] = [];
+  if (memory.stopped !== 'memory') failures.push(`A memory hog was not stopped by the memory limit (${memory.stopped ?? `exit ${memory.exitCode}`}).`);
+  if (processes.stopped !== 'processes') failures.push(`A fork loop was not stopped by the process limit (${processes.stopped ?? `exit ${processes.exitCode}`}).`);
+  return failures;
 }
 
 export interface VerifySandboxOptions {

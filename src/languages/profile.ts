@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ResourceLimits } from '../sandbox/process.ts';
 
 export type ResultFormat = 'tap' | 'junit-xml' | 'go-json' | 'unittest-verbose';
 
@@ -27,6 +28,8 @@ export interface LanguageProfile {
   /** Sandbox allowances. There is deliberately no way to allow network access. */
   extraReadPaths: string[];
   extraWritePaths: string[];
+  /** Raises (or lowers) the default resource limits for heavier toolchains. They can't be switched off. */
+  limits?: Partial<ResourceLimits>;
 }
 
 export type TestOutcome = 'pass' | 'assertion-failure' | 'error';
@@ -40,8 +43,10 @@ export interface TestResult {
 
 /** A test run, normalised across languages. */
 export interface TestRun {
-  /** False when the tests never got to run: compile, syntax, or import failure, or a timeout. */
+  /** False when the tests never got to run: compile, syntax, or import failure, or Kintsugi stopped them. */
   ran: boolean;
+  /** Why Kintsugi stopped the run: too long, too much memory, or too many processes. */
+  stopped?: 'timeout' | 'memory' | 'processes';
   tests: TestResult[];
   /** The runner's combined output, for humans and for LLM retry feedback. */
   output: string;
@@ -68,5 +73,12 @@ export const UserProfileSchema = z.strictObject({
   cacheDirs: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).default([]),
   extraReadPaths: z.array(z.string().startsWith('/', 'must be absolute')).default([]),
   extraWritePaths: z.array(z.string().startsWith('/', 'must be absolute')).default([]),
+  limits: z
+    .strictObject({
+      processMemoryMiB: z.number().int().positive().optional(),
+      memoryMiB: z.number().int().positive().optional(),
+      processes: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 export type UserProfile = z.infer<typeof UserProfileSchema>;

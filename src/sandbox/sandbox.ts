@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_TIMEOUT_MS, filesystemPolicy, scrubbedEnv, type FilesystemPolicy, type PolicyContext } from './policy.ts';
-import { runProcess, shellQuote, type ProcessResult } from './process.ts';
+import { DEFAULT_LIMITS, runProcess, shellQuote, type ProcessResult, type ResourceLimits } from './process.ts';
 
 export interface RunRequest {
   /** A shell command taken from a Language Profile, never from model output. */
@@ -19,6 +19,8 @@ export interface RunRequest {
   /** Further paths to make unreadable. */
   denyRead?: string[];
   timeoutMs?: number;
+  /** Raises or lowers the default resource limits; there is no way to switch them off. */
+  limits?: Partial<ResourceLimits>;
 }
 
 export type RunResult = ProcessResult;
@@ -94,6 +96,7 @@ class ProcessSandbox implements Sandbox {
         cwd: request.cwd,
         env: scrubbedEnv({ home, tmp, extra: request.env }),
         timeoutMs: request.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        limits: { ...DEFAULT_LIMITS, ...request.limits },
       });
     } finally {
       await rm(scratch, { recursive: true, force: true });
@@ -124,7 +127,7 @@ export async function openSandbox(options: OpenSandboxOptions = {}): Promise<San
   }
 }
 
-/** No isolation: only the scrubbed environment, scratch HOME, and timeout. For --no-sandbox and tests. */
+/** No isolation: only the scrubbed environment, scratch HOME, timeout, and resource limits. For --no-sandbox and tests. */
 export function openUnsandboxed(context: PolicyContext = { home: homedir() }): Sandbox {
   return new ProcessSandbox(false, async (command) => command, context);
 }

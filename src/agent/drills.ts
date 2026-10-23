@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { parseTarget, repoRelative } from '../commands/drill.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { profileForFile } from '../languages/registry.ts';
+import { preflight } from '../languages/run.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox, type Sandbox } from '../sandbox/sandbox.ts';
@@ -14,7 +15,7 @@ import { checkDrillOutput, DrillOutputSchema, type DrillOutput } from '../synthe
 import { MAX_ATTEMPTS, SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { describeFailures, verify } from '../verify/gate.ts';
 import { saveDrill, sourceRevision, type Origin } from '../workouts/save.ts';
-import { listPending, recordSpend, type Spend } from '../workouts/store.ts';
+import { listWorkouts, recordSpend, type Spend } from '../workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths, type WorkspacePaths } from '../workspace.ts';
 
 /** At most this many queued Workouts from agent tasks, so an agent finishing many tasks can't flood the queue. */
@@ -100,6 +101,8 @@ export class AgentDrills {
     const sourceLines = source.replace(/\n$/, '').split('\n').length;
     if (sourceLines > MAX_SOURCE_LINES) throw new SourceTooLargeError(sourcePath, sourceLines);
     if (origin === 'agent-task') await this.#checkAgentTaskQueue(paths, sourcePath);
+    // Check the sandbox and toolchain (and warm its cache) before the agent spends effort on a Drill.
+    await preflight(await this.#openSandbox(), profile, this.#options.cacheRoot);
 
     const generationId = randomUUID();
     this.#generations.set(generationId, { paths, profile, sourcePath, symbol, sourceLines, quick, origin, submissions: 0 });
@@ -194,8 +197,9 @@ export class AgentDrills {
 
   async list() {
     const paths = workspacePaths(await this.repository());
-    return (await listPending(paths)).map(({ record }) => ({
+    return (await listWorkouts(paths)).map(({ record, status }) => ({
       id: record.id,
+      status,
       title: record.title,
       language: record.language,
       source: record.source.path,
@@ -212,7 +216,8 @@ export class AgentDrills {
   }
 
   async #checkAgentTaskQueue(paths: WorkspacePaths, sourcePath: string): Promise<void> {
-    const queued = (await listPending(paths)).filter((w) => w.record.origin === 'agent-task');
+    // The queue is Workouts nobody has attempted yet (and that aren't discarded).
+    const queued = (await listWorkouts(paths)).filter((w) => w.status === 'queued' && w.record.origin === 'agent-task');
     if (queued.length >= AGENT_TASK_QUEUE_CAP) {
       throw new AgentRequestError(`The queue already holds ${queued.length} Drills from agent tasks. Skip generating one this time.`);
     }

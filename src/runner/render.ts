@@ -5,8 +5,8 @@ const MARKS: Record<TestResult['outcome'], string> = { pass: '✓', 'assertion-f
 const OUTPUT_TAIL_LINES = 25;
 const MESSAGE_LINES = 12;
 
-export function formatRun({ run, verdict, attempts }: SessionRun): string {
-  const label = attempts === 0 ? 'Initial run' : `Run ${attempts}`;
+export function formatRun({ run, verdict, runs }: SessionRun, trigger: 'start' | 'save' = runs === 0 ? 'start' : 'save'): string {
+  const label = trigger === 'start' ? 'Initial run' : `Run ${runs}`;
   if (verdict.kind === 'not-run') {
     return [`${label}: the tests did not run.`, indent(tail(run.output))].join('\n');
   }

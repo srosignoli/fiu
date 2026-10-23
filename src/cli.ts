@@ -11,6 +11,8 @@ import { EDITOR_TIP, init } from './commands/init.ts';
 import { train, type TrainResult } from './commands/train.ts';
 import { terminalTrainIo } from './terminal.ts';
 import { VERSION } from './version.ts';
+import { discardWorkout, legacyDoneNotice, restoreWorkout } from './workouts/store.ts';
+import { findRepoRoot, workspacePaths } from './workspace.ts';
 
 const program = new Command()
   .name('kintsugi')
@@ -154,8 +156,8 @@ program
       `  ${label.padEnd(24)} ≈ ${formatUsd(bucket.usd).padStart(8)}  (${bucket.count})${note}`;
     const lines = [
       `Since ${localDate(since)}: ≈ ${formatUsd(report.total.usd)} on ${report.total.count} generation request(s)`,
-      row('Workouts finished', report.finished),
-      row('Workouts not finished', report.notFinished, report.notFinished.count > 0 ? '   paid for, not used yet' : ''),
+      row('Workouts attempted', report.attempted),
+      row('Never attempted', report.neverAttempted, report.neverAttempted.count > 0 ? '   paid for, not used yet' : ''),
       row('Produced nothing', report.producedNothing),
     ];
     if (Object.keys(report.byOrigin).length > 1) {
@@ -172,6 +174,7 @@ program
     }
     lines.push(`Estimates use list prices as of ${report.pricesAsOf}; your provider's bill is authoritative.`);
     log.message(lines.join('\n'));
+    await legacyNotice();
   });
 
 program
@@ -191,9 +194,40 @@ async function runTrain(id: string | undefined, options: { sandbox: boolean }): 
   } finally {
     io.close();
   }
-  if (result.status === 'nothing-pending') log.info('No pending Workouts. Create one with: kin drill <file>');
-  else if (result.status === 'completed' || result.status === 'abandoned') log.info(`Moved to ${result.dir}`);
+  if (result.status === 'nothing-pending') log.info('No Workouts waiting. Create one with: kin drill <file>');
+  else if (result.status === 'completed' || result.status === 'abandoned') {
+    log.info(`Attempt ${result.attempt} kept at ${result.dir}. Redo it any time with: kin train ${result.workoutId}`);
+  }
+  await legacyNotice();
 }
+
+/** One line about v1's done/ folder, which v2 no longer reads. */
+async function legacyNotice(): Promise<void> {
+  try {
+    const notice = legacyDoneNotice(workspacePaths(await findRepoRoot(process.cwd())));
+    if (notice) log.info(notice);
+  } catch {
+    // Outside a repository there is nothing to say.
+  }
+}
+
+program
+  .command('discard')
+  .argument('<workout-id>', 'the Workout to archive')
+  .description('Archive a Workout: hidden from the queue, but kept. Undo with kin restore.')
+  .action(async (id: string) => {
+    await discardWorkout(workspacePaths(await findRepoRoot(process.cwd())), id, 'manual');
+    log.success(`Discarded ${id}. Bring it back with: kin restore ${id}`);
+  });
+
+program
+  .command('restore')
+  .argument('<workout-id>', 'the Discarded Workout to bring back')
+  .description('Bring a Discarded Workout back.')
+  .action(async (id: string) => {
+    await restoreWorkout(workspacePaths(await findRepoRoot(process.cwd())), id);
+    log.success(`Restored ${id}.`);
+  });
 
 /** YYYY-MM-DD in local time (toISOString would shift local midnight to the previous day east of UTC). */
 const localDate = (date: Date) =>

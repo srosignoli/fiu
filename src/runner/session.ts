@@ -6,8 +6,9 @@ import type { LanguageProfile, TestRun } from '../languages/profile.ts';
 import { runTests } from '../languages/run.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
 import { diffLines } from '../verify/diff.ts';
-import { SOLUTION_DIRNAME } from '../workouts/save.ts';
-import { finishWorkout, type Outcome, type PendingWorkout } from '../workouts/store.ts';
+import { isAttemptBookkeeping, saveAttempt, type Attempt } from '../workouts/attempts.ts';
+import type { WorkoutRecord } from '../workouts/save.ts';
+import { recordOutcome, type Outcome } from '../workouts/store.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 
 export type RunVerdict =
@@ -20,44 +21,55 @@ export type RunVerdict =
 export interface SessionRun {
   run: TestRun;
   verdict: RunVerdict;
-  /** Number of save-triggered runs so far (the initial run doesn't count). */
-  attempts: number;
+  /** Save-triggered runs in this Attempt so far (initial runs don't count). */
+  runs: number;
 }
 
 export interface TrainingSessionOptions {
   paths: WorkspacePaths;
-  workout: PendingWorkout;
+  /** The immutable Workout definition. */
+  workout: { record: WorkoutRecord; dir: string };
+  /** Where the human works. A resumed Attempt keeps its runs and Hints. */
+  attempt: Attempt;
   profile: LanguageProfile;
   sandbox: Sandbox;
   cacheRoot?: string;
   now?: () => Date;
 }
 
-/** One sitting with one Workout. Holds no terminal state, so it can be driven by tests as well as by `kin train`. */
+/**
+ * One sitting with one Attempt at a Workout. Holds no terminal state, so it can be driven by tests as
+ * well as by `kin train`. Progress is saved to the Attempt as it happens.
+ */
 export class TrainingSession {
   readonly #options: TrainingSessionOptions;
-  #attempts = 0;
-  #hintsShown = 0;
   #finished = false;
 
   constructor(options: TrainingSessionOptions) {
     this.#options = options;
   }
 
-  get workout(): PendingWorkout {
+  get workout(): { record: WorkoutRecord; dir: string } {
     return this.#options.workout;
   }
 
-  get hintsUsed(): number {
-    return this.#hintsShown;
+  get attempt(): Attempt {
+    return this.#options.attempt;
   }
 
-  /** Runs the tests in the sandbox. `save` runs count as attempts; the initial run doesn't. */
+  get hintsUsed(): number {
+    return this.#options.attempt.record.hintsUsed;
+  }
+
+  /** Runs the tests in the Attempt, in the sandbox. `save` runs count; the initial run doesn't. */
   async runTests(trigger: 'start' | 'save'): Promise<SessionRun> {
-    const { profile, sandbox, workout, cacheRoot } = this.#options;
-    if (trigger === 'save') this.#attempts++;
-    const run = await runTests(sandbox, profile, workout.dir, cacheRoot);
-    return { run, verdict: await this.#verdict(run), attempts: this.#attempts };
+    const { profile, sandbox, attempt, cacheRoot } = this.#options;
+    if (trigger === 'save') {
+      attempt.record.runs++;
+      await saveAttempt(attempt);
+    }
+    const run = await runTests(sandbox, profile, attempt.dir, cacheRoot);
+    return { run, verdict: await this.#verdict(run), runs: attempt.record.runs };
   }
 
   async #verdict(run: TestRun): Promise<RunVerdict> {
@@ -66,28 +78,31 @@ export class TrainingSession {
     return (await this.testsEdited()) ? { kind: 'tests-edited' } : { kind: 'completed' };
   }
 
-  /** True when the test file differs from the one the Workout was Verified with. */
+  /** True when the Attempt's test file differs from the one the Workout was Verified with. */
   async testsEdited(): Promise<boolean> {
-    const { dir, record } = this.#options.workout;
-    const original = join(dir, record.files.originalTest ?? join(SOLUTION_DIRNAME, record.files.test));
-    // Workouts saved before the original tests were kept can't be checked.
+    const { workout, attempt } = this.#options;
+    // The Workout's own test file is the original: Workouts are never edited.
+    const original = join(workout.dir, workout.record.files.test);
     if (!existsSync(original)) return false;
-    const current = await readFile(join(dir, record.files.test), 'utf8').catch(() => '');
+    const current = await readFile(join(attempt.dir, workout.record.files.test), 'utf8').catch(() => '');
     return diffLines(await readFile(original, 'utf8'), current).length > 0;
   }
 
-  /** The next Hint, or undefined when all have been shown. Each one revealed counts. */
-  nextHint(): { hint: string; number: number; total: number } | undefined {
+  /** The next Hint, or undefined when all have been shown. Each one revealed counts, across resumes. */
+  async nextHint(): Promise<{ hint: string; number: number; total: number } | undefined> {
     const { hints } = this.#options.workout.record;
-    if (this.#hintsShown >= hints.length) return undefined;
-    return { hint: hints[this.#hintsShown]!, number: ++this.#hintsShown, total: hints.length };
+    const { attempt } = this.#options;
+    if (attempt.record.hintsUsed >= hints.length) return undefined;
+    const number = ++attempt.record.hintsUsed;
+    await saveAttempt(attempt);
+    return { hint: hints[number - 1]!, number, total: hints.length };
   }
 
   /** What the human's current code would need to change to become the Reference Solution. */
   async solutionDiff(): Promise<string> {
-    const { dir, record } = this.#options.workout;
-    const current = await readFile(join(dir, record.files.code), 'utf8').catch(() => '');
-    const solution = await readFile(join(dir, record.files.solution), 'utf8');
+    const { workout, attempt } = this.#options;
+    const current = await readFile(join(attempt.dir, workout.record.files.code), 'utf8').catch(() => '');
+    const solution = await readFile(join(workout.dir, workout.record.files.solution), 'utf8');
     const hunks = diffLines(current, solution);
     if (hunks.length === 0) return 'Your code already matches the Reference Solution.';
     return hunks
@@ -105,28 +120,30 @@ export class TrainingSession {
     return diff.exitCode !== 0;
   }
 
-  /** Records the outcome in state.json and moves the Workout to done/. Returns its new directory. */
-  async finish(outcome: Outcome['outcome'], rating?: Outcome['rating']): Promise<string> {
+  /** Finishes the Attempt: its outcome goes into the Attempt and into state.json. The Workout stays as it is. */
+  async finish(outcome: Outcome['outcome'], rating?: Outcome['rating']): Promise<void> {
     if (this.#finished) throw new Error('This session has already finished.');
     this.#finished = true;
-    const now = this.#options.now?.() ?? new Date();
-    return finishWorkout(this.#options.paths, this.#options.workout, {
-      workoutId: this.#options.workout.record.id,
+    const { attempt, paths } = this.#options;
+    const at = (this.#options.now?.() ?? new Date()).toISOString();
+    Object.assign(attempt.record, { outcome, finishedAt: at, ...(rating ? { rating } : {}) });
+    await saveAttempt(attempt);
+    await recordOutcome(paths, {
+      workoutId: attempt.record.workoutId,
+      attempt: attempt.record.number,
       outcome,
-      at: now.toISOString(),
-      attempts: this.#attempts,
-      hintsUsed: this.#hintsShown,
+      at,
+      runs: attempt.record.runs,
+      hintsUsed: attempt.record.hintsUsed,
       ...(rating ? { rating } : {}),
     });
   }
 }
 
-/** Paths in a Workout directory whose changes don't trigger a test run. */
+/** Paths in an Attempt directory whose changes don't trigger a test run. */
 export function ignoredByWatcher(profile: LanguageProfile): (path: string) => boolean {
   return (path) =>
-    path === 'README.md' ||
-    path === 'workout.json' ||
-    path.startsWith(`${SOLUTION_DIRNAME}/`) ||
+    isAttemptBookkeeping(path) ||
     path === profile.resultFile ||
     path.split('/').some((part) => part === '__pycache__' || part === 'node_modules' || part.startsWith('.#')) ||
     /(~|\.swp|\.swx|\.tmp)$/.test(path);

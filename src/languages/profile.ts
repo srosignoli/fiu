@@ -14,8 +14,13 @@ export interface LanguageProfile {
   supportFiles: Record<string, string>;
   /** Language-specific generation constraints for the LLM prompt. */
   promptRules: string;
-  /** Cheap toolchain check, run before any LLM call. */
+  /** Toolchain check, run before any LLM call (and before training). */
   preflightCmd: string;
+  /**
+   * Files for a tiny test run during preflight, written next to `supportFiles`. Toolchains that
+   * compile their test runner (Go) would otherwise make the first real run slow enough to time out.
+   */
+  warmup?: Record<string, string>;
   /** Runs the tests once in the Workout directory. */
   testCmd: string;
   resultFormat: ResultFormat;
@@ -66,6 +71,7 @@ export const UserProfileSchema = z.strictObject({
   supportFiles: z.record(relativePath, z.string()).default({}),
   promptRules: z.string().default(''),
   preflightCmd: z.string().min(1),
+  warmup: z.record(relativePath, z.string()).optional(),
   testCmd: z.string().min(1),
   resultFormat: z.enum(['tap', 'junit-xml']),
   resultFile: relativePath.optional(),

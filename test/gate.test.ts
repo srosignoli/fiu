@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { GO, PYTHON, TYPESCRIPT } from '../src/languages/builtin.ts';
 import type { TestRun } from '../src/languages/profile.ts';
+import { preflight } from '../src/languages/run.ts';
 import { openSandbox } from '../src/sandbox/sandbox.ts';
 import {
   checkMinimalDiff,
@@ -211,6 +212,9 @@ class WindowTest(unittest.TestCase):
   });
 
   it('verifies a Go Drill', async () => {
+    // As in real use, the preflight warms Go's build cache before the gate runs.
+    const cacheRoot = await tempDir();
+    await preflight(sandbox, GO, cacheRoot);
     const reference = 'package kata\n\nfunc Sum(xs []int) int {\n\ttotal := 0\n\tfor _, x := range xs {\n\t\ttotal += x\n\t}\n\treturn total\n}\n';
     const tests = `package kata
 
@@ -238,7 +242,7 @@ func TestCountsEveryElement(t *testing.T) {
       },
       GO,
       sandbox,
-      { cacheRoot: await tempDir() },
+      { cacheRoot },
     );
     // xs[1:] on nil panics: TestEmpty crashes, so this Drill must be rejected.
     assert.equal(result.verified, false);

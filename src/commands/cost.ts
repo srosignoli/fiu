@@ -1,5 +1,6 @@
 import { mergeByModel, type ModelUsage } from '../cost/usage.ts';
 import { PRICES_AS_OF } from '../cost/prices.ts';
+import { listAttemptRecords } from '../workouts/attempts.ts';
 import { readState, type Spend } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 
@@ -11,10 +12,10 @@ export interface SpendBucket {
 export interface CostReport {
   since: Date;
   total: SpendBucket;
-  /** Spend on Workouts whose training finished (Completed or Abandoned). */
-  finished: SpendBucket;
-  /** Spend on Workouts still waiting: paid for, not yet used. */
-  notFinished: SpendBucket;
+  /** Spend on Workouts with at least one Attempt, open or finished. */
+  attempted: SpendBucket;
+  /** Spend on Workouts nobody has attempted, including Discarded ones: paid for, not used. */
+  neverAttempted: SpendBucket;
   /** Spend on requests that produced no Workout (not Verified, not worth practicing, or an error). */
   producedNothing: SpendBucket;
   byOrigin: Record<string, SpendBucket>;
@@ -34,14 +35,18 @@ export function startOfMonth(now = new Date()): Date {
 export async function costReport(cwd: string, since: Date = startOfMonth()): Promise<CostReport> {
   const paths = workspacePaths(await findRepoRoot(cwd));
   const state = await readState(paths);
-  const finishedIds = new Set(state.outcomes.map((o) => o.workoutId));
+  // v1 outcomes count too: those Workouts were attempted before Attempts existed.
+  const attemptedIds = new Set(state.outcomes.map((o) => o.workoutId));
+  for (const entry of state.spend) {
+    if (entry.workoutId && (await listAttemptRecords(paths, entry.workoutId)).length > 0) attemptedIds.add(entry.workoutId);
+  }
 
   const empty = (): SpendBucket => ({ usd: 0, count: 0 });
   const report: CostReport = {
     since,
     total: empty(),
-    finished: empty(),
-    notFinished: empty(),
+    attempted: empty(),
+    neverAttempted: empty(),
     producedNothing: empty(),
     byOrigin: {},
     byAgent: { requests: 0, workouts: 0 },
@@ -56,7 +61,7 @@ export async function costReport(cwd: string, since: Date = startOfMonth()): Pro
       continue;
     }
     const cost = entry.cost;
-    const buckets = [report.total, bucketFor(report, entry, finishedIds), (report.byOrigin[entry.origin] ??= empty())];
+    const buckets = [report.total, bucketFor(report, entry, attemptedIds), (report.byOrigin[entry.origin] ??= empty())];
     for (const bucket of buckets) {
       bucket.usd += cost.usd;
       bucket.count++;
@@ -67,7 +72,7 @@ export async function costReport(cwd: string, since: Date = startOfMonth()): Pro
   return report;
 }
 
-function bucketFor(report: CostReport, entry: Spend, finishedIds: Set<string>): SpendBucket {
+function bucketFor(report: CostReport, entry: Spend, attemptedIds: Set<string>): SpendBucket {
   if (entry.result !== 'verified' || !entry.workoutId) return report.producedNothing;
-  return finishedIds.has(entry.workoutId) ? report.finished : report.notFinished;
+  return attemptedIds.has(entry.workoutId) ? report.attempted : report.neverAttempted;
 }

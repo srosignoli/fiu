@@ -22,7 +22,6 @@ describe('init', () => {
     assert.deepEqual(JSON.parse(await readFile(join(repo, '.kintsugi', 'config.json'), 'utf8')), {});
     assert.deepEqual(JSON.parse(await readFile(join(repo, '.kintsugi', 'state.json'), 'utf8')), { outcomes: [] });
     assert.ok((await stat(join(repo, '.kintsugi', 'workouts'))).isDirectory());
-    assert.ok((await stat(join(repo, '.kintsugi', 'done'))).isDirectory());
   });
 
   it('works from a subdirectory, placing the workspace at the repo root', async () => {

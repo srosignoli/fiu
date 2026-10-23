@@ -11,17 +11,25 @@ export interface WatchOptions {
 }
 
 /**
- * Calls `onChange` when the content of a watched file actually changes. Editors' temp files,
- * touch-without-change, and files a test run writes into ignored paths don't count.
+ * Calls `onChange` when the content of a watched file actually changes and has settled. Editors' temp
+ * files, touch-without-change, half-written saves, and files in ignored paths don't count.
  */
 export async function watchForChanges(dir: string, onChange: () => void, { ignore, debounceMs = 150 }: WatchOptions): Promise<{ close(): void }> {
   let fingerprint = await contentFingerprint(dir, ignore);
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
 
+  // Saves usually truncate then write: act only on content that has settled across two reads.
   const check = async () => {
-    const next = await contentFingerprint(dir, ignore);
-    if (closed || next === fingerprint) return;
+    let next = await contentFingerprint(dir, ignore);
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, debounceMs));
+      if (closed) return;
+      const again = await contentFingerprint(dir, ignore);
+      if (again === next) break;
+      next = again;
+    }
+    if (next === fingerprint) return;
     fingerprint = next;
     onChange();
   };

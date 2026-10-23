@@ -1,20 +1,30 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { WorkspacePaths } from '../workspace.ts';
+import { listAttemptRecords } from './attempts.ts';
 import type { WorkoutRecord } from './save.ts';
 
-export const OutcomeSchema = z.object({
+export const OutcomeSchema = z.preprocess(
+  // v1 called the number of save-triggered test runs `attempts`.
+  (raw) => (raw && typeof raw === 'object' && 'attempts' in raw && !('runs' in raw) ? { ...raw, runs: (raw as { attempts: unknown }).attempts } : raw),
+  z.object({
   workoutId: z.string(),
+  /** The Attempt's number; absent on outcomes recorded by v1. */
+  attempt: z.number().int().positive().optional(),
   outcome: z.enum(['completed', 'abandoned']),
   at: z.iso.datetime(),
   /** Test runs triggered by saves. */
-  attempts: z.number().int().nonnegative(),
+  runs: z.number().int().nonnegative(),
   hintsUsed: z.number().int().nonnegative(),
   rating: z.enum(['up', 'down']).optional(),
-});
+  }),
+);
 export type Outcome = z.infer<typeof OutcomeSchema>;
+
+const DiscardSchema = z.object({ at: z.iso.datetime(), reason: z.enum(['manual', 'expired']) });
+export type Discard = z.infer<typeof DiscardSchema>;
 
 export const ModelUsageSchema = z.object({
   model: z.string(),
@@ -51,6 +61,8 @@ const StateSchema = z.object({
   outcomes: z.array(OutcomeSchema),
   /** The spend ledger: every generation request, including those that produced nothing. */
   spend: z.array(SpendSchema).default([]),
+  /** Discarded (archived) Workouts by id. */
+  discarded: z.record(z.string(), DiscardSchema).default({}),
 });
 export type State = z.infer<typeof StateSchema>;
 
@@ -78,42 +90,83 @@ export function averageSpend(spend: Spend[], last = 10): { usd: number; count: n
 
 export class WorkoutNotFoundError extends Error {
   constructor(id: string) {
-    super(`No pending Workout "${id}". Run \`kin train\` with no argument to pick one.`);
+    super(`No Workout "${id}". Run \`kin train\` with no argument to pick one.`);
   }
 }
 
-export interface PendingWorkout {
-  record: WorkoutRecord;
-  dir: string;
+export class WorkoutDiscardedError extends Error {
+  constructor(id: string) {
+    super(`Workout "${id}" is discarded. Bring it back with \`kin restore ${id}\`.`);
+  }
 }
 
-/** Workouts waiting in .kintsugi/workouts/, newest first. */
-export async function listPending(paths: WorkspacePaths): Promise<PendingWorkout[]> {
+/**
+ * Where a Workout stands. `queued`: never attempted (the queue); `in-progress`: has an open Attempt;
+ * `attempted`: every Attempt finished; `discarded`: archived, hidden from the queue but kept.
+ */
+export type WorkoutStatus = 'queued' | 'in-progress' | 'attempted' | 'discarded';
+
+export interface StoredWorkout {
+  record: WorkoutRecord;
+  /** The immutable Workout definition. */
+  dir: string;
+  status: WorkoutStatus;
+}
+
+/** Every Workout in .kintsugi/workouts/, newest first. */
+export async function listWorkouts(paths: WorkspacePaths): Promise<StoredWorkout[]> {
   if (!existsSync(paths.workoutsDir)) return [];
-  const pending: PendingWorkout[] = [];
+  const state = await readState(paths);
+  // v1 recorded outcomes against Workouts it then moved to done/; any such outcome means "attempted".
+  const finished = new Set(state.outcomes.map((o) => o.workoutId));
+  const workouts: StoredWorkout[] = [];
   for (const id of await readdir(paths.workoutsDir)) {
     const dir = join(paths.workoutsDir, id);
     const metadata = join(dir, 'workout.json');
     if (!existsSync(metadata)) continue;
-    pending.push({ record: JSON.parse(await readFile(metadata, 'utf8')), dir });
+    const record: WorkoutRecord = JSON.parse(await readFile(metadata, 'utf8'));
+    workouts.push({ record, dir, status: await statusOf(paths, id, state, finished) });
   }
-  return pending.sort((a, b) => b.record.createdAt.localeCompare(a.record.createdAt));
+  return workouts.sort((a, b) => b.record.createdAt.localeCompare(a.record.createdAt));
 }
 
-export async function loadPending(paths: WorkspacePaths, id: string): Promise<PendingWorkout> {
-  const found = (await listPending(paths)).find((w) => w.record.id === id);
+async function statusOf(paths: WorkspacePaths, id: string, state: State, finished: Set<string>): Promise<WorkoutStatus> {
+  if (state.discarded[id]) return 'discarded';
+  const attempts = await listAttemptRecords(paths, id);
+  if (attempts.some((a) => !a.outcome)) return 'in-progress';
+  return attempts.length > 0 || finished.has(id) ? 'attempted' : 'queued';
+}
+
+export async function loadWorkout(paths: WorkspacePaths, id: string): Promise<StoredWorkout> {
+  const found = (await listWorkouts(paths)).find((w) => w.record.id === id);
   if (!found) throw new WorkoutNotFoundError(id);
   return found;
 }
 
-/** Appends the outcome to state.json and moves the Workout to done/. */
-export async function finishWorkout(paths: WorkspacePaths, workout: PendingWorkout, outcome: Outcome): Promise<string> {
+/** Archives a Workout: hidden from the queue and its cap, but kept and restorable. */
+export async function discardWorkout(paths: WorkspacePaths, id: string, reason: Discard['reason'], now = new Date()): Promise<void> {
+  await loadWorkout(paths, id);
+  const state = await readState(paths);
+  state.discarded[id] = { at: now.toISOString(), reason };
+  await writeState(paths, state);
+}
+
+export async function restoreWorkout(paths: WorkspacePaths, id: string): Promise<void> {
+  const state = await readState(paths);
+  if (!state.discarded[id]) throw new Error(`Workout "${id}" isn't discarded.`);
+  delete state.discarded[id];
+  await writeState(paths, state);
+}
+
+/** Records a finished Attempt's outcome in state.json, next to the Attempt's own record. */
+export async function recordOutcome(paths: WorkspacePaths, outcome: Outcome): Promise<void> {
   const state = await readState(paths);
   state.outcomes.push(OutcomeSchema.parse(outcome));
   await writeState(paths, state);
+}
 
-  await mkdir(paths.doneDir, { recursive: true });
-  const destination = join(paths.doneDir, workout.record.id);
-  await rename(workout.dir, destination);
-  return destination;
+/** v1 moved finished Workouts to done/; they can't be redone (their Starting Code was edited in place). */
+export function legacyDoneNotice(paths: WorkspacePaths): string | undefined {
+  if (!existsSync(paths.doneDir)) return undefined;
+  return `Workouts finished with Kintsugi v1 stay in ${paths.doneDir} and aren't listed.`;
 }

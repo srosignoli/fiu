@@ -62,7 +62,7 @@ export function terminalTrainIo(): TrainIo & { close(): void } {
         options: workouts.map((w) => ({
           value: w.record.id,
           label: w.record.title,
-          hint: w.record.cost ? `${w.record.id}, ${describeCost(w.record.cost)}` : w.record.id,
+          hint: [w.status === 'in-progress' ? 'open Attempt' : 'new', w.record.id, ...(w.record.cost ? [describeCost(w.record.cost)] : [])].join(', '),
         })),
       });
       return isCancel(choice) ? undefined : workouts.find((w) => w.record.id === choice);

@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { userCacheDir } from '../config.ts';
 import { DEFAULT_TIMEOUT_MS } from '../sandbox/policy.ts';
 import { DEFAULT_LIMITS, describeStop } from '../sandbox/process.ts';
@@ -14,11 +14,27 @@ export class ToolchainMissingError extends Error {
   }
 }
 
-/** Runs the profile's cheap toolchain check inside the sandbox; throws ToolchainMissingError if it fails. */
+/** A cold toolchain cache may need a while to fill; later runs keep the normal timeout. */
+export const PREFLIGHT_TIMEOUT_MS = 60_000;
+
+/**
+ * Runs the profile's toolchain check inside the sandbox, with its warm-up files, so the first real
+ * run starts with a warm cache. Throws ToolchainMissingError if it fails.
+ */
 export async function preflight(sandbox: Sandbox, profile: LanguageProfile, cacheRoot = userCacheDir()): Promise<void> {
   const cwd = await mkdtemp(join(tmpdir(), 'kintsugi-preflight-'));
   try {
-    const result = await sandbox.run({ ...(await runRequest(profile, cwd, cacheRoot)), command: profile.preflightCmd });
+    if (profile.warmup) {
+      for (const [name, content] of Object.entries({ ...profile.supportFiles, ...profile.warmup })) {
+        await mkdir(dirname(join(cwd, name)), { recursive: true });
+        await writeFile(join(cwd, name), content);
+      }
+    }
+    const result = await sandbox.run({
+      ...(await runRequest(profile, cwd, cacheRoot)),
+      command: profile.preflightCmd,
+      timeoutMs: PREFLIGHT_TIMEOUT_MS,
+    });
     if (result.exitCode !== 0) throw new ToolchainMissingError(profile, result.stderr || result.stdout);
   } finally {
     await rm(cwd, { recursive: true, force: true });

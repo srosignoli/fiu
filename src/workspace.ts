@@ -12,6 +12,8 @@ export interface WorkspacePaths {
   configFile: string;
   stateFile: string;
   workoutsDir: string;
+  attemptsDir: string;
+  /** Where v1 moved finished Workouts; no longer written. */
   doneDir: string;
 }
 
@@ -35,6 +37,7 @@ export function workspacePaths(repoRoot: string): WorkspacePaths {
     configFile: join(root, 'config.json'),
     stateFile: join(root, 'state.json'),
     workoutsDir: join(root, 'workouts'),
+    attemptsDir: join(root, 'attempts'),
     doneDir: join(root, 'done'),
   };
 }
@@ -43,7 +46,6 @@ export function workspacePaths(repoRoot: string): WorkspacePaths {
 export async function ensureWorkspace(paths: WorkspacePaths): Promise<boolean> {
   const existed = existsSync(paths.root);
   await mkdir(paths.workoutsDir, { recursive: true });
-  await mkdir(paths.doneDir, { recursive: true });
   await writeIfMissing(paths.configFile, '{}\n');
   await writeIfMissing(paths.stateFile, JSON.stringify({ outcomes: [] }, null, 2) + '\n');
   return !existed;

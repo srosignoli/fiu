@@ -76,7 +76,12 @@ export const GO: LanguageProfile = {
     'Both files use `package kata`. Tests use the `testing` package only, reporting failures with `t.Errorf` / `t.Fatalf`.',
     'Target Go 1.21: no range-over-int or range-over-func.',
   ].join('\n'),
-  preflightCmd: 'go version',
+  // A cold build of Go's testing package takes ~8 s, close to the 10 s run timeout: warm the cache first.
+  preflightCmd: 'go test .',
+  warmup: {
+    'kata.go': 'package kata\n',
+    'kata_test.go': 'package kata\n\nimport "testing"\n\nfunc TestWarmup(t *testing.T) {}\n',
+  },
   testCmd: 'go test -json .',
   resultFormat: 'go-json',
   // Never reach for the network: no module proxy, no toolchain downloads, no workspace files.

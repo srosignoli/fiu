@@ -62,6 +62,8 @@ describe('profiles', () => {
 // The real toolchains, run through the sandbox (or without one where it isn't installed).
 const sandbox = await openSandbox({ allowUnsandboxed: true });
 after(() => sandbox.dispose());
+// One persistent toolchain cache for the whole file, as in real use; the preflight warms it.
+const cacheRoot = await tempDir();
 
 interface Sample {
   profile: LanguageProfile;
@@ -148,19 +150,19 @@ describe(`built-in profiles (${sandbox.isolated ? 'sandboxed' : 'UNSANDBOXED'})`
   for (const { profile, code, buggy, tests } of SAMPLES) {
     describe(profile.id, () => {
       it('passes preflight', async () => {
-        await preflight(sandbox, profile, await tempDir());
+        await preflight(sandbox, profile, cacheRoot);
       });
 
       it('reports passing tests', async () => {
         const dir = await workout(profile, { [profile.codeFilename]: code, [profile.testFilename]: tests });
-        const run = await runTests(sandbox, profile, dir, await tempDir());
+        const run = await runTests(sandbox, profile, dir, cacheRoot);
         assert.equal(run.ran, true, run.output);
         assert.deepEqual(run.tests.map((t) => t.outcome), ['pass', 'pass'], run.output);
       });
 
       it('reports the failing test as an assertion failure', async () => {
         const dir = await workout(profile, { [profile.codeFilename]: buggy, [profile.testFilename]: tests });
-        const run = await runTests(sandbox, profile, dir, await tempDir());
+        const run = await runTests(sandbox, profile, dir, cacheRoot);
         assert.equal(run.ran, true, run.output);
         assert.deepEqual(
           run.tests.map((t) => t.outcome).sort(),
@@ -171,7 +173,7 @@ describe(`built-in profiles (${sandbox.isolated ? 'sandboxed' : 'UNSANDBOXED'})`
 
       it('reports code that does not compile as not run', async () => {
         const dir = await workout(profile, { [profile.codeFilename]: `${code}\n)(\n`, [profile.testFilename]: tests });
-        const run = await runTests(sandbox, profile, dir, await tempDir());
+        const run = await runTests(sandbox, profile, dir, cacheRoot);
         assert.equal(run.ran, false, run.output);
         assert.notEqual(run.output, '');
       });

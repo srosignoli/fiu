@@ -42,6 +42,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
 | `kin mcp` | Kintsugi's MCP server (stdio), started by your coding agent (§11.1.1). |
 | `kin agent install claude [--project] [--after-tasks]` / `kin agent uninstall claude [--project]` | Install or remove the skill, `/kin-drill` command, and MCP registration for Claude Code (§11.1.1). |
+| `kin discard <id>` / `kin restore <id>` | Archive a Workout (hidden from the queue, kept), or bring it back (§11.2.2). |
 | `kin cost [--since <date>]` | What generating Workouts has cost since a date (default: the start of this month), split into finished Workouts, Workouts not finished yet, and requests that produced nothing (§11.2.1). |
 
 ## 5. Language Profiles
@@ -217,7 +218,9 @@ target-repo/
     │       ├── kata.test.ts
     │       ├── workout.json       # hints, regression test, bug note, anchors (with commit), metadata
     │       └── .solution/         # Reference Solution and the original tests: out of the way, not secret
-    └── done/                      # Completed and Abandoned Workouts move here
+    └── attempts/
+        └── drill_20261023_redis-lock/
+            └── 1/                     # a fresh copy of the code, tests, and support files; attempt.json (runs, Hints, outcome, rating)
 ```
 
 API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) or the user-level config at `~/.config/kintsugi/`. Never from `.kintsugi/`.
@@ -235,7 +238,7 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
   - `[q]` quits, leaving the Workout pending.
   - Ctrl+C behaves like `[q]`.
 - When every test passes against the original tests, the Workout is **Completed**. If the test file was edited (compared with `.solution/`), passing doesn't count and the runner says so.
-- On Completed or Abandoned, asks *"Was this a good Workout? [y] 👍 [n] 👎"* (any other key skips) and moves the Workout to `done/`.
+- On Completed or Abandoned, asks *"Was this a good Workout? [y] 👍 [n] 👎"* (any other key skips) and finishes the Attempt (§11.2.2). The Workout stays where it is and can be redone.
 
 ### `state.json`
 
@@ -301,15 +304,16 @@ Turn Drills into a habit: Workouts are pre-generated from your commits in the ba
 - A failure partway through (e.g. the provider is overloaded on a retry) still records what the earlier calls cost, with `result: "error"`.
 - No estimate is shown before generating. Once the ledger has history, `kin drill` and `kin auto on` show "your Drills have averaged $X (last N)".
 
-#### 11.2.2 Workouts and Attempts
+#### 11.2.2 Workouts and Attempts (implemented)
 
 Per [ADR 0003](./docs/adr/0003-workouts-are-immutable-attempts-hold-outcomes.md):
 
 - A **Workout** (`.kintsugi/workouts/<id>/`) is an immutable, Verified definition; it never moves or changes. `done/` goes away.
 - An **Attempt** is one try at a Workout, in a fresh copy at `.kintsugi/attempts/<workout-id>/<n>/`. Outcomes (Completed, Abandoned), Hints used, and **runs** (test runs triggered by saves; v1's `attempts` counter) belong to the Attempt. Finished Attempts are kept, with the human's final code.
-- At most one open Attempt per Workout: `kin train <id>` resumes it, or starts a new one. Redoing a Workout is always explicit.
-- **Discarded** is a Workout-level state meaning archived: hidden from the queue and not counted against its cap, but kept and restorable (`kin discard <id>`, `kin restore <id>`). Workouts from commits expire into it after 14 days (configurable).
-- v1 data is migrated on first run (each `done/` Workout becomes a Workout with one finished Attempt).
+- At most one open Attempt per Workout: `kin train <id>` resumes it (with its code, runs, and Hints used), or starts a new one. Redoing a Workout is always explicit; `kin train` with no id offers open Attempts first, then the queue.
+- The runner watches the Attempt directory, reads the incident report and Reference Solution from the Workout, and treats the test file as edited when it differs from the Workout's own (never-edited) test file.
+- **Discarded** is a Workout-level state meaning archived: hidden from the queue and not counted against its cap, but kept and restorable (`kin discard <id>`, `kin restore <id>`). It is recorded in `state.json` (`"discarded": { "<id>": { "at", "reason" } }`); the Workout's files don't move. Workouts from commits expire into it after 14 days (configurable).
+- v1 data: pending v1 Workouts become v2 Workouts as they are. v1's `done/` is left in place and ignored (with a one-line notice): v1 edited Starting Code in place, so a worked-on v1 Workout's original Starting Code can't be recovered. (The package was never published; only dogfooding data is affected.)
 
 #### 11.2.3 The queue and `kin quick`
 
@@ -356,3 +360,10 @@ Each item needs its own design round before implementation.
 4. **Verified gate:** temp-dir test runner, the checks in §6, and the minimal-diff check.
 5. **Drill synthesis:** prompt builder, schema, consent flow, the retry loop with failure feedback, persistence with Source Anchors.
 6. **Runner:** file watcher, per-test display, Hints, give-up diff, Completed/Abandoned, ratings, `state.json`.
+
+## 13. Implementation Roadmap (v2)
+
+1. ~~**Workouts and Attempts**~~ Done (§11.2.2): immutable Workouts; Attempts in `.kintsugi/attempts/<id>/<n>/` with their own outcome, runs, Hints used, and rating; the runner works on an Attempt (resume or start); `kin discard` / `kin restore`; `kin cost` splits attempted from never attempted; `list_workouts` reports each Workout's status.
+2. **The queue and `kin quick`** (§11.2.3): queue selection, `kin quick`, `kin drill --quick`, the failure summary line.
+3. **Background generation from commits** (§11.2.4): commit selection and the commit-diff prompt, `kin refill [--commit <sha>]` with the lock, backlog, caps, and log; `kin auto on|off|status` with the hook; expiry of Workouts from commits.
+

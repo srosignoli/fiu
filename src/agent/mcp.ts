@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { DrillTargetError } from '../commands/drill.ts';
 import { ConfigError } from '../config.ts';
 import { UnsupportedLanguageError } from '../languages/registry.ts';
+import { ToolchainMissingError } from '../languages/run.ts';
 import { SandboxUnavailableError } from '../sandbox/sandbox.ts';
 import { DrillOutputSchema } from '../synthesis/schema.ts';
 import { SourceTooLargeError } from '../synthesis/synthesize.ts';
@@ -21,6 +22,7 @@ const AGENT_FACING_ERRORS = [
   SandboxUnavailableError,
   SourceTooLargeError,
   NotAGitRepositoryError,
+  ToolchainMissingError,
 ];
 
 export interface KinMcpServerOptions {

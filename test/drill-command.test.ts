@@ -6,7 +6,9 @@ import { describe, it } from 'node:test';
 import { execa } from 'execa';
 import { APICallError } from 'ai';
 import { costReport, startOfMonth } from '../src/commands/cost.ts';
-import { finishWorkout, loadPending } from '../src/workouts/store.ts';
+import { openAttempt } from '../src/workouts/attempts.ts';
+import { loadWorkout } from '../src/workouts/store.ts';
+import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { workspacePaths } from '../src/workspace.ts';
 import { drill, DrillTargetError, parseTarget, type DrillCommandOptions, type DrillUi } from '../src/commands/drill.ts';
 import { ConsentDeclinedError, ConsentRequiredError } from '../src/consent.ts';
@@ -244,26 +246,21 @@ describe('cost recording', () => {
     assert.ok(second.steps.includes('Your Drills have averaged $0.05 (last 1)'), second.steps.join('\n'));
   });
 
-  it('kin cost splits spend into finished, not finished, and produced nothing', async () => {
+  it('kin cost splits spend into attempted, never attempted, and produced nothing', async () => {
     const repo = await pricedRepo();
     const saved = await run({ repo, options: { yes: true } });
     await run({ repo, options: { yes: true } });
     await run({ repo, options: { yes: true }, replies: [goodDrill({ startingCode: TS_REFERENCE })] });
     const paths = workspacePaths(repo);
     const id = saved.result.status === 'saved' ? saved.result.record.id : assert.fail();
-    await finishWorkout(paths, await loadPending(paths, id), {
-      workoutId: id,
-      outcome: 'completed',
-      at: new Date().toISOString(),
-      attempts: 1,
-      hintsUsed: 0,
-    });
+    // Starting an Attempt is enough to count as attempted.
+    await openAttempt(paths, await loadWorkout(paths, id), TYPESCRIPT);
 
     const report = await costReport(repo, startOfMonth());
     const usd = (b: { usd: number; count: number }) => [b.usd.toFixed(2), b.count];
     assert.deepEqual(usd(report.total), ['0.25', 3]);
-    assert.deepEqual(usd(report.finished), ['0.05', 1]);
-    assert.deepEqual(usd(report.notFinished), ['0.05', 1]);
+    assert.deepEqual(usd(report.attempted), ['0.05', 1]);
+    assert.deepEqual(usd(report.neverAttempted), ['0.05', 1]);
     assert.deepEqual(usd(report.producedNothing), ['0.15', 1]);
     assert.deepEqual(Object.keys(report.byOrigin), ['manual']);
     assert.deepEqual(usd(await costReport(repo, new Date(Date.now() + 60_000)).then((r) => r.total)), ['0.00', 0]);

@@ -7,7 +7,9 @@ import { formatRun } from '../runner/render.ts';
 import { ignoredByWatcher, TrainingSession } from '../runner/session.ts';
 import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox } from '../sandbox/sandbox.ts';
-import { listPending, loadPending, type Outcome, type PendingWorkout } from '../workouts/store.ts';
+import { preflight } from '../languages/run.ts';
+import { openAttempt } from '../workouts/attempts.ts';
+import { listWorkouts, loadWorkout, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 
 /** The terminal, as `kin train` sees it. */
@@ -15,8 +17,8 @@ export interface TrainIo {
   print(text: string): void;
   /** The next key pressed; undefined if the read was aborted. */
   readKey(signal: AbortSignal): Promise<string | undefined>;
-  /** Choose among several pending Workouts; undefined to cancel. */
-  pick(workouts: PendingWorkout[]): Promise<PendingWorkout | undefined>;
+  /** Choose among several Workouts (open Attempts first, then the queue); undefined to cancel. */
+  pick(workouts: StoredWorkout[]): Promise<StoredWorkout | undefined>;
   rate(): Promise<Outcome['rating']>;
   /** Open these files for editing, if the user has an editor configured. */
   openEditor?(files: string[]): void;
@@ -37,8 +39,8 @@ export interface TrainDependencies {
 export type TrainResult =
   | { status: 'nothing-pending' }
   | { status: 'cancelled' }
-  | { status: 'left-pending'; workoutId: string }
-  | { status: Outcome['outcome']; workoutId: string; dir: string };
+  | { status: 'left-pending'; workoutId: string; attempt: number }
+  | { status: Outcome['outcome']; workoutId: string; attempt: number; dir: string };
 
 export class UnknownProfileError extends Error {}
 
@@ -55,13 +57,16 @@ export async function train(
   const repoRoot = await findRepoRoot(cwd);
   const paths = workspacePaths(repoRoot);
 
-  let workout: PendingWorkout;
+  let workout: StoredWorkout;
   if (id) {
-    workout = await loadPending(paths, id);
+    // Any Workout can be trained on again by id; redoing one is always this explicit.
+    workout = await loadWorkout(paths, id);
+    if (workout.status === 'discarded') throw new WorkoutDiscardedError(id);
   } else {
-    const pending = await listPending(paths);
-    if (pending.length === 0) return { status: 'nothing-pending' };
-    const picked = pending.length === 1 ? pending[0] : await io.pick(pending);
+    const all = await listWorkouts(paths);
+    const choices = [...all.filter((w) => w.status === 'in-progress'), ...all.filter((w) => w.status === 'queued')];
+    if (choices.length === 0) return { status: 'nothing-pending' };
+    const picked = choices.length === 1 ? choices[0] : await io.pick(choices);
     if (!picked) return { status: 'cancelled' };
     workout = picked;
   }
@@ -74,8 +79,10 @@ export async function train(
   try {
     if (!sandbox.isolated) io.print('Running the tests WITHOUT a sandbox (--no-sandbox). Only the environment is scrubbed.');
     await verifySandbox(sandbox, cacheRoot ? { cacheDir: cacheRoot } : {});
-    const session = new TrainingSession({ paths, workout, profile, sandbox, cacheRoot });
-    return await runSession(session, io, { debounceMs, ignore: ignoredByWatcher(profile) });
+    await preflight(sandbox, profile, cacheRoot);
+    const { attempt, resumed } = await openAttempt(paths, workout, profile);
+    const session = new TrainingSession({ paths, workout, attempt, profile, sandbox, cacheRoot });
+    return await runSession(session, io, { debounceMs, resumed, ignore: ignoredByWatcher(profile) });
   } finally {
     await sandbox.dispose();
   }
@@ -84,11 +91,16 @@ export async function train(
 async function runSession(
   session: TrainingSession,
   io: TrainIo,
-  { debounceMs, ignore }: { debounceMs?: number; ignore: (path: string) => boolean },
+  { debounceMs, resumed, ignore }: { debounceMs?: number; resumed: boolean; ignore: (path: string) => boolean },
 ): Promise<TrainResult> {
-  const { record, dir } = session.workout;
-  const files = [join(dir, 'README.md'), join(dir, record.files.code)];
-  const header = [`${record.title} (${record.id})`, `  Incident report: ${files[0]}`, `  Fix the bug in:  ${files[1]}`];
+  const { record } = session.workout;
+  const attempt = session.attempt;
+  const files = [join(session.workout.dir, 'README.md'), join(attempt.dir, record.files.code)];
+  const header = [
+    `${record.title} (${record.id}), attempt ${attempt.record.number}${resumed ? ', resumed' : ''}`,
+    `  Incident report: ${files[0]}`,
+    `  Fix the bug in:  ${files[1]}`,
+  ];
   // Workouts saved before cost recording have none.
   if (record.cost) header.push(`  Generated for:   ${describeCost(record.cost)}`);
   io.print(header.join('\n'));
@@ -111,7 +123,7 @@ async function runSession(
       while (next) {
         rerun = false;
         const result = await session.runTests(next);
-        io.print(formatRun(result));
+        io.print(formatRun(result, next));
         if (result.verdict.kind === 'completed') return finish('completed');
         next = rerun ? 'save' : undefined;
       }
@@ -119,24 +131,25 @@ async function runSession(
     })().finally(() => (running = undefined));
   };
 
-  const watcher = await watchForChanges(dir, () => runTests('save'), { ignore, debounceMs });
+  const watcher = await watchForChanges(attempt.dir, () => runTests('save'), { ignore, debounceMs });
   runTests('start');
 
   const keys = new AbortController();
   const outcome = await Promise.race([finished, readKeys(session, io, keys.signal, finish)]);
   keys.abort();
   watcher.close();
-  // Let a run in progress finish before the Workout directory moves.
+  // Let a run in progress finish before the Attempt is closed.
   await running;
 
+  const number = attempt.record.number;
   if (outcome === 'quit') {
-    io.print(`Left pending. Resume with: kin train ${record.id}`);
-    return { status: 'left-pending', workoutId: record.id };
+    io.print(`Attempt ${number} left open. Resume with: kin train ${record.id}`);
+    return { status: 'left-pending', workoutId: record.id, attempt: number };
   }
   io.print(outcome === 'completed' ? 'Completed. Well mended.' : 'Abandoned.');
   const rating = await io.rate();
-  const doneDir = await session.finish(outcome, rating);
-  return { status: outcome, workoutId: record.id, dir: doneDir };
+  await session.finish(outcome, rating);
+  return { status: outcome, workoutId: record.id, attempt: number, dir: attempt.dir };
 }
 
 async function readKeys(
@@ -149,7 +162,7 @@ async function readKeys(
     const key = await io.readKey(signal);
     if (key === undefined) return new Promise<never>(() => {});
     if (key === 'h') {
-      const next = session.nextHint();
+      const next = await session.nextHint();
       io.print(next ? `Hint ${next.number}/${next.total}: ${next.hint}` : 'No more hints.');
     } else if (key === 'g') {
       io.print(`Here is what the Reference Solution changes:\n${await session.solutionDiff()}`);

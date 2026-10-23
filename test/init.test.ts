@@ -3,11 +3,14 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execa } from 'execa';
-import { init } from '../src/commands/init.ts';
+import { init as runInit } from '../src/commands/init.ts';
 import { ConfigError } from '../src/config.ts';
+import { SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
 import { NotAGitRepositoryError } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
 
+// The real sandbox check has its own tests; here it always passes.
+const init = (cwd: string) => runInit(cwd, { checkSandbox: async () => {} });
 const readExclude = (repo: string) => readFile(join(repo, '.git', 'info', 'exclude'), 'utf8');
 
 describe('init', () => {
@@ -62,6 +65,20 @@ describe('init', () => {
 
   it('rejects directories outside a git repository', async () => {
     await assert.rejects(init(await tempDir()), NotAGitRepositoryError);
+  });
+
+  it('reports an unavailable sandbox without failing the workspace setup', async () => {
+    const repo = await tempGitRepo();
+    let checkedRoot: string | undefined;
+    const result = await runInit(repo, {
+      checkSandbox: async (root) => {
+        checkedRoot = root;
+        throw new SandboxUnavailableError(['socat not installed']);
+      },
+    });
+    assert.equal(checkedRoot, result.paths.repoRoot);
+    assert.match(result.sandboxProblem?.message ?? '', /socat not installed/);
+    assert.equal(result.createdWorkspace, true);
   });
 
   it('reports an invalid pre-existing config', async () => {

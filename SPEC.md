@@ -114,15 +114,17 @@ All Workout code (verification and runner alike) is untrusted: users drill code 
 | :--- | :--- |
 | Network | Fully denied. Go runs with `GOPROXY=off`, `GOFLAGS=-mod=mod`. |
 | Writes | Only the Workout directory and the profile's cache dirs under `~/.cache/kintsugi/<profile>/` (persistent, per user, for speed). |
-| Reads | Allowed, except `~/.ssh`, `~/.aws`, `~/.config`, `~/.gnupg`, `~/.netrc`, and the repo's `.env*` files. |
-| Environment | Empty, plus an allowlist: `PATH`, `LANG`, `HOME` (pointed at a temp dir), and the profile's `env` / `cacheDirs`. No API keys or tokens ever reach Workout code. |
-| Resources | 10 s wall-clock timeout; memory and process-count limits. |
+| Reads | Allowed, except `~/.ssh`, `~/.aws`, `~/.config`, `~/.gnupg`, `~/.netrc`, and the **entire repository** (Workouts never need it, and it may hold `.env` files, credentials, or state files). The Workout directory is re-allowed even when it lives inside the repo. |
+| Environment | Empty, plus an allowlist: `PATH`, `LANG`, `HOME` and `TMPDIR` (pointed at per-run scratch dirs), and the profile's `env` / `cacheDirs`. No API keys or tokens ever reach Workout code. |
+| Resources | 10 s wall-clock timeout that kills the command's whole process group; output capped at 1 MiB per stream. |
+
+**Known gap: no memory or process-count limits.** `ulimit -v` breaks Node (V8 reserves large virtual address ranges), `ulimit -u` counts all of the user's processes rather than the command's, and cgroups (`systemd-run --user`) are unavailable on macOS and many WSL setups. A fork bomb or memory spike is bounded only by the timeout. Revisit before public release.
 
 All execution goes through one internal `Sandbox` interface; `@anthropic-ai/sandbox-runtime` is the v1 implementation and can be swapped.
 
-**Canary:** `kin init` and the preflight run (and cache the result of) a canary test inside the sandbox that tries to open a network connection, write outside the Workout directory, read `~/.ssh`, and read a scrubbed env var. All four must fail; otherwise the sandbox is treated as unavailable.
+**Canary:** `kin init` (always fresh) and the preflight (cached for a week per platform, Node version, and sandbox-runtime version) run a canary inside the sandbox that tries to open a network connection, write outside the Workout directory, read a planted secret and every existing secret path above, and read a scrubbed env var. All must be refused, and a write inside the Workout directory must succeed (so a canary that can't run at all never counts as a pass); otherwise the sandbox is treated as unavailable.
 
-**Unavailable sandbox:** Kintsugi refuses to run Workout code and prints install instructions (e.g. install `bubblewrap`). `--no-sandbox` overrides for that single invocation and is never persisted. Environment scrubbing applies regardless.
+**Unavailable sandbox:** Kintsugi refuses to run Workout code and prints install instructions (Linux: `bubblewrap`, `socat`, `ripgrep`; macOS: `ripgrep`). `--no-sandbox` overrides for that single invocation and is never persisted. Environment scrubbing applies regardless.
 
 ## 8. Generating a Drill
 

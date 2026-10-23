@@ -53,6 +53,11 @@ export function userConfigPath({ env, home }: ConfigEnv = processConfigEnv()): s
   return join(base, 'kintsugi', 'config.json');
 }
 
+export function userCacheDir({ env, home }: ConfigEnv = processConfigEnv()): string {
+  const base = env.XDG_CACHE_HOME || join(home, '.cache');
+  return join(base, 'kintsugi');
+}
+
 export async function loadRepoConfig(configFile: string): Promise<RepoConfig> {
   const raw = await readJson(configFile);
   if (raw === undefined) return {};

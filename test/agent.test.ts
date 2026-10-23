@@ -1,0 +1,262 @@
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { after, describe, it } from 'node:test';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { execa } from 'execa';
+import { AgentDrills } from '../src/agent/drills.ts';
+import { installClaude, TrackedFileError, uninstallClaude, type ClaudeInstallOptions } from '../src/agent/install.ts';
+import { createMcpServer } from '../src/agent/mcp.ts';
+import { costReport } from '../src/commands/cost.ts';
+import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
+import type { DrillOutput } from '../src/synthesis/schema.ts';
+import type { WorkoutRecord } from '../src/workouts/save.ts';
+import { tempDir, tempGitRepo } from './helpers.ts';
+import { goodDrill, TS_REFERENCE } from './mock-model.ts';
+
+const sandboxWorks = await openSandbox().then(
+  async (s) => (await s.dispose(), true),
+  (error) => {
+    if (error instanceof SandboxUnavailableError) return false;
+    throw error;
+  },
+);
+
+async function repoWithSources(...names: string[]): Promise<string> {
+  const repo = await tempGitRepo();
+  await mkdir(join(repo, 'src'));
+  for (const name of names) await writeFile(join(repo, 'src', name), TS_REFERENCE);
+  await execa('git', ['add', '.'], { cwd: repo });
+  await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], { cwd: repo });
+  return repo;
+}
+
+/** An MCP client talking to Kintsugi's server in-process, as a coding agent would. */
+async function connect(repo: string, home?: string) {
+  home ??= await tempDir();
+  const drills = new AgentDrills({ cwd: repo, cacheRoot: await tempDir(), configEnv: { env: {}, home } });
+  const server = createMcpServer(drills, { version: '1.2.0', home });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const client = new Client({ name: 'test-agent', version: '0' });
+  await client.connect(clientTransport);
+  after(async () => {
+    await client.close();
+    await drills.close();
+  });
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const result = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] };
+    const text = result.content[0]!.text;
+    return { isError: result.isError ?? false, text, json: result.isError ? undefined : JSON.parse(text) };
+  };
+  return { client, call };
+}
+
+const readJson = async (path: string) => JSON.parse(await readFile(path, 'utf8'));
+
+describe('kin mcp', () => {
+  it('offers its tools and the rules for using them', async () => {
+    const { client } = await connect(await repoWithSources('queue.ts'));
+    const { tools } = await client.listTools();
+    assert.deepEqual(tools.map((t) => t.name).sort(), ['list_workouts', 'prepare_drill', 'submit_drill']);
+    assert.match(client.getInstructions() ?? '', /^Kintsugi turns code in this repository into Drills/);
+    // The submit schema is the Drill schema itself, so the client checks the shape.
+    const submit = tools.find((t) => t.name === 'submit_drill')!;
+    assert.ok((submit.inputSchema.properties as Record<string, { properties?: object }>).workout?.properties);
+  });
+
+  it('prepares a Drill with the same prompt and numbered source as API mode', async () => {
+    const repo = await repoWithSources('queue.ts');
+    const { call } = await connect(repo);
+    const { json } = await call('prepare_drill', { target: 'src/queue.ts#pickNext' });
+    assert.equal(json.target, 'src/queue.ts');
+    assert.equal(json.language, 'typescript');
+    assert.equal(json.maxSubmissions, 3);
+    assert.match(json.instructions, /named kata\.ts and the test file kata\.test\.ts/);
+    assert.match(json.source, /Build the Drill around `pickNext`/);
+    assert.match(json.source, / {4}1 \| export interface Job/);
+    assert.equal(json.workoutSchema.type, 'object');
+    assert.equal(json.notice, undefined);
+  });
+
+  it('refuses targets outside the repository or inside the workspace, as tool errors', async () => {
+    const repo = await repoWithSources('queue.ts');
+    const { call } = await connect(repo);
+    const outside = join(await tempDir(), 'x.ts');
+    await writeFile(outside, '');
+    assert.match((await call('prepare_drill', { target: outside })).text, /outside the repository/);
+    await mkdir(join(repo, '.kintsugi', 'workouts', 'w'), { recursive: true });
+    await writeFile(join(repo, '.kintsugi', 'workouts', 'w', 'kata.ts'), '');
+    assert.match((await call('prepare_drill', { target: '.kintsugi/workouts/w/kata.ts' })).text, /not a Workout/);
+    assert.equal((await call('prepare_drill', { target: 'nope.ts' })).isError, true);
+    assert.match((await call('submit_drill', { generationId: 'made-up', workout: goodDrill() })).text, /Unknown generation id/);
+  });
+
+  it('warns when the installed skill is older than Kintsugi', async () => {
+    const home = await tempDir();
+    await mkdir(join(home, '.claude', 'skills', 'kintsugi'), { recursive: true });
+    await writeFile(join(home, '.claude', 'skills', 'kintsugi', 'SKILL.md'), '<!-- kintsugi-version: 1.1.9 -->');
+    const { call } = await connect(await repoWithSources('queue.ts'), home);
+    const { json } = await call('prepare_drill', { target: 'src/queue.ts' });
+    assert.match(json.notice, /from version 1\.1\.9; Kintsugi is now 1\.2\.0\. Tell the user to run `kin agent install claude` again\./);
+  });
+});
+
+describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandbox'})`, { skip: !sandboxWorks }, () => {
+  async function prepareAndSubmit(call: Awaited<ReturnType<typeof connect>>['call'], target: string, workouts: DrillOutput[], extra = {}) {
+    const { json: prepared } = await call('prepare_drill', { target, ...extra });
+    const results = [];
+    for (const workout of workouts) results.push(await call('submit_drill', { generationId: prepared.generationId, workout }));
+    return results;
+  }
+
+  it('verifies and saves a Drill the agent wrote, recording it as agent-generated', async () => {
+    const repo = await repoWithSources('queue.ts');
+    const { call } = await connect(repo);
+    const [result] = await prepareAndSubmit(call, 'src/queue.ts', [goodDrill()]);
+    assert.equal(result!.json.status, 'saved', result!.text);
+    assert.match(result!.json.next, /^The user starts it with: kin train drill_\d{8}_tie-breaker$/);
+
+    const record: WorkoutRecord = await readJson(join(result!.json.workoutDir, 'workout.json'));
+    assert.equal(record.generator, 'agent');
+    assert.equal(record.origin, 'manual');
+    assert.equal(record.cost, undefined);
+    assert.match(await readFile(join(result!.json.workoutDir, 'README.md'), 'utf8'), /Generated by your coding agent \(cost not measured/);
+
+    const [entry] = (await readJson(join(repo, '.kintsugi', 'state.json'))).spend;
+    assert.equal(entry.generator, 'agent');
+    assert.equal(entry.cost, null);
+    assert.deepEqual((await costReport(repo)).byAgent, { requests: 1, workouts: 1 });
+    assert.equal((await call('list_workouts')).json.workouts[0].generator, 'agent');
+    assert.equal((await execa('git', ['status', '--porcelain'], { cwd: repo })).stdout, '');
+  });
+
+  it('returns the gate feedback for the agent to fix, up to three submissions', async () => {
+    const repo = await repoWithSources('queue.ts');
+    const { call } = await connect(repo);
+    const noBug = goodDrill({ startingCode: TS_REFERENCE });
+    const results = await prepareAndSubmit(call, 'src/queue.ts', [noBug, goodDrill({ hints: ['only one'] }), noBug, goodDrill()]);
+    assert.deepEqual(
+      results.slice(0, 3).map((r) => [r.json.status, r.json.submissionsLeft]),
+      [
+        ['rejected', 2],
+        ['rejected', 1],
+        ['rejected', 0],
+      ],
+    );
+    assert.match(results[0]!.json.feedback, /\[minimal-diff\] The Starting Code is identical/);
+    assert.match(results[1]!.json.feedback, /\[schema\] hints must contain exactly 2/);
+    assert.match(results[3]!.text, /Unknown generation id/, 'a fourth submission must start over');
+    const [entry] = (await readJson(join(repo, '.kintsugi', 'state.json'))).spend;
+    assert.deepEqual([entry.result, entry.generationAttempts, entry.cost], ['not-verified', 3, null]);
+  });
+
+  it('enforces Quick rules when asked for a Quick Drill', async () => {
+    const { call } = await connect(await repoWithSources('queue.ts'));
+    const { json: prepared } = await call('prepare_drill', { target: 'src/queue.ts', quick: true });
+    assert.match(prepared.instructions, /This is a Quick Drill/);
+    const { json } = await call('submit_drill', { generationId: prepared.generationId, workout: goodDrill({ estimatedMinutes: 9 }) });
+    assert.match(json.feedback, /\[schema\] a Quick Drill takes at most 5 minutes, not 9\./);
+  });
+
+  it('ends a generation the agent judges not worth practicing', async () => {
+    const { call } = await connect(await repoWithSources('queue.ts'));
+    const [result] = await prepareAndSubmit(call, 'src/queue.ts', [goodDrill({ worthPracticing: false, notWorthReason: 'Constants only.' })]);
+    assert.deepEqual(result!.json, { status: 'not-worth-practicing', reason: 'Constants only.' }, result!.text);
+  });
+
+  it('caps Drills from agent tasks: three in the queue, one per source file', async () => {
+    const repo = await repoWithSources('a.ts', 'b.ts', 'c.ts', 'd.ts');
+    const { call } = await connect(repo);
+    const [first] = await prepareAndSubmit(call, 'src/a.ts', [goodDrill({ slug: 'a' })], { afterTask: true });
+    assert.equal(first!.json.status, 'saved', first!.text);
+    assert.match((await call('prepare_drill', { target: 'src/a.ts', afterTask: true })).text, /already has a queued Drill/);
+    // A manual request for the same file is still fine.
+    assert.equal((await call('prepare_drill', { target: 'src/a.ts' })).isError, false);
+
+    await prepareAndSubmit(call, 'src/b.ts', [goodDrill({ slug: 'b' })], { afterTask: true });
+    await prepareAndSubmit(call, 'src/c.ts', [goodDrill({ slug: 'c' })], { afterTask: true });
+    assert.match((await call('prepare_drill', { target: 'src/d.ts', afterTask: true })).text, /queue already holds 3 Drills from agent tasks/);
+    const origins = (await call('list_workouts')).json.workouts.map((w: { origin: string }) => w.origin);
+    assert.deepEqual(origins, ['agent-task', 'agent-task', 'agent-task']);
+  });
+});
+
+describe('kin agent install claude', () => {
+  function fakeClaude(available = true) {
+    const calls: string[][] = [];
+    const runClaude: ClaudeInstallOptions['runClaude'] = async (args) => {
+      calls.push(args);
+      return available ? { exitCode: 0, output: '' } : undefined;
+    };
+    return { calls, runClaude };
+  }
+  const base = { version: '1.2.0', kinCommand: ['/usr/bin/node', '/opt/kin/dist/cli.js'] };
+
+  it('installs the skill, the command, and the MCP server at user level', async () => {
+    const home = await tempDir();
+    const { calls, runClaude } = fakeClaude();
+    const report = await installClaude({ ...base, scope: 'user', afterTasks: false, home, cwd: home, runClaude });
+
+    const skill = await readFile(join(home, '.claude', 'skills', 'kintsugi', 'SKILL.md'), 'utf8');
+    assert.match(skill, /^---\nname: kintsugi\ndescription: Creates Kintsugi Drills/);
+    assert.match(skill, /<!-- kintsugi-version: 1\.2\.0 -->/);
+    assert.match(await readFile(join(home, '.claude', 'commands', 'kin-drill.md'), 'utf8'), /Use the kintsugi skill to create a Drill for: \$ARGUMENTS/);
+    assert.ok(!existsSync(join(home, '.claude', 'CLAUDE.md')), 'no end-of-task block unless asked');
+    assert.deepEqual(calls, [
+      ['mcp', 'remove', '--scope', 'user', 'kintsugi'],
+      ['mcp', 'add', '--scope', 'user', 'kintsugi', '--', '/usr/bin/node', '/opt/kin/dist/cli.js', 'mcp'],
+    ]);
+    assert.equal(report.manualMcpCommand, undefined);
+  });
+
+  it("adds the end-of-task block to the user's CLAUDE.md once, and removes only that block", async () => {
+    const home = await tempDir();
+    await mkdir(join(home, '.claude'));
+    const memory = join(home, '.claude', 'CLAUDE.md');
+    await writeFile(memory, '# My rules\n\nUse tabs.\n');
+    const { runClaude } = fakeClaude();
+
+    await installClaude({ ...base, scope: 'user', afterTasks: true, home, cwd: home, runClaude });
+    await installClaude({ ...base, scope: 'user', afterTasks: true, home, cwd: home, runClaude });
+    const installed = await readFile(memory, 'utf8');
+    assert.equal(installed.match(/kintsugi:begin/g)?.length, 1);
+    assert.match(installed, /^# My rules\n\nUse tabs\.\n\n<!-- kintsugi:begin -->\n[\s\S]*afterTask: true[\s\S]*<!-- kintsugi:end -->\n$/);
+
+    await uninstallClaude({ scope: 'user', home, cwd: home, runClaude });
+    assert.equal(await readFile(memory, 'utf8'), '# My rules\n\nUse tabs.\n');
+    assert.ok(!existsSync(join(home, '.claude', 'skills', 'kintsugi')));
+    assert.ok(!existsSync(join(home, '.claude', 'commands', 'kin-drill.md')));
+  });
+
+  it('prints the registration command when the claude CLI is missing', async () => {
+    const home = await tempDir();
+    const report = await installClaude({ ...base, scope: 'user', afterTasks: false, home, cwd: home, runClaude: fakeClaude(false).runClaude });
+    assert.equal(report.manualMcpCommand, 'claude mcp add --scope user kintsugi -- /usr/bin/node /opt/kin/dist/cli.js mcp');
+  });
+
+  it('installs into one repository untracked, registering the server for that project only', async () => {
+    const repo = await repoWithSources('queue.ts');
+    const { calls, runClaude } = fakeClaude();
+    await installClaude({ ...base, scope: 'project', afterTasks: true, home: await tempDir(), cwd: join(repo, 'src'), runClaude });
+    assert.ok(existsSync(join(repo, '.claude', 'skills', 'kintsugi', 'SKILL.md')));
+    assert.match(await readFile(join(repo, 'CLAUDE.local.md'), 'utf8'), /kintsugi:begin/);
+    assert.equal((await execa('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo })).stdout, '');
+    assert.deepEqual(calls[1]!.slice(0, 5), ['mcp', 'add', '--scope', 'local', 'kintsugi']);
+  });
+
+  it('never modifies a tracked file', async () => {
+    const repo = await repoWithSources('queue.ts');
+    await mkdir(join(repo, '.claude', 'commands'), { recursive: true });
+    await writeFile(join(repo, '.claude', 'commands', 'kin-drill.md'), 'team version\n');
+    await execa('git', ['add', '.'], { cwd: repo });
+    await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'team command'], { cwd: repo });
+    await assert.rejects(
+      installClaude({ ...base, scope: 'project', afterTasks: false, home: await tempDir(), cwd: repo, runClaude: fakeClaude().runClaude }),
+      TrackedFileError,
+    );
+    assert.equal(await readFile(join(repo, '.claude', 'commands', 'kin-drill.md'), 'utf8'), 'team version\n');
+  });
+});

@@ -125,7 +125,11 @@ describe('kin drill', () => {
 
   it('fails on a missing API key before doing anything slow', async () => {
     const repo = await repoWithSource();
-    await assert.rejects(run({ repo, env: {}, options: { yes: true } }), MissingApiKeyError);
+    await assert.rejects(run({ repo, env: {}, options: { yes: true } }), (error: Error) => {
+      assert.ok(error instanceof MissingApiKeyError);
+      assert.match(error.message, /run `kin agent install claude`, then ask it to `\/kin-drill src\/queue\.ts`/);
+      return true;
+    });
   });
 
   it('passes a pinned symbol to the model and records it', async () => {
@@ -200,6 +204,7 @@ describe('cost recording', () => {
     assert.deepEqual({ ...entry, at: undefined, cost: undefined }, {
       at: undefined,
       origin: 'manual',
+      generator: 'kintsugi',
       source: 'src/queue.ts',
       result: 'verified',
       workoutId: record.id,

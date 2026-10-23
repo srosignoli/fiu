@@ -37,9 +37,17 @@ export type DrillOutput = z.infer<typeof DrillOutputSchema>;
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/** A Quick Workout fits in a short wait. */
+export const QUICK = { maxMinutes: 5, maxStartingCodeLines: 60 };
+
 /** The rules the schema can't express. Returns human-readable problems; empty when the output is well-formed. */
-export function checkDrillOutput(output: DrillOutput, sourceLineCount: number): string[] {
+export function checkDrillOutput(output: DrillOutput, sourceLineCount: number, { quick = false } = {}): string[] {
   const problems: string[] = [];
+  if (quick) {
+    if (output.estimatedMinutes > QUICK.maxMinutes) problems.push(`a Quick Drill takes at most ${QUICK.maxMinutes} minutes, not ${output.estimatedMinutes}.`);
+    const lines = output.startingCode.replace(/\n$/, '').split('\n').length;
+    if (lines > QUICK.maxStartingCodeLines) problems.push(`a Quick Drill's startingCode has at most ${QUICK.maxStartingCodeLines} lines, not ${lines}.`);
+  }
   if (!SLUG.test(output.slug) || output.slug.length > 48) problems.push(`slug "${output.slug}" must be kebab-case, at most 48 characters.`);
   if (output.title.trim() === '') problems.push('title is empty.');
   if (!(output.estimatedMinutes >= 2 && output.estimatedMinutes <= 15)) {

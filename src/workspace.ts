@@ -50,7 +50,12 @@ export async function ensureWorkspace(paths: WorkspacePaths): Promise<boolean> {
 }
 
 /** Hides the workspace from git via the repo-local exclude file (never the tracked .gitignore). Returns whether the file changed. */
-export async function excludeWorkspaceFromGit(repoRoot: string): Promise<boolean> {
+export function excludeWorkspaceFromGit(repoRoot: string): Promise<boolean> {
+  return excludeFromGit(repoRoot, EXCLUDE_LINE, [`${WORKSPACE_DIRNAME}/`]);
+}
+
+/** Adds a pattern to the repo-local exclude file unless it (or an equivalent) is already there. Returns whether the file changed. */
+export async function excludeFromGit(repoRoot: string, pattern: string, equivalents: string[] = []): Promise<boolean> {
   // `--git-path` resolves correctly for worktrees and custom GIT_DIRs.
   const { stdout } = await execa('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: repoRoot });
   const excludeFile = resolve(repoRoot, stdout.trim());
@@ -59,13 +64,19 @@ export async function excludeWorkspaceFromGit(repoRoot: string): Promise<boolean
   const alreadyExcluded = current
     .split('\n')
     .map((line) => line.trim())
-    .some((line) => line === EXCLUDE_LINE || line === `${WORKSPACE_DIRNAME}/`);
+    .some((line) => line === pattern || equivalents.includes(line));
   if (alreadyExcluded) return false;
 
   await mkdir(resolve(excludeFile, '..'), { recursive: true });
   const separator = current === '' || current.endsWith('\n') ? '' : '\n';
-  await appendFile(excludeFile, `${separator}${EXCLUDE_LINE}\n`);
+  await appendFile(excludeFile, `${separator}${pattern}\n`);
   return true;
+}
+
+/** True when git tracks the file, which Kintsugi never modifies. */
+export async function isTracked(repoRoot: string, path: string): Promise<boolean> {
+  const result = await execa('git', ['ls-files', '--error-unmatch', '--', path], { cwd: repoRoot, reject: false });
+  return result.exitCode === 0;
 }
 
 async function writeIfMissing(path: string, content: string): Promise<void> {

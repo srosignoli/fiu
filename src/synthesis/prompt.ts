@@ -1,4 +1,5 @@
 import type { LanguageProfile } from '../languages/profile.ts';
+import { QUICK } from './schema.ts';
 
 export interface DrillTarget {
   /** Path relative to the repository root, as shown to the model. */
@@ -11,7 +12,10 @@ export interface DrillTarget {
 /** Above this, the user should pin a symbol in a smaller file rather than have us truncate silently. */
 export const MAX_SOURCE_LINES = 3000;
 
-export function drillSystemPrompt(profile: LanguageProfile): string {
+export function drillSystemPrompt(profile: LanguageProfile, { quick = false } = {}): string {
+  const quickRules = quick
+    ? `\n\nThis is a Quick Drill, for a short wait: pick a small unit, keep startingCode to at most ${QUICK.maxStartingCodeLines} lines, and make estimatedMinutes ${QUICK.maxMinutes} or less.`
+    : '';
   return `You create Drills: small debugging exercises that keep developers fluent in their own codebase.
 
 A Drill takes one real unit of code from the developer's repository, makes it self-contained, injects one realistic bug, and asks the developer to find and fix it, guided by failing tests and an incident report.
@@ -38,7 +42,7 @@ Rules for this language (${profile.id}):
 ${profile.promptRules
   .split('\n')
   .map((rule) => `- ${rule}`)
-  .join('\n')}`;
+  .join('\n')}${quickRules}`;
 }
 
 export function drillUserPrompt(target: DrillTarget): string {

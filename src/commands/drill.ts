@@ -5,7 +5,7 @@ import { relative, resolve, sep } from 'node:path';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { estimateCost, formatUsd, type Cost, type ModelUsage } from '../cost/usage.ts';
 import { ConsentDeclinedError, ConsentRequiredError, hasConsent, recordConsent } from '../consent.ts';
-import { resolveApiKey } from '../credentials.ts';
+import { MissingApiKeyError, resolveApiKey } from '../credentials.ts';
 import { profileForFile } from '../languages/registry.ts';
 import { preflight } from '../languages/run.ts';
 import { verifySandbox } from '../sandbox/canary.ts';
@@ -65,7 +65,14 @@ export async function drill(
   const config = resolveConfig(repoConfig, userConfig);
   const profile = profileForFile(file, config.profiles);
   // Fail on a missing key before doing anything slow.
-  const apiKey = resolveApiKey(config.provider, userConfig, configEnv);
+  let apiKey: string;
+  try {
+    apiKey = resolveApiKey(config.provider, userConfig, configEnv);
+  } catch (error) {
+    if (!(error instanceof MissingApiKeyError)) throw error;
+    error.message += `\nOr generate it with your coding agent instead: run \`kin agent install claude\`, then ask it to \`/kin-drill ${sourcePath}\`.`;
+    throw error;
+  }
 
   const sandbox = await openSandbox({ repoRoot, allowUnsandboxed: !options.sandbox });
   try {
@@ -140,6 +147,7 @@ export async function drill(
         await recordSpend(paths, {
           at: new Date().toISOString(),
           origin: 'manual',
+          generator: 'kintsugi',
           source: sourcePath,
           ...spend,
           cost: estimateCost(usage, config.prices),
@@ -162,7 +170,8 @@ export function parseTarget(cwd: string, target: string): { file: string; symbol
   return { file, symbol };
 }
 
-function repoRelative(repoRoot: string, file: string): string {
+/** The target as a path relative to the repository root; refuses paths outside it and Workouts themselves. */
+export function repoRelative(repoRoot: string, file: string): string {
   const path = relative(repoRoot, file);
   if (path.startsWith('..') || path === '') throw new DrillTargetError(`${file} is outside the repository at ${repoRoot}.`);
   if (path.split(sep)[0] === '.kintsugi') throw new DrillTargetError('Drill your own code, not a Workout.');

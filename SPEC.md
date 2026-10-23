@@ -40,6 +40,8 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin init` | Creates `.kintsugi/`, appends `.kintsugi/` to `.git/info/exclude`, runs the sandbox canary (§7), prints a tip on disabling AI completions inside `.kintsugi/` in your editor. |
 | `kin drill <file>[#symbol] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
 | `kin train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
+| `kin mcp` | Kintsugi's MCP server (stdio), started by your coding agent (§11.1.1). |
+| `kin agent install claude [--project] [--after-tasks]` / `kin agent uninstall claude [--project]` | Install or remove the skill, `/kin-drill` command, and MCP registration for Claude Code (§11.1.1). |
 | `kin cost [--since <date>]` | What generating Workouts has cost since a date (default: the start of this month), split into finished Workouts, Workouts not finished yet, and requests that produced nothing (§11.2.1). |
 
 ## 5. Language Profiles
@@ -265,21 +267,21 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
 3. **npm scope** chosen; `"private": true` removed.
 4. ~~**Sandbox resource limits**~~ Done (§7 *Resource limits*).
 5. **Sandbox verified** on macOS and native Linux (so far only WSL), including whether `RLIMIT_DATA` is enforced on macOS.
-6. **Agent mode** (§11.1.1).
+6. ~~**Agent mode**~~ Done (§11.1.1).
 
-### 11.1.1 Agent mode (in v1.0)
+### 11.1.1 Agent mode (implemented in v1.0)
 
 Generate Workouts with the user's own coding agent instead of an API key ([ADR 0005](./docs/adr/0005-called-by-agents-never-driving-them.md)): Kintsugi is *called by* the agent, never drives one. Everything after generation (the Verified gate, the sandbox, saving, the runner) is unchanged.
 
 - **No mode switch.** `kin drill` generates through the API; the agent generates through the MCP tools. With no API key, `kin drill` suggests the agent ("run `kin agent install`, then ask it to `/kin-drill src/queue.ts`").
 - **`kin mcp`**: a local (stdio) MCP server for any MCP client, working in the git repository containing its working directory. Tools:
-  - `prepare_drill(target, { quick? })` returns a generation id, the same system prompt and numbered source API mode sends, and `DrillOutputSchema` as JSON Schema.
+  - `prepare_drill(target, { quick?, afterTask? })` returns a generation id, the same system prompt and numbered source API mode sends, and `DrillOutputSchema` as JSON Schema.
   - `submit_drill(id, workout)`: the input schema *is* `DrillOutputSchema`. Runs `checkDrillOutput` and the Verified gate in the sandbox, and returns the saved Workout's id or the same retry feedback API mode uses. At most 3 submissions per generation id, then "start over with `prepare_drill`".
   - `list_workouts`.
 - **Boundaries.** Targets follow `kin drill`'s rules (inside the repository, not in `.kintsugi/`). Workout code never runs unsandboxed: there is no `--no-sandbox` equivalent, and with no working sandbox `submit_drill` returns the install instructions. The server never prompts. There is no consent step: Kintsugi sends nothing anywhere; the agent already has the code.
 - **Guidance.** The essential rules live in the MCP server's instructions and tool descriptions, so every client gets them (prepare before submitting; fix every reported problem; never edit files under `.kintsugi/`; stop after a refusal).
-- **`kin agent install claude`** (Claude Code first; other agents get documented manual setup) installs at user level by default: a skill (choosing a unit worth drilling while exploring, delegating generation to a subagent so the user's working context stays clean, never revealing the bug, pointing to `kin train <id>`, offering Hints rather than fixes when asked for help on a Workout), a thin `/kin-drill` command invoking it, and the MCP registration (`claude mcp add --scope user`). `--project` writes them into the repository instead, untracked and hidden through `.git/info/exclude`. The files are generated from text embedded in `kin`, stamped with its version; `kin mcp` warns when they're older than itself.
-- **`--after-tasks`** (opt-in) adds an instruction to generate a Quick Drill about what the agent changed when it finishes a task: Origin `agent-task`, subject to the v2 queue caps (`submit_drill` refuses when the queue is full or the source file already has a queued Workout from an agent task).
+- **`kin agent install claude`** (Claude Code first; other MCP clients run `kin mcp` as a stdio server) installs at user level by default (`~/.claude/skills/kintsugi/SKILL.md`, `~/.claude/commands/kin-drill.md`, `claude mcp add --scope user`; the end-of-task block goes in `~/.claude/CLAUDE.md`). With `--project`: `.claude/…` and `CLAUDE.local.md` in the repository, untracked and excluded, never overwriting a tracked file, and `claude mcp add --scope local`. Re-running replaces the previous installation; `kin agent uninstall` removes exactly what was added (only files carrying Kintsugi's stamp, and only the marked block). Without the `claude` CLI, the registration command is printed to run by hand. It installs: a skill (choosing a unit worth drilling while exploring, delegating generation to a subagent so the user's working context stays clean, never revealing the bug, pointing to `kin train <id>`, offering Hints rather than fixes when asked for help on a Workout), a thin `/kin-drill` command invoking it, and the MCP registration (`claude mcp add --scope user`). `--project` writes them into the repository instead, untracked and hidden through `.git/info/exclude`. The files are generated from text embedded in `kin`, stamped with its version; `kin mcp` warns when they're older than itself.
+- **`--after-tasks`** (opt-in) adds a marked block with an instruction to generate a Quick Drill about what the agent changed when it finishes a task: Origin `agent-task`, subject to the v2 queue caps (`submit_drill` refuses when the queue is full or the source file already has a queued Workout from an agent task).
 - **Recording.** Each Workout records its **Generator** (`kintsugi` or `agent`) next to its Origin. Agent-generated requests enter the spend ledger with cost "not measured" (never $0: they used the agent's plan); `kin cost` lists them separately; the README says "Generated by your coding agent".
 - **Not in v1.0:** an IDE "Socratic coach" rule (part of the deferred Socratic coach), installers for agents other than Claude Code.
 

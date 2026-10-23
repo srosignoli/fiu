@@ -18,6 +18,8 @@ export interface CostReport {
   /** Spend on requests that produced no Workout (not Verified, not worth practicing, or an error). */
   producedNothing: SpendBucket;
   byOrigin: Record<string, SpendBucket>;
+  /** Requests your coding agent generated: counted, but their cost isn't measured. */
+  byAgent: { requests: number; workouts: number };
   /** Usage that has no known price, so isn't in any dollar figure. */
   unpriced: ModelUsage[];
   pricesAsOf: string;
@@ -42,17 +44,24 @@ export async function costReport(cwd: string, since: Date = startOfMonth()): Pro
     notFinished: empty(),
     producedNothing: empty(),
     byOrigin: {},
+    byAgent: { requests: 0, workouts: 0 },
     unpriced: [],
     pricesAsOf: PRICES_AS_OF,
   };
   const unpriced: ModelUsage[] = [];
   for (const entry of state.spend.filter((s) => Date.parse(s.at) >= since.getTime())) {
+    if (entry.cost === null) {
+      report.byAgent.requests++;
+      if (entry.result === 'verified') report.byAgent.workouts++;
+      continue;
+    }
+    const cost = entry.cost;
     const buckets = [report.total, bucketFor(report, entry, finishedIds), (report.byOrigin[entry.origin] ??= empty())];
     for (const bucket of buckets) {
-      bucket.usd += entry.cost.usd;
+      bucket.usd += cost.usd;
       bucket.count++;
     }
-    unpriced.push(...entry.cost.usage.filter((u) => entry.cost.unpricedModels.includes(u.model)));
+    unpriced.push(...cost.usage.filter((u) => cost.unpricedModels.includes(u.model)));
   }
   report.unpriced = mergeByModel(unpriced);
   return report;

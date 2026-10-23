@@ -34,13 +34,16 @@ export const CostSchema = z.object({
 /** One request for a Workout and everything it cost, whether or not it produced one. */
 export const SpendSchema = z.object({
   at: z.iso.datetime(),
-  origin: z.literal('manual'),
+  origin: z.enum(['manual', 'agent-task']),
+  /** Entries from before agent mode are all `kintsugi`. */
+  generator: z.enum(['kintsugi', 'agent']).default('kintsugi'),
   /** The source file, relative to the repository root. */
   source: z.string(),
   result: z.enum(['verified', 'not-verified', 'not-worth-practicing', 'error']),
   workoutId: z.string().optional(),
   generationAttempts: z.number().int().nonnegative(),
-  cost: CostSchema,
+  /** Null when the user's agent generated it: Kintsugi can't see its usage. */
+  cost: CostSchema.nullable(),
 });
 export type Spend = z.infer<typeof SpendSchema>;
 
@@ -68,9 +71,9 @@ export async function recordSpend(paths: WorkspacePaths, spend: Spend): Promise<
 
 /** The mean cost of recent generation requests, counting only fully priced ones. */
 export function averageSpend(spend: Spend[], last = 10): { usd: number; count: number } | undefined {
-  const priced = spend.filter((s) => s.cost.unpricedModels.length === 0).slice(-last);
+  const priced = spend.filter((s) => s.cost !== null && s.cost.unpricedModels.length === 0).slice(-last);
   if (priced.length === 0) return undefined;
-  return { usd: priced.reduce((sum, s) => sum + s.cost.usd, 0) / priced.length, count: priced.length };
+  return { usd: priced.reduce((sum, s) => sum + s.cost!.usd, 0) / priced.length, count: priced.length };
 }
 
 export class WorkoutNotFoundError extends Error {

@@ -12,7 +12,8 @@ import { quick, train, type TrainResult } from './commands/train.ts';
 import { terminalTrainIo } from './terminal.ts';
 import { VERSION } from './version.ts';
 import { discardWorkout, legacyDoneNotice, restoreWorkout } from './workouts/store.ts';
-import { findRepoRoot, workspacePaths } from './workspace.ts';
+import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from './workspace.ts';
+import { loadRepoConfig, loadUserConfig, resolveConfig } from './config.ts';
 
 const program = new Command()
   .name('kintsugi')
@@ -33,6 +34,7 @@ program
       console.log('Sandbox check passed.');
     }
     console.log(EDITOR_TIP);
+    console.log('To get a Quick Drill from each of your commits in the background, run: kin auto on');
   });
 
 program
@@ -213,6 +215,80 @@ program
   .option('--no-train', 'only save the Drill, without opening the runner')
   .action(async (options: { commit?: string; background?: boolean; yes: boolean; sandbox: boolean; train: boolean }) => {
     await runRefill({ ...options, background: options.background ?? false });
+  });
+
+const auto = program.command('auto').description('Background generation: a Quick Drill from each of your commits.');
+
+auto
+  .command('on')
+  .description('Turn background generation on for this repository and install the git hook.')
+  .option('-y, --yes', 'consent without prompting', false)
+  .option('--queue-cap <count>', 'at most this many Workouts waiting in the queue (default 3)')
+  .option('--daily-limit <count>', 'at most this many generations a day, retries included (default 5)')
+  .option('--ai-only', 'only generate from AI-authored commits')
+  .action(async (options: { yes: boolean; queueCap?: string; dailyLimit?: string; aiOnly?: boolean }) => {
+    const { enableAuto } = await import('./background/auto.ts');
+    const paths = workspacePaths(await findRepoRoot(process.cwd()));
+    await ensureWorkspace(paths);
+    await excludeWorkspaceFromGit(paths.repoRoot);
+    const repoConfig = await loadRepoConfig(paths.configFile);
+    const config = resolveConfig(repoConfig, await loadUserConfig());
+    const positive = (value: string | undefined, flag: string) => {
+      if (value === undefined) return undefined;
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 1) throw new Error(`${flag} must be a whole number of at least 1, not "${value}".`);
+      return n;
+    };
+    const caps = {
+      ...(options.queueCap ? { queueCap: positive(options.queueCap, '--queue-cap') } : {}),
+      ...(options.dailyLimit ? { dailyLimit: positive(options.dailyLimit, '--daily-limit') } : {}),
+      ...(options.aiOnly ? { aiOnly: true } : {}),
+    };
+    const hook = await enableAuto({
+      paths,
+      repoConfig,
+      provider: config.provider,
+      model: config.model,
+      kinCommand: kinCommand(),
+      caps,
+      yes: options.yes,
+      confirm: process.stdin.isTTY ? async (message) => (await confirm({ message, initialValue: false })) === true : undefined,
+    });
+    if (!hook) {
+      log.info('Background generation stays off.');
+      return;
+    }
+    if (hook.status === 'installed') log.success(`Background generation is on. Hook: ${hook.path}`);
+    else log.warn(`Background generation is on, but core.hooksPath is set (${hook.hooksPath}). Add this to your post-commit hook:\n${hook.snippet}`);
+    log.info('Tip: keep your API key in the user config: commits made from GUI tools may not see shell variables.');
+  });
+
+auto
+  .command('off')
+  .description('Turn background generation off and remove the git hook block.')
+  .action(async () => {
+    const { removeHook, setAuto } = await import('./background/auto.ts');
+    const paths = workspacePaths(await findRepoRoot(process.cwd()));
+    await setAuto(paths.configFile, false);
+    const { removed, path } = await removeHook(paths.repoRoot);
+    log.success(`Background generation is off.${removed ? ` Removed Kintsugi's block from ${path}.` : ''}`);
+  });
+
+auto
+  .command('status')
+  .description('Show whether background generation is on, today’s usage, the queue, and recent failures.')
+  .action(async () => {
+    const { autoStatus } = await import('./background/auto.ts');
+    const paths = workspacePaths(await findRepoRoot(process.cwd()));
+    const s = await autoStatus(paths, await loadRepoConfig(paths.configFile));
+    const lines = [
+      `Background generation: ${s.enabled ? 'on' : 'off'}${s.enabled && !s.hookInstalled ? ' (no hook in .git/hooks: add it to your hook manager, or run kin auto on again)' : ''}`,
+      `Today: ${s.generationsToday} of ${s.caps.dailyLimit} generations used`,
+      `Queue: ${s.queued} of ${s.caps.queueCap} Workouts waiting${s.backlog ? `; ${s.backlog} commit(s) in the backlog` : ''}`,
+      ...(s.caps.aiOnly ? ['Only AI-authored commits'] : []),
+      ...s.recentFailures.map((f) => `Failed ${f.at.slice(0, 16).replace('T', ' ')}: ${f.commit?.slice(0, 12) ?? ''} ${f.reason ?? ''}`),
+    ];
+    log.message(lines.join('\n'));
   });
 
 program

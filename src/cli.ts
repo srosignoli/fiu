@@ -8,7 +8,7 @@ import { costReport, startOfMonth, type SpendBucket } from './commands/cost.ts';
 import { drill, type DrillUi } from './commands/drill.ts';
 import { describeCost, formatUsd, totalTokens } from './cost/usage.ts';
 import { EDITOR_TIP, init } from './commands/init.ts';
-import { train, type TrainResult } from './commands/train.ts';
+import { quick, train, type TrainResult } from './commands/train.ts';
 import { terminalTrainIo } from './terminal.ts';
 import { VERSION } from './version.ts';
 import { discardWorkout, legacyDoneNotice, restoreWorkout } from './workouts/store.ts';
@@ -39,10 +39,11 @@ program
   .command('drill')
   .description('Generate a Drill from a file (optionally pinned to a symbol), verify it, and save it.')
   .argument('<target>', 'the source file, optionally followed by #symbol')
+  .option('--quick', 'a Quick Drill, small enough for a short wait')
   .option('--no-train', 'only save the Drill, without opening the runner')
   .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
-  .action(async (target: string, options: { train: boolean; yes: boolean; sandbox: boolean }) => {
+  .action(async (target: string, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean }) => {
     const ui = terminalUi();
     try {
       const result = await drill(process.cwd(), target, options, ui);
@@ -175,6 +176,25 @@ program
     lines.push(`Estimates use list prices as of ${report.pricesAsOf}; your provider's bill is authoritative.`);
     log.message(lines.join('\n'));
     await legacyNotice();
+  });
+
+program
+  .command('quick')
+  .description('Start the best Quick Workout in the queue right away: for a short wait.')
+  .option('--no-sandbox', 'run the tests without isolation, for this invocation only')
+  .action(async (options: { sandbox: boolean }) => {
+    const io = terminalTrainIo();
+    let result;
+    try {
+      result = await quick(process.cwd(), options, io);
+    } finally {
+      io.close();
+    }
+    if (result.status === 'nothing-ready') {
+      log.info('No Quick Workout is ready. Make one with `kin drill --quick <file>`, or ask your agent: `/kin-drill <file> quick`.');
+    } else if (result.status === 'completed' || result.status === 'abandoned') {
+      log.info(`Attempt ${result.attempt} kept at ${result.dir}.`);
+    }
   });
 
 program

@@ -28,6 +28,8 @@ export interface SynthesizeDrillOptions {
   onEvent?: (event: SynthesisEvent) => void;
   /** Root for the profile's persistent caches (tests use a temp dir). */
   cacheRoot?: string;
+  /** A Quick Drill: the prompt asks for one, and its size is checked. */
+  quick?: boolean;
 }
 
 export type SynthesisResult =
@@ -54,6 +56,7 @@ export async function synthesizeDrill({
   providerOptions,
   onEvent = () => {},
   cacheRoot,
+  quick = false,
 }: SynthesizeDrillOptions): Promise<SynthesisResult> {
   const sourceLines = target.source.replace(/\n$/, '').split('\n').length;
   if (sourceLines > MAX_SOURCE_LINES) throw new SourceTooLargeError(target.path, sourceLines);
@@ -64,7 +67,7 @@ export async function synthesizeDrill({
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     onEvent({ type: 'generating', attempt });
-    const generated = await generate(model, modelId, profile, messages, providerOptions);
+    const generated = await generate(model, modelId, profile, messages, providerOptions, quick);
     onEvent({ type: 'usage', attempt, usage: generated.usage });
     messages.push(...generated.responseMessages);
 
@@ -75,7 +78,7 @@ export async function synthesizeDrill({
     if (!generated.output) {
       feedback = `[schema] The response was not a valid Drill object: ${generated.error}`;
     } else {
-      const problems = checkDrillOutput(generated.output, sourceLines);
+      const problems = checkDrillOutput(generated.output, sourceLines, { quick });
       if (problems.length > 0) {
         feedback = problems.map((problem) => `[schema] ${problem}`).join('\n');
       } else {
@@ -116,11 +119,12 @@ async function generate(
   profile: LanguageProfile,
   messages: ModelMessage[],
   providerOptions: ProviderOptions | undefined,
+  quick: boolean,
 ): Promise<Generated> {
   try {
     const result = await generateText({
       model,
-      system: drillSystemPrompt(profile),
+      system: drillSystemPrompt(profile, { quick }),
       messages,
       output: Output.object({ schema: DrillOutputSchema }),
       providerOptions,

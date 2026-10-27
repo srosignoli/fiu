@@ -134,6 +134,18 @@ describe('kin drill', () => {
     });
   });
 
+  it('asks for a Quick Drill with --quick, and holds it to Quick size', async () => {
+    const repo = await repoWithSource();
+    const { result, prompts } = await run({
+      repo,
+      options: { yes: true, quick: true },
+      replies: [goodDrill({ estimatedMinutes: 8 }), goodDrill({ estimatedMinutes: 4 })],
+    });
+    assert.match(prompts[0]!, /This is a Quick Drill/);
+    assert.match(prompts[1]!, /\[schema\] a Quick Drill takes at most 5 minutes, not 8\./);
+    assert.equal(result.status === 'saved' && result.record.estimatedMinutes, 4);
+  });
+
   it('passes a pinned symbol to the model and records it', async () => {
     const repo = await repoWithSource();
     const { result, prompts } = await run({ repo, options: { yes: true }, target: 'src/queue.ts#pickNext' });

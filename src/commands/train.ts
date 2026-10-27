@@ -9,6 +9,7 @@ import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox } from '../sandbox/sandbox.ts';
 import { preflight } from '../languages/run.ts';
 import { openAttempt } from '../workouts/attempts.ts';
+import { nextQuickWorkout } from '../workouts/queue.ts';
 import { listWorkouts, loadWorkout, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 
@@ -43,6 +44,18 @@ export type TrainResult =
   | { status: Outcome['outcome']; workoutId: string; attempt: number; dir: string };
 
 export class UnknownProfileError extends Error {}
+
+/** `kin quick`: straight into the queue's best Quick Workout, no picker, no prompts. */
+export async function quick(
+  cwd: string,
+  options: TrainOptions,
+  io: TrainIo,
+  dependencies: TrainDependencies = {},
+): Promise<TrainResult | { status: 'nothing-ready' }> {
+  const next = await nextQuickWorkout(workspacePaths(await findRepoRoot(cwd)));
+  if (!next) return { status: 'nothing-ready' };
+  return train(cwd, next.record.id, options, io, dependencies);
+}
 
 export const KEYS_HELP = '[h] hint   [g] give up   [q] quit';
 

@@ -21,6 +21,8 @@ export interface DrillCommandOptions {
   yes: boolean;
   /** False with --no-sandbox: run Workout code without isolation, for this invocation only. */
   sandbox: boolean;
+  /** --quick: a Drill that fits a short wait. */
+  quick?: boolean;
 }
 
 /** How the command talks to the user; the CLI renders it, tests record it. */
@@ -102,6 +104,7 @@ export async function drill(
     const spend: Pick<Spend, 'result' | 'workoutId' | 'generationAttempts'> = { result: 'error', generationAttempts: 0 };
     try {
       const result = await synthesizeDrill({
+        quick: options.quick ?? false,
         target: { path: sourcePath, source, symbol },
         profile,
         sandbox,

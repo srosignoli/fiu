@@ -1,18 +1,20 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execa } from 'execa';
-import { train, type TrainIo, type TrainResult } from '../src/commands/train.ts';
+import { quick, train, type TrainIo, type TrainResult } from '../src/commands/train.ts';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { ignoredByWatcher, TrainingSession } from '../src/runner/session.ts';
 import { watchForChanges } from '../src/runner/watch.ts';
 import { openSandbox, openUnsandboxed, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
 import { estimateCost } from '../src/cost/usage.ts';
-import { saveDrill, sourceRevision } from '../src/workouts/save.ts';
+import { saveDrill, sourceRevision, type Origin } from '../src/workouts/save.ts';
+import { nextQuickWorkout } from '../src/workouts/queue.ts';
+import type { DrillOutput } from '../src/synthesis/schema.ts';
 import { openAttempt } from '../src/workouts/attempts.ts';
-import { discardWorkout, listWorkouts, readState, restoreWorkout, type Outcome, type StoredWorkout } from '../src/workouts/store.ts';
+import { discardWorkout, listWorkouts, loadWorkout, readState, restoreWorkout, type Outcome, type StoredWorkout } from '../src/workouts/store.ts';
 import { ensureWorkspace, workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
 import { goodDrill, TS_REFERENCE } from './mock-model.ts';
@@ -357,5 +359,56 @@ describe('watchForChanges', () => {
     } finally {
       watcher.close();
     }
+  });
+});
+
+describe(`kin quick (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
+  /** Saves a Drill into an existing repo; `seconds` orders them by creation time. */
+  async function addDrill(repo: string, slug: string, seconds: number, overrides: Partial<DrillOutput> = {}, origin: Origin = 'manual') {
+    return saveDrill({
+      paths: workspacePaths(repo),
+      profile: TYPESCRIPT,
+      drill: goodDrill({ slug, estimatedMinutes: 4, ...overrides }),
+      sourcePath: 'queue.ts',
+      revision: { dirty: false },
+      generationAttempts: 1,
+      origin,
+      now: new Date(Date.now() + seconds * 1000),
+    });
+  }
+
+  it('picks the queue’s best Quick Workout: from AI-written code first, then the newest', async () => {
+    const { repo, paths, record } = await repoWithDrill('oldest');
+    assert.equal(record.estimatedMinutes, 5, 'goodDrill takes 5 minutes, which is still Quick');
+    await addDrill(repo, 'too-long-to-solve', 1, { estimatedMinutes: 9 });
+    await addDrill(repo, 'too-much-code', 2, { startingCode: `${'// filler\n'.repeat(60)}${TS_REFERENCE}` });
+    const agentTask = await addDrill(repo, 'from-agent-task', 3, {}, 'agent-task');
+    const newest = await addDrill(repo, 'newest-manual', 4);
+
+    assert.equal((await nextQuickWorkout(paths))?.record.id, agentTask.id);
+    await discardWorkout(paths, agentTask.id, 'manual');
+    assert.equal((await nextQuickWorkout(paths))?.record.id, newest.id);
+    await openAttempt(paths, await loadWorkout(paths, newest.id), TYPESCRIPT);
+    assert.equal((await nextQuickWorkout(paths))?.record.id, record.id, 'attempted Workouts leave the queue');
+  });
+
+  it('skips Workouts whose source file is gone', async () => {
+    const { repo, paths } = await repoWithDrill();
+    await rm(join(repo, 'queue.ts'));
+    assert.equal(await nextQuickWorkout(paths), undefined);
+  });
+
+  it('opens the runner straight away, or says nothing is ready', async () => {
+    const { repo, record } = await repoWithDrill();
+    const io = new ScriptedIo();
+    const run = (target: string) =>
+      tempDir().then(async (cacheRoot) => quick(target, { sandbox: sandboxWorks }, io, { configEnv: { env: {}, home: await tempDir() }, cacheRoot, debounceMs: 20 }));
+    const session = run(repo);
+    await io.waitFor(/^Initial run/);
+    assert.equal(io.picked, undefined, 'no picker');
+    assert.match(io.printed[0]!, new RegExp(`^${record.title} \\(${record.id}\\), attempt 1`));
+    io.press('q');
+    await session;
+    assert.deepEqual(await run(repo), { status: 'nothing-ready' }, 'the Workout now has an Attempt, so the queue is empty');
   });
 });

@@ -38,7 +38,8 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | Command | Description |
 | :--- | :--- |
 | `kin init` | Creates `.kintsugi/`, appends `.kintsugi/` to `.git/info/exclude`, runs the sandbox canary (§7), prints a tip on disabling AI completions inside `.kintsugi/` in your editor. |
-| `kin drill <file>[#symbol] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
+| `kin drill <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill (Quick with `--quick`) from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
+| `kin quick [--no-sandbox]` | Start the queue's best Quick Workout right away (§11.2.3). |
 | `kin train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
 | `kin mcp` | Kintsugi's MCP server (stdio), started by your coding agent (§11.1.1). |
 | `kin agent install claude [--project] [--after-tasks]` / `kin agent uninstall claude [--project]` | Install or remove the skill, `/kin-drill` command, and MCP registration for Claude Code (§11.1.1). |
@@ -315,11 +316,11 @@ Per [ADR 0003](./docs/adr/0003-workouts-are-immutable-attempts-hold-outcomes.md)
 - **Discarded** is a Workout-level state meaning archived: hidden from the queue and not counted against its cap, but kept and restorable (`kin discard <id>`, `kin restore <id>`). It is recorded in `state.json` (`"discarded": { "<id>": { "at", "reason" } }`); the Workout's files don't move. Workouts from commits expire into it after 14 days (configurable).
 - v1 data: pending v1 Workouts become v2 Workouts as they are. v1's `done/` is left in place and ignored (with a one-line notice): v1 edited Starting Code in place, so a worked-on v1 Workout's original Starting Code can't be recovered. (The package was never published; only dogfooding data is affected.)
 
-#### 11.2.3 The queue and `kin quick`
+#### 11.2.3 The queue and `kin quick` (implemented, except where noted)
 
 - The **queue** is the Workouts that have never been attempted and aren't Discarded: one pool for manual and background Workouts. Each Workout records its **Origin**: `manual` or `commit:<sha>`.
-- **`kin quick`** picks the best queued **Quick** Workout (from AI-authored commits first, then newest; skipping any whose source file no longer exists) and opens the runner at once: no picker, no prompts, and it exits when done. With nothing ready, it offers to run `kin refill` in the foreground. There is no uncommitted-diff fallback.
-- **Quick** is enforced mechanically: `estimatedMinutes ≤ 5` and Starting Code ≤ 60 lines, as `[schema]` retry feedback. Workouts from commits are always Quick; manual ones with `kin drill --quick`.
+- **`kin quick`** picks the best queued **Quick** Workout (from AI-written code first: agent tasks, and AI-authored commits once phase 3 lands; then newest; skipping any whose source file no longer exists) and opens the runner at once: no picker, no prompts, and it exits when done. With nothing ready, it says how to make one; offering `kin refill` in the foreground arrives with phase 3. There is no uncommitted-diff fallback.
+- **Quick** is enforced mechanically: `estimatedMinutes ≤ 5` and Starting Code ≤ 60 lines, as `[schema]` retry feedback. Workouts from commits are always Quick; manual ones with `kin drill --quick` (or `quick: true` in agent mode). The queue judges Quick by the same numbers, so any small enough Workout qualifies however it was requested.
 
 #### 11.2.4 Background generation from commits
 
@@ -364,6 +365,6 @@ Each item needs its own design round before implementation.
 ## 13. Implementation Roadmap (v2)
 
 1. ~~**Workouts and Attempts**~~ Done (§11.2.2): immutable Workouts; Attempts in `.kintsugi/attempts/<id>/<n>/` with their own outcome, runs, Hints used, and rating; the runner works on an Attempt (resume or start); `kin discard` / `kin restore`; `kin cost` splits attempted from never attempted; `list_workouts` reports each Workout's status.
-2. **The queue and `kin quick`** (§11.2.3): queue selection, `kin quick`, `kin drill --quick`, the failure summary line.
+2. ~~**The queue and `kin quick`**~~ Done (§11.2.3): queue selection, `kin quick`, `kin drill --quick`. The failure summary line and the `kin refill` offer move to phase 3, which introduces the background log and `kin refill`.
 3. **Background generation from commits** (§11.2.4): commit selection and the commit-diff prompt, `kin refill [--commit <sha>]` with the lock, backlog, caps, and log; `kin auto on|off|status` with the hook; expiry of Workouts from commits.
 

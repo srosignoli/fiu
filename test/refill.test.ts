@@ -106,6 +106,9 @@ describe('commit selection', () => {
     const tiny = await commit(repo, { 'src/a.ts': 'export const a = 1;\n' });
     const tinyChoice = await chooseTarget(repo, tiny, profiles());
     assert.ok('skip' in tinyChoice && /too small to drill \(1 changed lines/.test(tinyChoice.skip));
+    const bulk = await commit(repo, { 'src/huge.ts': Array.from({ length: 301 }, (_, i) => `export const h${i} = ${i};`).join('\n') + '\n' });
+    const bulkChoice = await chooseTarget(repo, bulk, profiles());
+    assert.ok('skip' in bulkChoice && /too large to be one focused change \(301 changed lines in src\/huge\.ts\)/.test(bulkChoice.skip));
   });
 });
 

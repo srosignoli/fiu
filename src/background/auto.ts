@@ -117,18 +117,23 @@ export interface AutoStatus {
   caps: typeof AUTO_DEFAULTS;
   generationsToday: number;
   queued: number;
+  /** True while the queue is at its cap: background generation waits until a Workout is attempted or discarded. */
+  paused: boolean;
   backlog: number;
   recentFailures: LogEntry[];
 }
 
 export async function autoStatus(paths: WorkspacePaths, repoConfig: RepoConfig, now = new Date()): Promise<AutoStatus> {
   const state = await readState(paths);
+  const caps = autoCaps(repoConfig);
+  const queued = (await listWorkouts(paths)).filter((w) => w.status === 'queued').length;
   return {
     enabled: repoConfig.auto?.enabled ?? false,
     hookInstalled: await hookInstalled(paths.repoRoot),
-    caps: autoCaps(repoConfig),
+    caps,
     generationsToday: generationsToday(state.spend, now),
-    queued: (await listWorkouts(paths)).filter((w) => w.status === 'queued').length,
+    queued,
+    paused: queued >= caps.queueCap,
     backlog: state.refill.backlog.length,
     recentFailures: (await readLog(paths)).filter((e) => e.background && e.outcome === 'failed').slice(-3),
   };

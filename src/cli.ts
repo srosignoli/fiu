@@ -136,6 +136,10 @@ agent
     log.success('Done.');
   });
 
+function pausedMessage(queued: number, cap: number): string {
+  return `Paused: the queue is full (${queued} of ${cap} Workouts waiting), so new commits won't get Drills until you attempt or \`kin discard\` one (or raise the cap with \`kin auto on --queue-cap <n>\`).`;
+}
+
 function assertClaude(name: string): void {
   if (name !== 'claude') {
     throw new Error(`Only "claude" (Claude Code) has an installer so far. Other MCP clients can run \`${kinCommand().join(' ')} mcp\` as a stdio server.`);
@@ -260,6 +264,9 @@ auto
     }
     if (hook.status === 'installed') log.success(`Background generation is on. Hook: ${hook.path}`);
     else log.warn(`Background generation is on, but core.hooksPath is set (${hook.hooksPath}). Add this to your post-commit hook:\n${hook.snippet}`);
+    const { autoStatus } = await import('./background/auto.ts');
+    const status = await autoStatus(paths, await loadRepoConfig(paths.configFile));
+    if (status.paused) log.warn(pausedMessage(status.queued, status.caps.queueCap));
     log.info('Tip: keep your API key in the user config: commits made from GUI tools may not see shell variables.');
   });
 
@@ -285,6 +292,7 @@ auto
       `Background generation: ${s.enabled ? 'on' : 'off'}${s.enabled && !s.hookInstalled ? ' (no hook in .git/hooks: add it to your hook manager, or run kin auto on again)' : ''}`,
       `Today: ${s.generationsToday} of ${s.caps.dailyLimit} generations used`,
       `Queue: ${s.queued} of ${s.caps.queueCap} Workouts waiting${s.backlog ? `; ${s.backlog} commit(s) in the backlog` : ''}`,
+      ...(s.enabled && s.paused ? [pausedMessage(s.queued, s.caps.queueCap)] : []),
       ...(s.caps.aiOnly ? ['Only AI-authored commits'] : []),
       ...s.recentFailures.map((f) => `Failed ${f.at.slice(0, 16).replace('T', ' ')}: ${f.commit?.slice(0, 12) ?? ''} ${f.reason ?? ''}`),
     ];

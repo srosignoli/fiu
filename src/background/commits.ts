@@ -44,6 +44,8 @@ const GENERATED_PATH = /(^|\/)(vendor|node_modules|dist|build|out|third_party|ge
 
 /** Below this many changed lines in the chosen file, a commit is too small to build a Drill around. */
 export const MIN_CHANGED_LINES = 5;
+/** Above this, the change is a bulk one (initial commit, large refactor, generated code) rather than one focused change. */
+export const MAX_CHANGED_LINES = 300;
 /** The diff shown to the model is capped; the whole file is always sent alongside it. */
 const MAX_DIFF_LINES = 400;
 
@@ -83,6 +85,9 @@ export async function chooseTarget(repoRoot: string, sha: string, profiles: read
   const best = candidates.sort((a, b) => b.changedLines - a.changedLines)[0];
   if (!best) return { skip: 'no changed source file in a supported language (only docs, config, tests, or generated code)' };
   if (best.changedLines < MIN_CHANGED_LINES) return { skip: `too small to drill (${best.changedLines} changed lines in ${best.path})` };
+  if (best.changedLines > MAX_CHANGED_LINES) {
+    return { skip: `too large to be one focused change (${best.changedLines} changed lines in ${best.path}); drill a part of it with kin drill <file>#<symbol>` };
+  }
 
   const source = await execa('git', ['show', `${sha}:${best.path}`], { cwd: repoRoot, reject: false });
   // The largest change may be a deletion: nothing left to drill.

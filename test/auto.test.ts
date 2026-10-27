@@ -105,8 +105,16 @@ describe('kin auto on / off / status', () => {
     assert.deepEqual((await loadRepoConfig(paths.configFile)).auto?.dailyLimit, 2);
     const status = await autoStatus(paths, await loadRepoConfig(paths.configFile));
     assert.deepEqual(
-      { enabled: status.enabled, hook: status.hookInstalled, caps: status.caps, today: status.generationsToday, queued: status.queued },
-      { enabled: false, hook: true, caps: { queueCap: 3, dailyLimit: 2, aiOnly: true, expiryDays: 14 }, today: 0, queued: 0 },
+      { enabled: status.enabled, hook: status.hookInstalled, caps: status.caps, today: status.generationsToday, queued: status.queued, paused: status.paused },
+      { enabled: false, hook: true, caps: { queueCap: 3, dailyLimit: 2, aiOnly: true, expiryDays: 14 }, today: 0, queued: 0, paused: false },
     );
+
+    // A queue at its cap pauses background generation, whatever made the Workouts in it.
+    await setAuto(paths.configFile, true, { queueCap: 1 });
+    const { saveDrill } = await import('../src/workouts/save.ts');
+    const { TYPESCRIPT } = await import('../src/languages/builtin.ts');
+    const { goodDrill } = await import('./mock-model.ts');
+    await saveDrill({ paths, profile: TYPESCRIPT, drill: goodDrill(), sourcePath: 'a.ts', revision: { dirty: false }, generationAttempts: 1 });
+    assert.equal((await autoStatus(paths, await loadRepoConfig(paths.configFile))).paused, true);
   });
 });

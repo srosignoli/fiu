@@ -340,9 +340,27 @@ Per [ADR 0003](./docs/adr/0003-workouts-are-immutable-attempts-hold-outcomes.md)
 
 ### 11.3 v3: Onboarding and team sharing
 
-- **`kin explore <path>`:** rank a module's files by complexity and centrality, and generate a Track (algorithm → pattern → library).
-- **Team sharing:** Workouts (definitions only, never Attempts) shared with exactly the people who can read the repository, so nobody pays to regenerate what a teammate already generated. The mechanism needs its own design round.
-- **`kin map`:** a repository heatmap of practiced, recently changed and unpracticed, and unexplored complex areas.
+For the **newcomer to a codebase** (a new hire, a contributor, a future you): someone who knows the code generates a Track once; teammates reuse it without paying again. Out of scope for v3: `kin map` (it needs practice history first) and Katas (Tracks are Drills only).
+
+#### 11.3.1 `kin explore` and Tracks
+
+- **`kin explore <path>`** builds a **Track** for the module at `<path>` (a directory): 3 to 5 Drills, each from a different file, ordered **foundations first** (the code the rest depends on before the code that orchestrates it). Each step carries its pillar as a label and a one-line *why this matters for the module*. No fixed per-pillar template.
+- **Choosing the steps.** A static, language-neutral pass shortlists about 10 candidate files (size, branching density; tests, generated, and vendored files excluded). One inexpensive LLM call sees their paths and outlines, picks 3 to 5, orders them foundations first, and writes the *why* lines.
+- **Generation is up front**, after showing the estimated cost (steps × the recent average cost per Drill) and asking for confirmation. A step that can't be Verified is replaced by the next shortlisted file.
+- **Agent mode.** The agent replaces the ordering call: `prepare_track(path)` returns a track id, the static shortlist (paths with short outlines), and the rules; the agent creates each step with `prepare_drill` / `submit_drill`, passing `{ trackId, why }`; `finish_track(trackId)` writes the Track once it has at least 3 Verified steps. With fewer it reports what failed and saves no Track; the Verified Drills remain ordinary Workouts.
+- **Track Drills** have Origin `explore`: they stay out of `kin quick`, out of the background queue cap, and never expire.
+- **`kin track [<track-id>]`** shows a Track's progress step by step and opens the next unattempted step with the usual runner and Attempts.
+
+#### 11.3.2 Team sharing
+
+Per [ADR 0006](./docs/adr/0006-workouts-shared-on-a-dedicated-branch.md), Workouts are shared on a dedicated `kintsugi/workouts` branch, reaching exactly the people who can read the repository.
+
+- **Explicit.** `kin share <workout-id | track-id>` publishes (a Track as a unit); `kin fetch` brings in what teammates shared. Generating never publishes on its own.
+- **Only definitions travel:** incident report, Starting Code, tests, Reference Solution, Hints, Source Anchors, `workout.json` (cost included), and Track manifests, each stamped with who shared it (git `user.name` and `user.email`). Attempts, `state.json`, the spend ledger, and config never leave the machine.
+- **The branch.** Kintsugi writes it with git plumbing: the user's working tree, index, and current branch are never touched. It pushes to `origin` (configurable). If the push is rejected because a teammate pushed first, it fetches, unions both sets (each Workout is its own folder), and pushes again. A fetched Workout with the same id as a local one but different content is imported under a suffixed id; identical content is a no-op. Docs note that pushing a new branch can trigger CI on some setups.
+- **Re-verified on fetch.** Each incoming Workout runs through the Verified gate in the local sandbox (no LLM); failures (toolchain differences, corrupted or tampered files) are skipped and reported.
+- **What can't be shared.** `kin share` refuses Workouts made from uncommitted code, and warns (but shares) when the anchored commit isn't on any remote branch yet ("push your branch so teammates' source links work").
+- **In the queue.** Fetched Workouts become *queued* for the recipient, keep their Origin, and count toward the background queue cap (unsolved Drills are unsolved, whoever generated them); fetched Track Drills don't. Expiry applies only to the user's own background Drills, never to fetched or Track ones.
 
 ### 11.4 Later (not yet designed)
 
@@ -353,6 +371,7 @@ Each item needs its own design round before implementation.
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.
 - **Spaced repetition:** resurfacing attempted Workouts on a schedule.
 - **A public Workout library** for open-source codebases (a hosted service; a separate decision from team sharing).
+- **`kin map`:** a repository heatmap of practiced, recently changed and unpracticed, and unexplored complex areas (after v3, once there is practice history).
 - **`kin drill` with no path:** auto-pick the riskiest unpracticed file.
 - **Opt-in editor integration:** disabling AI completions inside `.kintsugi/`.
 - **LLM judge pass:** for Drill subtlety, if ratings show it's needed.
@@ -373,4 +392,10 @@ Each item needs its own design round before implementation.
 1. ~~**Workouts and Attempts**~~ Done (§11.2.2): immutable Workouts; Attempts in `.kintsugi/attempts/<id>/<n>/` with their own outcome, runs, Hints used, and rating; the runner works on an Attempt (resume or start); `kin discard` / `kin restore`; `kin cost` splits attempted from never attempted; `list_workouts` reports each Workout's status.
 2. ~~**The queue and `kin quick`**~~ Done (§11.2.3): queue selection, `kin quick`, `kin drill --quick`. The failure summary line and the `kin refill` offer move to phase 3, which introduces the background log and `kin refill`.
 3. ~~**Background generation from commits**~~ Done (§11.2.4): commit selection and the commit-diff prompt, `kin refill [--commit <sha>]` with the lock, backlog, caps, and log; `kin auto on|off|status` with the hook; expiry of Workouts from commits.
+
+## 14. Implementation Roadmap (v3)
+
+1. **Tracks:** the static shortlist, the ordering call, up-front generation with cost confirmation and step replacement, Track manifests, Origin `explore` (excluded from `kin quick`, the cap, and expiry), `kin explore`, `kin track`.
+2. **Tracks in agent mode:** `prepare_track`, `{ trackId, why }` on `prepare_drill`, `finish_track`, and the skill's guidance.
+3. **Team sharing:** the `kintsugi/workouts` branch via git plumbing, `kin share` (with the uncommitted-code refusal and unpushed-commit warning), `kin fetch` (union, id clashes, re-verification), "shared by" stamps, and the queue and expiry rules for fetched Workouts.
 

@@ -23,7 +23,7 @@ A Workout where the human diagnoses and fixes a single realistic bug injected in
 _Avoid_: Chaos kata, chaos drill, mutant debugging, incident
 
 **Track**:
-An ordered sequence of Workouts that together teach one module of the repository. A Track is not itself a Workout.
+An ordered sequence of 3 to 5 Workouts, each from a different file, that together teach one module of the repository, foundations first. A Track is not itself a Workout.
 _Avoid_: Ladder, learning path, exploration
 
 **Quick**:
@@ -48,7 +48,7 @@ A pointer from a Workout back to the exact file, lines, and commit in the reposi
 _Avoid_: Source link, reference
 
 **Origin**:
-Why a Workout exists: requested by the human for a chosen file (manual), or generated in the background from a commit.
+Why a Workout exists: requested by the human for a chosen file (manual), generated in the background from a commit, made by an agent at the end of its task, or created as a step of a Track.
 _Avoid_: Source (that's the code it was derived from), trigger, mode
 
 **Generator**:

@@ -296,6 +296,8 @@ Generate Workouts with the user's own coding agent instead of an API key ([ADR 0
 
 ### 11.2 v2: Habit and automation
 
+*v2.0.0 was tagged on 2026-10-27, package still private. Verified on real repositories: commit selection, `kin auto` with a real commit and hook, `kin quick`. Not yet run for real: background generation through the API (no API key was available; the same pipeline is covered by mock-model tests and `kin drill`). Still open from v1.0: Drill ratings, the macOS and native Linux sandbox check, the npm scope.*
+
 Turn Drills into a habit: Workouts are pre-generated from your commits in the background, and `kin quick` serves one instantly during the waits of agent-driven work. Out of scope for v2: `--while`, Katas.
 
 #### 11.2.1 Cost visibility (implemented in v1.0)

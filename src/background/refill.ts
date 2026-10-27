@@ -13,7 +13,7 @@ import { openSandbox, type Sandbox } from '../sandbox/sandbox.ts';
 import { generateWorkout, type GenerationResult } from '../synthesis/generate.ts';
 import { createModel as createModelDefault } from '../synthesis/model.ts';
 import { MAX_ATTEMPTS } from '../synthesis/synthesize.ts';
-import { discardWorkout, listWorkouts, readState, writeState } from '../workouts/store.ts';
+import { discardWorkout, listWorkouts, readState, writeState, type StoredWorkout } from '../workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths, type WorkspacePaths } from '../workspace.ts';
 import { chooseTarget, operationInProgress, readCommit } from './commits.ts';
 import { appendLog, type LogEntry } from './log.ts';
@@ -158,7 +158,7 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
 
     let maxAttempts = MAX_ATTEMPTS;
     if (options.background) {
-      const queued = workouts.filter((w) => w.status === 'queued').length;
+      const queued = countsTowardQueueCap(workouts);
       if (queued >= auto.queueCap) return { commit: commitSha, outcome: 'deferred', reason: `the queue already holds ${queued} Workouts (cap ${auto.queueCap})` };
       const used = generationsToday(state.spend, now());
       if (used >= auto.dailyLimit) return { commit: commitSha, outcome: 'deferred', reason: `today's limit of ${auto.dailyLimit} generations is used up` };
@@ -217,6 +217,9 @@ async function resolveCommit(repoRoot: string, rev: string): Promise<string> {
   if (result.exitCode !== 0) throw new Error(`${rev} is not a commit in this repository.`);
   return result.stdout.trim();
 }
+
+/** Waiting Workouts that count toward the background queue cap: every queued one except Track steps. */
+export const countsTowardQueueCap = (workouts: StoredWorkout[]) => workouts.filter((w) => w.status === 'queued' && w.record.origin !== 'explore').length;
 
 /** Generation attempts spent on commit Workouts since local midnight (retries count). */
 export function generationsToday(spend: { at: string; origin: string; generationAttempts: number }[], now: Date): number {

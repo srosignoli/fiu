@@ -44,12 +44,13 @@ export const CostSchema = z.object({
 /** One request for a Workout and everything it cost, whether or not it produced one. */
 export const SpendSchema = z.object({
   at: z.iso.datetime(),
-  origin: z.enum(['manual', 'agent-task', 'commit']),
+  origin: z.enum(['manual', 'agent-task', 'commit', 'explore']),
   /** Entries from before agent mode are all `kintsugi`. */
   generator: z.enum(['kintsugi', 'agent']).default('kintsugi'),
   /** The source file, relative to the repository root. */
   source: z.string(),
-  result: z.enum(['verified', 'not-verified', 'not-worth-practicing', 'error']),
+  /** `track-plan`: the call that chose and ordered a Track's steps (no Workout of its own). */
+  result: z.enum(['verified', 'not-verified', 'not-worth-practicing', 'error', 'track-plan']),
   workoutId: z.string().optional(),
   generationAttempts: z.number().int().nonnegative(),
   /** Null when the user's agent generated it: Kintsugi can't see its usage. */

@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { execa } from 'execa';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { profileForFile, UnsupportedLanguageError } from '../languages/registry.ts';
+import { isDrillableSourcePath } from '../languages/paths.ts';
 
 export interface CommitInfo {
   sha: string;
@@ -38,9 +39,6 @@ export async function operationInProgress(repoRoot: string): Promise<string | un
   return markers.find(([marker]) => existsSync(join(gitDir, marker)))?.[1];
 }
 
-/** Paths that make poor Drills even in a recognised language. */
-const TEST_PATH = /(^|\/)(tests?|__tests__|specs?|testdata|fixtures)\/|[._-](test|spec)\.[^/]+$|(^|\/)test_[^/]+\.py$|_test\.go$/i;
-const GENERATED_PATH = /(^|\/)(vendor|node_modules|dist|build|out|third_party|generated|\.kintsugi)\/|\.min\.[^/]+$|\.pb\.go$|_generated\.|\.generated\.|\.d\.ts$/i;
 
 /** Below this many changed lines in the chosen file, a commit is too small to build a Drill around. */
 export const MIN_CHANGED_LINES = 5;
@@ -72,7 +70,7 @@ export async function chooseTarget(repoRoot: string, sha: string, profiles: read
   for (const line of stdout.split('\n').filter(Boolean)) {
     const [added, removed, path] = line.split('\t');
     // Binary files show "-" counts.
-    if (!path || added === '-' || TEST_PATH.test(path) || GENERATED_PATH.test(path)) continue;
+    if (!path || added === '-' || !isDrillableSourcePath(path)) continue;
     let profile: LanguageProfile;
     try {
       profile = profileForFile(path, profiles);

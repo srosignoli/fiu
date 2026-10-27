@@ -3,7 +3,7 @@ import type { ResolvedConfig } from '../config.ts';
 import { estimateCost, formatUsd, type Cost, type ModelUsage } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
-import { saveDrill, type Origin, type SourceRevision, type WorkoutRecord } from '../workouts/save.ts';
+import { saveDrill, type Origin, type SourceRevision, type TrackPlacement, type WorkoutRecord } from '../workouts/save.ts';
 import { averageSpend, readState, recordSpend, type Spend } from '../workouts/store.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 import type { createModel } from './model.ts';
@@ -28,6 +28,8 @@ export interface GenerateOptions {
   origin: Origin;
   /** The commit a background Drill was generated from. */
   commit?: { sha: string; aiAuthored: boolean };
+  /** For a Track step: its placement, recorded on the Workout. */
+  track?: TrackPlacement;
   /** Fewer than the usual attempts when a daily limit has fewer left. */
   maxAttempts?: number;
   cacheRoot?: string;
@@ -89,6 +91,7 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
       generationAttempts: result.attempts,
       origin: options.origin,
       commit: options.commit,
+      track: options.track,
     });
     Object.assign(spend, { result: 'verified', workoutId: record.id });
     const workoutDir = resolve(paths.workoutsDir, record.id);

@@ -166,6 +166,7 @@ program
       row('Workouts attempted', report.attempted),
       row('Never attempted', report.neverAttempted, report.neverAttempted.count > 0 ? '   paid for, not used yet' : ''),
       row('Produced nothing', report.producedNothing),
+      ...(report.trackPlanning.count > 0 ? [row('Planning Tracks', report.trackPlanning)] : []),
     ];
     if (Object.keys(report.byOrigin).length > 1) {
       for (const [origin, bucket] of Object.entries(report.byOrigin)) lines.push(row(`From ${origin}`, bucket));
@@ -183,6 +184,78 @@ program
     log.message(lines.join('\n'));
     await legacyNotice();
   });
+
+program
+  .command('explore')
+  .description('Build a Track for a module: 3 to 5 Drills, each from a different file, foundations first.')
+  .argument('<path>', 'the module directory')
+  .option('-y, --yes', 'consent to sending code and to the estimated cost without prompting', false)
+  .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
+  .option('--no-train', 'only build the Track, without opening its first step')
+  .action(async (path: string, options: { yes: boolean; sandbox: boolean; train: boolean }) => {
+    const { explore } = await import('./commands/explore.ts');
+    const ui = terminalUi();
+    let result;
+    try {
+      result = await explore(process.cwd(), path, options, ui);
+    } finally {
+      ui.settle();
+    }
+    if (result.status === 'plan-failed') {
+      log.error(`Couldn't choose the Track's steps:\n${result.problems.map((p) => `- ${p}`).join('\n')}`);
+      process.exitCode = 1;
+      return;
+    }
+    if (result.status === 'declined') {
+      log.info('No Drills generated. (Choosing the steps was a single small call, already recorded in `kin cost`.)');
+      return;
+    }
+    for (const drop of result.dropped) log.warn(`Dropped ${drop}`);
+    if (result.status === 'not-enough') {
+      log.error(`Only ${result.workoutIds.length} step(s) could be Verified, too few for a Track. They're kept as ordinary Workouts: ${result.workoutIds.join(', ') || 'none'}.`);
+      process.exitCode = 1;
+      return;
+    }
+    log.success(`Saved the Track "${result.track.title}" (${result.track.id}) with ${result.track.steps.length} steps.`);
+    if (options.train && process.stdin.isTTY) await runTrack(result.track.id, options);
+    else log.info(`Start it with: kin track ${result.track.id}`);
+  });
+
+program
+  .command('track')
+  .description("List your Tracks, or continue one: shows its progress and opens the next step.")
+  .argument('[track-id]', 'the Track to continue')
+  .option('--no-sandbox', 'run the tests without isolation, for this invocation only')
+  .action(async (id: string | undefined, options: { sandbox: boolean }) => {
+    const { trackListing } = await import('./commands/track.ts');
+    if (!id) {
+      const listing = await trackListing(process.cwd());
+      if (listing.length === 0) {
+        log.info('No Tracks yet. Build one with: kin explore <module-directory>');
+        return;
+      }
+      if (listing.length > 1) {
+        log.message(listing.map(({ track, done, total }) => `${track.id}  ${done}/${total}  ${track.title}`).join('\n'));
+        log.info('Continue one with: kin track <track-id>');
+        return;
+      }
+      id = listing[0]!.track.id;
+    }
+    await runTrack(id, options);
+  });
+
+async function runTrack(id: string, options: { sandbox: boolean }): Promise<void> {
+  const { continueTrack } = await import('./commands/track.ts');
+  const io = terminalTrainIo();
+  let result;
+  try {
+    result = await continueTrack(process.cwd(), id, options, io);
+  } finally {
+    io.close();
+  }
+  if (result.status === 'track-complete') log.success('Every step of this Track has been attempted. Redo any step with: kin train <workout-id>');
+  else if (result.status === 'completed' || result.status === 'abandoned') log.info(`Next step: kin track ${id}`);
+}
 
 program
   .command('quick')

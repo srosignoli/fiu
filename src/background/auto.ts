@@ -8,7 +8,7 @@ import { formatUsd } from '../cost/usage.ts';
 import { averageSpend, listWorkouts, readState } from '../workouts/store.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 import { readLog, type LogEntry } from './log.ts';
-import { generationsToday } from './refill.ts';
+import { countsTowardQueueCap, generationsToday } from './refill.ts';
 
 const BEGIN = '# >>> kintsugi >>>';
 const END = '# <<< kintsugi <<<';
@@ -126,7 +126,7 @@ export interface AutoStatus {
 export async function autoStatus(paths: WorkspacePaths, repoConfig: RepoConfig, now = new Date()): Promise<AutoStatus> {
   const state = await readState(paths);
   const caps = autoCaps(repoConfig);
-  const queued = (await listWorkouts(paths)).filter((w) => w.status === 'queued').length;
+  const queued = countsTowardQueueCap(await listWorkouts(paths));
   return {
     enabled: repoConfig.auto?.enabled ?? false,
     hookInstalled: await hookInstalled(paths.repoRoot),

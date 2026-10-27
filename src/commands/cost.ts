@@ -18,6 +18,8 @@ export interface CostReport {
   neverAttempted: SpendBucket;
   /** Spend on requests that produced no Workout (not Verified, not worth practicing, or an error). */
   producedNothing: SpendBucket;
+  /** Spend on choosing and ordering Tracks' steps. */
+  trackPlanning: SpendBucket;
   byOrigin: Record<string, SpendBucket>;
   /** Requests your coding agent generated: counted, but their cost isn't measured. */
   byAgent: { requests: number; workouts: number };
@@ -48,6 +50,7 @@ export async function costReport(cwd: string, since: Date = startOfMonth()): Pro
     attempted: empty(),
     neverAttempted: empty(),
     producedNothing: empty(),
+    trackPlanning: empty(),
     byOrigin: {},
     byAgent: { requests: 0, workouts: 0 },
     unpriced: [],
@@ -73,6 +76,7 @@ export async function costReport(cwd: string, since: Date = startOfMonth()): Pro
 }
 
 function bucketFor(report: CostReport, entry: Spend, attemptedIds: Set<string>): SpendBucket {
+  if (entry.result === 'track-plan') return report.trackPlanning;
   if (entry.result !== 'verified' || !entry.workoutId) return report.producedNothing;
   return attemptedIds.has(entry.workoutId) ? report.attempted : report.neverAttempted;
 }

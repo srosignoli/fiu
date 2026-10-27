@@ -39,6 +39,8 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | :--- | :--- |
 | `kin init` | Creates `.kintsugi/`, appends `.kintsugi/` to `.git/info/exclude`, runs the sandbox canary (§7), prints a tip on disabling AI completions inside `.kintsugi/` in your editor. |
 | `kin drill <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill (Quick with `--quick`) from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
+| `kin explore <path> [--yes] [--no-sandbox] [--no-train]` | Build a Track for a module directory (§11.3.1). |
+| `kin track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
 | `kin quick [--no-sandbox]` | Start the queue's best Quick Workout right away (§11.2.3). |
 | `kin train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
 | `kin mcp` | Kintsugi's MCP server (stdio), started by your coding agent (§11.1.1). |
@@ -342,13 +344,14 @@ Per [ADR 0003](./docs/adr/0003-workouts-are-immutable-attempts-hold-outcomes.md)
 
 For the **newcomer to a codebase** (a new hire, a contributor, a future you): someone who knows the code generates a Track once; teammates reuse it without paying again. Out of scope for v3: `kin map` (it needs practice history first) and Katas (Tracks are Drills only).
 
-#### 11.3.1 `kin explore` and Tracks
+#### 11.3.1 `kin explore` and Tracks (implemented, agent mode pending)
 
 - **`kin explore <path>`** builds a **Track** for the module at `<path>` (a directory): 3 to 5 Drills, each from a different file, ordered **foundations first** (the code the rest depends on before the code that orchestrates it). Each step carries its pillar as a label and a one-line *why this matters for the module*. No fixed per-pillar template.
 - **Choosing the steps.** A static, language-neutral pass shortlists about 10 candidate files (size, branching density; tests, generated, and vendored files excluded). One inexpensive LLM call sees their paths and outlines, picks 3 to 5, orders them foundations first, and writes the *why* lines.
 - **Generation is up front**, after showing the estimated cost (steps × the recent average cost per Drill) and asking for confirmation. A step that can't be Verified is replaced by the next shortlisted file.
 - **Agent mode.** The agent replaces the ordering call: `prepare_track(path)` returns a track id, the static shortlist (paths with short outlines), and the rules; the agent creates each step with `prepare_drill` / `submit_drill`, passing `{ trackId, why }`; `finish_track(trackId)` writes the Track once it has at least 3 Verified steps. With fewer it reports what failed and saves no Track; the Verified Drills remain ordinary Workouts.
-- **Track Drills** have Origin `explore`: they stay out of `kin quick`, out of the background queue cap, and never expire.
+- **Track Drills** have Origin `explore`: they stay out of `kin quick`, out of the background queue cap, and never expire. Each records its Track (`workout.json` → `track`) and its README opens with *Part of the Track "…": why*; step order lives only in the Track's manifest (`.kintsugi/tracks/<track-id>.json`), since a dropped step would make a number in an immutable Workout wrong for good.
+- **Recording.** The ordering call's cost enters the spend ledger with `result: "track-plan"` (`kin cost` shows a *Planning Tracks* line). The ordering call also returns up to 3 alternates, best first, each with its *why*: a step that can't be Verified (or isn't worth practicing) is replaced by the next alternate in the same position. `kin explore` needs a module directory with at least 3 eligible source files (15 to 3,000 lines; tests, generated, and vendored files excluded).
 - **`kin track [<track-id>]`** shows a Track's progress step by step and opens the next unattempted step with the usual runner and Attempts.
 
 #### 11.3.2 Team sharing
@@ -395,7 +398,7 @@ Each item needs its own design round before implementation.
 
 ## 14. Implementation Roadmap (v3)
 
-1. **Tracks:** the static shortlist, the ordering call, up-front generation with cost confirmation and step replacement, Track manifests, Origin `explore` (excluded from `kin quick`, the cap, and expiry), `kin explore`, `kin track`.
+1. ~~**Tracks**~~ Done: the static shortlist, the ordering call, up-front generation with cost confirmation and step replacement, Track manifests, Origin `explore` (excluded from `kin quick`, the cap, and expiry), `kin explore`, `kin track`.
 2. **Tracks in agent mode:** `prepare_track`, `{ trackId, why }` on `prepare_drill`, `finish_track`, and the skill's guidance.
 3. **Team sharing:** the `kintsugi/workouts` branch via git plumbing, `kin share` (with the uncommitted-code refusal and unpushed-commit warning), `kin fetch` (union, id clashes, re-verification), "shared by" stamps, and the queue and expiry rules for fetched Workouts.
 

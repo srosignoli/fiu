@@ -27,8 +27,8 @@ export interface SourceAnchor {
 
 /** Who wrote a Workout's content: Kintsugi via the user's API key, or the user's coding agent. */
 export type Generator = 'kintsugi' | 'agent';
-/** Why a Workout exists: the user asked for it, or an agent made it at the end of its own task. */
-export type Origin = 'manual' | 'agent-task';
+/** Why a Workout exists: the user asked for it, an agent made it at the end of its own task, or a commit triggered it. */
+export type Origin = 'manual' | 'agent-task' | 'commit';
 
 /** The metadata saved beside a Workout as workout.json. */
 export interface WorkoutRecord {
@@ -38,6 +38,8 @@ export interface WorkoutRecord {
   generator?: Generator;
   /** Absent on Workouts made before agent mode: those are `manual`. */
   origin?: Origin;
+  /** For Origin `commit`: the commit it was generated from, and whether an AI co-authored it. */
+  commit?: { sha: string; aiAuthored: boolean };
   title: string;
   slug: string;
   pillar: DrillOutput['pillar'];
@@ -75,6 +77,7 @@ export interface SaveDrillOptions {
   generationAttempts: number;
   generator?: Generator;
   origin?: Origin;
+  commit?: { sha: string; aiAuthored: boolean };
   now?: Date;
 }
 
@@ -90,6 +93,7 @@ export async function saveDrill({
   generationAttempts,
   generator = 'kintsugi',
   origin = 'manual',
+  commit,
   now = new Date(),
 }: SaveDrillOptions): Promise<WorkoutRecord> {
   const id = uniqueId(paths, `drill_${now.toISOString().slice(0, 10).replaceAll('-', '')}_${drill.slug}`);
@@ -102,6 +106,7 @@ export async function saveDrill({
     kind: 'drill',
     generator,
     origin,
+    ...(commit ? { commit } : {}),
     title: drill.title,
     slug: drill.slug,
     pillar: drill.pillar,

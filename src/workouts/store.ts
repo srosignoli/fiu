@@ -44,7 +44,7 @@ export const CostSchema = z.object({
 /** One request for a Workout and everything it cost, whether or not it produced one. */
 export const SpendSchema = z.object({
   at: z.iso.datetime(),
-  origin: z.enum(['manual', 'agent-task']),
+  origin: z.enum(['manual', 'agent-task', 'commit']),
   /** Entries from before agent mode are all `kintsugi`. */
   generator: z.enum(['kintsugi', 'agent']).default('kintsugi'),
   /** The source file, relative to the repository root. */
@@ -63,6 +63,17 @@ const StateSchema = z.object({
   spend: z.array(SpendSchema).default([]),
   /** Discarded (archived) Workouts by id. */
   discarded: z.record(z.string(), DiscardSchema).default({}),
+  /** Background generation's bookkeeping. */
+  refill: z
+    .object({
+      /** Commits already turned into a Drill or permanently skipped (newest last). */
+      processed: z.array(z.string()).default([]),
+      /** Commits that arrived while a generator was running (newest last). */
+      backlog: z.array(z.object({ sha: z.string(), at: z.iso.datetime() })).default([]),
+      /** The last background failure a `kin quick`/`kin train` summary has already shown. */
+      failuresSeenAt: z.iso.datetime().optional(),
+    })
+    .default({ processed: [], backlog: [] }),
 });
 export type State = z.infer<typeof StateSchema>;
 
@@ -71,7 +82,7 @@ export async function readState(paths: WorkspacePaths): Promise<State> {
   return StateSchema.parse(raw);
 }
 
-async function writeState(paths: WorkspacePaths, state: State): Promise<void> {
+export async function writeState(paths: WorkspacePaths, state: State): Promise<void> {
   await writeFile(paths.stateFile, JSON.stringify(state, null, 2) + '\n');
 }
 

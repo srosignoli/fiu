@@ -183,6 +183,7 @@ program
   .description('Start the best Quick Workout in the queue right away: for a short wait.')
   .option('--no-sandbox', 'run the tests without isolation, for this invocation only')
   .action(async (options: { sandbox: boolean }) => {
+    await failureSummary();
     const io = terminalTrainIo();
     let result;
     try {
@@ -191,11 +192,80 @@ program
       io.close();
     }
     if (result.status === 'nothing-ready') {
-      log.info('No Quick Workout is ready. Make one with `kin drill --quick <file>`, or ask your agent: `/kin-drill <file> quick`.');
+      const generate = await confirm({ message: 'No Quick Workout is ready. Generate one from your latest commit now?', initialValue: false });
+      if (generate === true) {
+        await runRefill({ background: false, sandbox: options.sandbox, train: true });
+      } else {
+        log.info('Make one with `kin drill --quick <file>`, or ask your agent: `/kin-drill <file> quick`.');
+      }
     } else if (result.status === 'completed' || result.status === 'abandoned') {
       log.info(`Attempt ${result.attempt} kept at ${result.dir}.`);
     }
   });
+
+program
+  .command('refill')
+  .description('Generate a Quick Drill from a commit (the latest by default). The git hook runs this in the background.')
+  .option('--commit <sha>', 'the commit to generate from (default: HEAD)')
+  .option('--background', 'run unattended, as the hook does: never prompts, needs `kin auto on`, obeys the caps')
+  .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
+  .option('--no-sandbox', 'run Workout code without isolation, for this invocation only (never in the background)')
+  .option('--no-train', 'only save the Drill, without opening the runner')
+  .action(async (options: { commit?: string; background?: boolean; yes: boolean; sandbox: boolean; train: boolean }) => {
+    await runRefill({ ...options, background: options.background ?? false });
+  });
+
+program
+  .command('log')
+  .description('Show what background generation did: Drills generated, commits skipped, and failures.')
+  .option('-n, --limit <count>', 'how many entries to show', '20')
+  .action(async (options: { limit: string }) => {
+    const { readLog } = await import('./background/log.ts');
+    const entries = (await readLog(workspacePaths(await findRepoRoot(process.cwd())))).slice(-Number(options.limit));
+    if (entries.length === 0) log.info('Nothing logged yet.');
+    for (const e of entries) {
+      const what = [e.commit?.slice(0, 12), e.source, e.workoutId, e.reason].filter(Boolean).join('  ');
+      log.message(`${e.at.slice(0, 19).replace('T', ' ')}  ${e.background ? 'background' : 'manual    '}  ${e.outcome.padEnd(20)}  ${what}`);
+    }
+  });
+
+async function runRefill(options: { commit?: string; background: boolean; yes?: boolean; sandbox: boolean; train: boolean }): Promise<void> {
+  const { refill } = await import('./background/refill.ts');
+  if (options.background) {
+    // Unattended: say nothing, decide nothing; everything goes to .kintsugi/log.
+    await refill(process.cwd(), options, { step: () => {}, warn: () => {} });
+    return;
+  }
+  const ui = terminalUi();
+  let saved: string | undefined;
+  try {
+    const { outcomes } = await refill(process.cwd(), options, ui);
+    ui.settle();
+    for (const outcome of outcomes) {
+      const commit = outcome.commit?.slice(0, 12) ?? '';
+      if (outcome.outcome === 'generated') {
+        saved = outcome.workoutId;
+        log.success(`Saved a Quick Drill from ${commit} (${outcome.source}): ${outcome.workoutId}`);
+      } else {
+        log.warn(`${commit}: ${outcome.outcome}${outcome.reason ? ` (${outcome.reason})` : ''}`);
+      }
+    }
+  } finally {
+    ui.settle();
+  }
+  if (saved && options.train && process.stdin.isTTY) await runTrain(saved, { sandbox: options.sandbox });
+}
+
+/** One line about background failures not yet shown. */
+async function failureSummary(): Promise<void> {
+  try {
+    const { unseenFailureSummary } = await import('./background/log.ts');
+    const summary = await unseenFailureSummary(workspacePaths(await findRepoRoot(process.cwd())));
+    if (summary) log.warn(summary);
+  } catch {
+    // Outside a repository, or no workspace yet: nothing to report.
+  }
+}
 
 program
   .command('train')
@@ -203,6 +273,7 @@ program
   .argument('[workout-id]', 'the Workout to train on (a picker opens when omitted)')
   .option('--no-sandbox', 'run the tests without isolation, for this invocation only')
   .action(async (id: string | undefined, options: { sandbox: boolean }) => {
+    await failureSummary();
     await runTrain(id, options);
   });
 

@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { relative, resolve, sep } from 'node:path';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
-import { estimateCost, formatUsd, type Cost, type ModelUsage } from '../cost/usage.ts';
 import { ConsentDeclinedError, ConsentRequiredError, hasConsent, recordConsent } from '../consent.ts';
 import { MissingApiKeyError, resolveApiKey } from '../credentials.ts';
 import { profileForFile } from '../languages/registry.ts';
@@ -11,9 +10,8 @@ import { preflight } from '../languages/run.ts';
 import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox } from '../sandbox/sandbox.ts';
 import { createModel as createModelDefault } from '../synthesis/model.ts';
-import { MAX_ATTEMPTS, synthesizeDrill, type SynthesisEvent } from '../synthesis/synthesize.ts';
-import { saveDrill, sourceRevision, type WorkoutRecord } from '../workouts/save.ts';
-import { averageSpend, readState, recordSpend, type Spend } from '../workouts/store.ts';
+import { generateWorkout, type GenerationResult } from '../synthesis/generate.ts';
+import { sourceRevision } from '../workouts/save.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from '../workspace.ts';
 
 export interface DrillCommandOptions {
@@ -40,10 +38,7 @@ export interface DrillDependencies {
   cacheRoot?: string;
 }
 
-export type DrillCommandResult =
-  | { status: 'saved'; record: WorkoutRecord; workoutDir: string; testCmd: string; attempts: number; cost: Cost }
-  | { status: 'not-worth-practicing'; reason: string; cost: Cost }
-  | { status: 'failed'; feedback: string; cost: Cost };
+export type DrillCommandResult = GenerationResult;
 
 export class DrillTargetError extends Error {}
 
@@ -94,69 +89,20 @@ export async function drill(
       await recordConsent(paths.configFile, config.provider);
     }
 
-    const average = averageSpend((await readState(paths)).spend);
-    if (average) ui.step(`Your Drills have averaged ${formatUsd(average.usd)} (last ${average.count})`);
-
-    const { model, providerOptions } = createModel(config.provider, config.model, apiKey);
-    const source = await readFile(file, 'utf8');
-    // Everything the model is paid for lands in the spend ledger, whatever happens next.
-    const usage: ModelUsage[] = [];
-    const spend: Pick<Spend, 'result' | 'workoutId' | 'generationAttempts'> = { result: 'error', generationAttempts: 0 };
-    try {
-      const result = await synthesizeDrill({
-        quick: options.quick ?? false,
-        target: { path: sourcePath, source, symbol },
-        profile,
-        sandbox,
-        model,
-        modelId: config.model,
-        providerOptions,
-        cacheRoot,
-        onEvent: (event) => {
-          if (event.type === 'usage') {
-            usage.push(...event.usage);
-            spend.generationAttempts = event.attempt;
-          } else {
-            ui.step(describeEvent(event));
-          }
-        },
-      });
-      const cost = estimateCost(usage, config.prices);
-
-      if (result.status === 'not-worth-practicing') {
-        spend.result = 'not-worth-practicing';
-        return { ...result, cost };
-      }
-      if (result.status === 'failed') {
-        spend.result = 'not-verified';
-        return { status: 'failed', feedback: result.feedback, cost };
-      }
-
-      const record = await saveDrill({
-        paths,
-        profile,
-        drill: result.drill,
-        sourcePath,
-        symbol,
-        revision: await sourceRevision(repoRoot, sourcePath),
-        cost,
-        generationAttempts: result.attempts,
-      });
-      Object.assign(spend, { result: 'verified', workoutId: record.id });
-      const workoutDir = resolve(paths.workoutsDir, record.id);
-      return { status: 'saved', record, workoutDir, testCmd: profile.testCmd, attempts: result.attempts, cost };
-    } finally {
-      if (usage.length > 0) {
-        await recordSpend(paths, {
-          at: new Date().toISOString(),
-          origin: 'manual',
-          generator: 'kintsugi',
-          source: sourcePath,
-          ...spend,
-          cost: estimateCost(usage, config.prices),
-        });
-      }
-    }
+    return await generateWorkout({
+      paths,
+      config,
+      profile,
+      sandbox,
+      apiKey,
+      createModel,
+      target: { path: sourcePath, source: await readFile(file, 'utf8'), symbol },
+      revision: await sourceRevision(repoRoot, sourcePath),
+      quick: options.quick ?? false,
+      origin: 'manual',
+      cacheRoot,
+      step: (message) => ui.step(message),
+    });
   } finally {
     await sandbox.dispose();
   }
@@ -179,16 +125,4 @@ export function repoRelative(repoRoot: string, file: string): string {
   if (path.startsWith('..') || path === '') throw new DrillTargetError(`${file} is outside the repository at ${repoRoot}.`);
   if (path.split(sep)[0] === '.kintsugi') throw new DrillTargetError('Drill your own code, not a Workout.');
   return path.split(sep).join('/');
-}
-
-function describeEvent(event: Exclude<SynthesisEvent, { type: 'usage' }>): string {
-  const of = `(attempt ${event.attempt} of ${MAX_ATTEMPTS})`;
-  switch (event.type) {
-    case 'generating':
-      return `Generating the Drill ${of}`;
-    case 'verifying':
-      return `Verifying it in the sandbox ${of}`;
-    case 'rejected':
-      return `Not Verified, retrying with feedback:\n${event.feedback}`;
-  }
 }

@@ -30,6 +30,8 @@ export interface SynthesizeDrillOptions {
   cacheRoot?: string;
   /** A Quick Drill: the prompt asks for one, and its size is checked. */
   quick?: boolean;
+  /** At most this many attempts (never more than MAX_ATTEMPTS). */
+  maxAttempts?: number;
 }
 
 export type SynthesisResult =
@@ -57,6 +59,7 @@ export async function synthesizeDrill({
   onEvent = () => {},
   cacheRoot,
   quick = false,
+  maxAttempts = MAX_ATTEMPTS,
 }: SynthesizeDrillOptions): Promise<SynthesisResult> {
   const sourceLines = target.source.replace(/\n$/, '').split('\n').length;
   if (sourceLines > MAX_SOURCE_LINES) throw new SourceTooLargeError(target.path, sourceLines);
@@ -65,7 +68,8 @@ export async function synthesizeDrill({
   const messages: ModelMessage[] = [{ role: 'user', content: drillUserPrompt(target) }];
   let feedback = '';
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  const attempts = Math.min(maxAttempts, MAX_ATTEMPTS);
+  for (let attempt = 1; attempt <= attempts; attempt++) {
     onEvent({ type: 'generating', attempt });
     const generated = await generate(model, modelId, profile, messages, providerOptions, quick);
     onEvent({ type: 'usage', attempt, usage: generated.usage });
@@ -103,7 +107,7 @@ export async function synthesizeDrill({
     onEvent({ type: 'rejected', attempt, feedback });
     messages.push({ role: 'user', content: retryPrompt(feedback) });
   }
-  return { status: 'failed', feedback, attempts: MAX_ATTEMPTS };
+  return { status: 'failed', feedback, attempts };
 }
 
 interface Generated {

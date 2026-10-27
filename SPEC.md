@@ -44,6 +44,8 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin mcp` | Kintsugi's MCP server (stdio), started by your coding agent (§11.1.1). |
 | `kin agent install claude [--project] [--after-tasks]` / `kin agent uninstall claude [--project]` | Install or remove the skill, `/kin-drill` command, and MCP registration for Claude Code (§11.1.1). |
 | `kin discard <id>` / `kin restore <id>` | Archive a Workout (hidden from the queue, kept), or bring it back (§11.2.2). |
+| `kin refill [--commit <sha>] [--background] [--yes] [--no-sandbox] [--no-train]` | Generate a Quick Drill from a commit (default `HEAD`); the hook runs it with `--background` (§11.2.4). |
+| `kin log [-n <count>]` | What background generation did (§11.2.4). |
 | `kin cost [--since <date>]` | What generating Workouts has cost since a date (default: the start of this month), split into finished Workouts, Workouts not finished yet, and requests that produced nothing (§11.2.1). |
 
 ## 5. Language Profiles
@@ -322,7 +324,7 @@ Per [ADR 0003](./docs/adr/0003-workouts-are-immutable-attempts-hold-outcomes.md)
 - **`kin quick`** picks the best queued **Quick** Workout (from AI-written code first: agent tasks, and AI-authored commits once phase 3 lands; then newest; skipping any whose source file no longer exists) and opens the runner at once: no picker, no prompts, and it exits when done. With nothing ready, it says how to make one; offering `kin refill` in the foreground arrives with phase 3. There is no uncommitted-diff fallback.
 - **Quick** is enforced mechanically: `estimatedMinutes ≤ 5` and Starting Code ≤ 60 lines, as `[schema]` retry feedback. Workouts from commits are always Quick; manual ones with `kin drill --quick` (or `quick: true` in agent mode). The queue judges Quick by the same numbers, so any small enough Workout qualifies however it was requested.
 
-#### 11.2.4 Background generation from commits
+#### 11.2.4 Background generation from commits (`kin refill` implemented; `kin auto` and the hook pending)
 
 - **Opt-in only.** `kin auto on` asks a separate consent covering background spending and its caps, records it in `.kintsugi/config.json`, and installs the hook. `kin auto off` removes exactly what Kintsugi added. `kin auto status` shows on/off, today's budget used, the queue size, and the latest failures. `kin init` never enables it, only mentions it.
 - **The hook.** `.git/hooks/post-commit` (untracked): written if absent, otherwise a clearly marked block is appended and the user's lines are never rewritten. With `core.hooksPath` set (husky, lefthook), Kintsugi prints the snippet to add instead of editing tracked files. The hook only starts `kin refill --commit <sha>` detached; the commit never waits. `kin refill` can also be run by hand.
@@ -330,7 +332,8 @@ Per [ADR 0003](./docs/adr/0003-workouts-are-immutable-attempts-hold-outcomes.md)
 - **What a commit becomes.** At most one Drill: among changed files a Language Profile recognises (minus tests, generated, and vendored paths), the one with the most changed lines. The model gets that file as of the commit plus its diff, and builds the Drill around the change.
 - **No paying twice.** At most one queued Workout from commits per source file; the backlog collapses entries for the same file.
 - **Caps.** Nothing is generated while the queue holds 3 Workouts, and at most 5 generations (retries included) run per day. Both are configurable.
-- **Running unattended.** Never prompts. A per-repo lock allows one generator at a time; commits arriving meanwhile join a backlog that keeps the newest 5. With no consent, no `kin auto on`, or no API key, it skips and logs. Results go to `.kintsugi/log` (`kin log`); the next `kin quick`/`kin train` shows a one-line summary of failures. Docs recommend keeping the API key in the user config, since commits made from GUI tools may not see shell environment variables.
+- **`kin refill [--commit <sha>]`** (default `HEAD`): run by hand it behaves like `kin drill` (may ask consent, ignores the caps, opens the runner); `--background` (what the hook runs) never prompts, needs `kin auto on` and consent, and obeys the caps. Commits already turned into a Drill or permanently skipped are remembered (`state.json` → `refill.processed`) so nobody pays twice; cap-related skips are *deferred*, not remembered, so a later `kin refill` can still use the commit. When fewer than 3 generations are left for the day, the generation gets only that many attempts, so the limit is never overshot. The Drill's Source Anchors are pinned to the commit it came from.
+- **Running unattended.** Never prompts. A per-repo lock allows one generator at a time; commits arriving meanwhile join a backlog that keeps the newest 5. With no consent, no `kin auto on`, or no API key, it skips and logs. Results go to `.kintsugi/log` (one JSON line per outcome: generated, skipped, deferred, not-worth-practicing, failed; `kin log` prints them); the next `kin quick`/`kin train` shows a one-line summary of background failures not yet shown. `kin quick` with nothing ready offers to run `kin refill` in the foreground. Stale commit Workouts are expired (Discarded) when `kin refill` or `kin quick` runs. Docs recommend keeping the API key in the user config, since commits made from GUI tools may not see shell environment variables.
 
 ### 11.3 v3: Onboarding and team sharing
 
@@ -366,5 +369,5 @@ Each item needs its own design round before implementation.
 
 1. ~~**Workouts and Attempts**~~ Done (§11.2.2): immutable Workouts; Attempts in `.kintsugi/attempts/<id>/<n>/` with their own outcome, runs, Hints used, and rating; the runner works on an Attempt (resume or start); `kin discard` / `kin restore`; `kin cost` splits attempted from never attempted; `list_workouts` reports each Workout's status.
 2. ~~**The queue and `kin quick`**~~ Done (§11.2.3): queue selection, `kin quick`, `kin drill --quick`. The failure summary line and the `kin refill` offer move to phase 3, which introduces the background log and `kin refill`.
-3. **Background generation from commits** (§11.2.4): commit selection and the commit-diff prompt, `kin refill [--commit <sha>]` with the lock, backlog, caps, and log; `kin auto on|off|status` with the hook; expiry of Workouts from commits.
+3. **Background generation from commits** (§11.2.4), *step 1 done: commit selection, the commit-diff prompt, `kin refill`, caps, lock, backlog, log, expiry; step 2 pending: `kin auto` and the hook*: commit selection and the commit-diff prompt, `kin refill [--commit <sha>]` with the lock, backlog, caps, and log; `kin auto on|off|status` with the hook; expiry of Workouts from commits.
 

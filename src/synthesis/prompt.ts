@@ -7,6 +7,8 @@ export interface DrillTarget {
   source: string;
   /** A function, class, or other symbol the user pinned with `file#symbol`. */
   symbol?: string;
+  /** The commit that just changed this file: the Drill is built around the change. */
+  change?: { sha: string; subject: string; diff: string };
 }
 
 /** Above this, the user should pin a symbol in a smaller file rather than have us truncate silently. */
@@ -53,8 +55,11 @@ export function drillUserPrompt(target: DrillTarget): string {
     .join('\n');
   const focus = target.symbol
     ? `Build the Drill around \`${target.symbol}\`.`
-    : 'Pick the unit in this file whose logic is most worth practicing.';
-  return `Source file: ${target.path}\n${focus}\n\n<source>\n${numbered}\n</source>`;
+    : target.change
+      ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"). Build the Drill around the code that changed, so the developer practises understanding it. The source below is the file as of that commit.`
+      : 'Pick the unit in this file whose logic is most worth practicing.';
+  const change = target.change ? `\n\n<diff>\n${target.change.diff}\n</diff>` : '';
+  return `Source file: ${target.path}\n${focus}\n\n<source>\n${numbered}\n</source>${change}`;
 }
 
 export function retryPrompt(feedback: string): string {

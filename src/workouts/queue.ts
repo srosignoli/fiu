@@ -14,7 +14,7 @@ export async function isQuick(workout: { record: WorkoutRecord; dir: string }): 
 }
 
 /** Workouts made from code an AI wrote come first: practising those is what pays down comprehension debt. */
-const fromAiCode = (record: WorkoutRecord) => record.origin === 'agent-task';
+const fromAiCode = (record: WorkoutRecord) => record.origin === 'agent-task' || (record.origin === 'commit' && record.commit?.aiAuthored === true);
 
 /**
  * The queue's best Quick Workout: never attempted, not Discarded, Quick, with its source file still

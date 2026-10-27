@@ -11,6 +11,9 @@ export const PROVIDERS = ['anthropic', 'openai', 'google'] as const;
 export const ProviderSchema = z.enum(PROVIDERS);
 export type Provider = z.infer<typeof ProviderSchema>;
 
+/** Background generation's caps when config doesn't set them (§11.2.4). */
+export const AUTO_DEFAULTS = { queueCap: 3, dailyLimit: 5, aiOnly: false, expiryDays: 14 };
+
 export const DEFAULTS = {
   provider: 'anthropic',
   model: 'claude-opus-5-5',
@@ -28,6 +31,18 @@ export const RepoConfigSchema = z.strictObject({
     .optional(),
   profiles: z.array(UserProfileSchema).optional(),
   prices: z.record(z.string(), ModelPriceSchema).optional(),
+  /** Background generation from commits (`kin auto on`): its consent and caps. */
+  auto: z
+    .strictObject({
+      enabled: z.boolean(),
+      /** When the user consented to background spending with these caps. */
+      consentedAt: z.iso.datetime().optional(),
+      queueCap: z.number().int().positive().optional(),
+      dailyLimit: z.number().int().positive().optional(),
+      aiOnly: z.boolean().optional(),
+      expiryDays: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 export type RepoConfig = z.infer<typeof RepoConfigSchema>;
 

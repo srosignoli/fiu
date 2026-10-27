@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
+import { AUTO_DEFAULTS, loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
+import { expireStaleWorkouts } from '../background/refill.ts';
 import { describeCost } from '../cost/usage.ts';
 import { watchForChanges } from '../runner/watch.ts';
 import { formatRun } from '../runner/render.ts';
@@ -52,7 +53,11 @@ export async function quick(
   io: TrainIo,
   dependencies: TrainDependencies = {},
 ): Promise<TrainResult | { status: 'nothing-ready' }> {
-  const next = await nextQuickWorkout(workspacePaths(await findRepoRoot(cwd)));
+  const paths = workspacePaths(await findRepoRoot(cwd));
+  // A stale commit Workout shouldn't be served; expiring it also frees its queue slot.
+  const repoConfig = await loadRepoConfig(paths.configFile);
+  await expireStaleWorkouts(paths, { ...AUTO_DEFAULTS, ...repoConfig.auto }.expiryDays, new Date());
+  const next = await nextQuickWorkout(paths);
   if (!next) return { status: 'nothing-ready' };
   return train(cwd, next.record.id, options, io, dependencies);
 }

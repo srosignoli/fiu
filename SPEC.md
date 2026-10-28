@@ -384,12 +384,23 @@ Per [ADR 0006](./docs/adr/0006-workouts-shared-on-a-dedicated-branch.md), Workou
   - · **grey:** never Practised and below those thresholds (including AI-changed glue below the median), or not drillable (tests, generated code).
 - **Suggestions** (at most 3, in this order): a Workout already waiting (queued or in progress) for a red or amber file → `kin train <id>`; a directory with several red files → `kin explore <dir>`; a single red or amber file → `kin drill <file>` (or `/kin-drill`).
 
-### 11.5 Later (not yet designed)
+### 11.5 v3.2: Katas
+
+A **Kata** trains *writing*: rebuild a missing piece of logic from its contract and its tests (a Drill trains *reading*: find what's wrong). It is the "can I still write this myself?" skill that AI-assisted work erodes fastest.
+
+- **Entry points.** `kin kata <file>[#symbol] [--quick] [--yes] [--no-sandbox] [--no-train]`, alongside `kin drill`; in agent mode `prepare_drill` takes `kind: 'kata'` (no new tools). Katas appear only when asked for: background commit Workouts and Tracks stay Drills until Katas have been dogfooded. `kin quick` serves a Quick Kata like any Quick Workout (it picks by size, not kind).
+- **The gap.** One contiguous region of 5 to 25 lines (5 to 12 for a Quick Kata), ideally one function body or one cohesive block, replaced by at most 3 placeholder lines that return a type-correct but wrong value with a `TODO` (`return 0`, `return []`, `return None`, Go's zero value), so tests fail by assertion and the Verified gate needs no exception for Katas.
+- **Tests.** Most pin down the gap's contract, edge cases included; at least one exercises code outside the gap, so something passes against the Starting Code.
+- **The brief** (README): *What it must do* (the missing unit's contract, inputs and outputs, the edge cases that matter), *Where it fits* (one line on its role in the original), *Mission* (make all tests pass without changing function signatures). Two Hints, gentle first; tests visible; Reference Solution in `.solution/`.
+- **Output schema.** `KataOutputSchema` shares the Drill's common fields (slug, title, pillar, minutes, Source Anchors, README, Hints, Starting Code, Reference Solution, tests), drops the Regression Test and bug note, and adds `gapSummary`: an internal note on what was removed and what a correct fill must do, never shown.
+- **No answers in the brief.** Any line of the removed region with at least 15 characters (trimmed) that appears verbatim in the README or Hints is `[schema]` retry feedback.
+- **Everywhere else** Katas are Workouts like any other: the runner's header says *Fill in:* instead of *Fix the bug in:*; practising one counts toward the file in `kin map`; cost and the ledger, Attempts, sharing, and re-verification on fetch follow `workout.json`'s `kind`. Kata ids start with `kata_`.
+
+### 11.6 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 
 - **`kin quick --while "<cmd>"`:** serve a Quick Workout while a slow build or CI command runs in the background, with a status line (v2.1).
-- **Kata generation:** the gap-filling Workout kind (the Verified rule already exists; gaps must fail by assertion, not raise).
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.
 - **Spaced repetition:** resurfacing attempted Workouts on a schedule.
 - **A public Workout library** for open-source codebases (a hosted service; a separate decision from team sharing).

@@ -369,7 +369,21 @@ Per [ADR 0006](./docs/adr/0006-workouts-shared-on-a-dedicated-branch.md), Workou
 - **What can't be shared.** `kin share` refuses Workouts made from uncommitted code, and warns (but shares) when the anchored commit isn't on any remote branch yet ("push your branch so teammates' source links work").
 - **In the queue.** Fetched Workouts become *queued* for the recipient, keep their Origin, and count toward the background queue cap (unsolved Drills are unsolved, whoever generated them); fetched Track Drills don't. Expiry applies only to the user's own background Drills, never to fetched or Track ones.
 
-### 11.4 Later (not yet designed)
+### 11.4 v3.1: `kin map`
+
+**Your** comprehension debt in this repository, at a glance. Built only from your Attempts, git history, and the shortlist's complexity score: purely local, no LLM calls, free to run as often as you like. Practice data never leaves the machine, so there is no team view.
+
+- **`kin map [<path>] [--json]`**: a coloured tree of directories (each with its counts, e.g. `●2 ◐3 ✓5`, coloured by its worst file); with a path, that directory's files. `--json` gives the same data for scripts and editors. Only tracked files a Language Profile recognises appear; grey files are left out of directory counts and shown dimmed when drilling in.
+- **Practised:** a file is Practised once you've finished an Attempt on any Workout made from it (manual, commit, agent, Track, or fetched). Completed shows ✓, Abandoned ~; both count.
+- **Stale:** your practice on a file is Stale when the file has changed by 20 or more lines (`git diff --numstat <commit> -- <file>`, working tree included) since the commit the most recently practised Workout was made from.
+- **States, worst first:**
+  - ● **red:** never Practised, and in the repository's top quarter by logic density (the shortlist's score, repo-wide).
+  - ◐ **amber:** Practised but Stale, or never Practised and changed in the last 30 days by AI-authored commits.
+  - ✓ **green:** Practised and not Stale.
+  - · **grey:** never Practised and low in logic, or not drillable.
+- **Suggestions** (at most 3, in this order): a Workout already waiting (queued or in progress) for a red or amber file → `kin train <id>`; a directory with several red files → `kin explore <dir>`; a single red or amber file → `kin drill <file>` (or `/kin-drill`).
+
+### 11.5 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 
@@ -378,7 +392,6 @@ Each item needs its own design round before implementation.
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.
 - **Spaced repetition:** resurfacing attempted Workouts on a schedule.
 - **A public Workout library** for open-source codebases (a hosted service; a separate decision from team sharing).
-- **`kin map`:** a repository heatmap of practiced, recently changed and unpracticed, and unexplored complex areas (after v3, once there is practice history).
 - **`kin drill` with no path:** auto-pick the riskiest unpracticed file.
 - **Opt-in editor integration:** disabling AI completions inside `.kintsugi/`.
 - **LLM judge pass:** for Drill subtlety, if ratings show it's needed.

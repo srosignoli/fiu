@@ -78,6 +78,14 @@ _Avoid_: Solved, passed, mastered
 An Attempt is Abandoned when the human gives up and reveals the Reference Solution before Completing it.
 _Avoid_: Skipped, failed, given up
 
+**Practised**:
+A source file is Practised once the human has finished an Attempt (Completed or Abandoned) on a Workout derived from it.
+_Avoid_: Covered, mastered, learned
+
+**Stale**:
+Practice on a file is Stale when the file has changed substantially since the code the practised Workout was derived from.
+_Avoid_: Outdated, expired (expiry is for queued Workouts)
+
 **Discarded**:
 A Workout is Discarded when it is removed without being attempted, by the human or because it went stale.
 _Avoid_: Deleted, expired, skipped

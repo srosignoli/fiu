@@ -298,6 +298,22 @@ program
   });
 
 program
+  .command('map')
+  .description('Your comprehension debt in this repository, by directory: local and free.')
+  .argument('[path]', 'a directory to look into')
+  .option('--json', 'print the map as JSON')
+  .action(async (path: string | undefined, options: { json?: boolean }) => {
+    const { buildMap } = await import('./map/map.ts');
+    const report = await buildMap(process.cwd(), path ?? '');
+    if (options.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
+    const { renderMap } = await import('./map/render.ts');
+    console.log(renderMap(report, { color: process.stdout.isTTY === true && !process.env.NO_COLOR }));
+  });
+
+program
   .command('quick')
   .description('Start the best Quick Workout in the queue right away: for a short wait.')
   .option('--no-sandbox', 'run the tests without isolation, for this invocation only')

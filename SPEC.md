@@ -42,6 +42,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin explore <path> [--yes] [--no-sandbox] [--no-train]` | Build a Track for a module directory (§11.3.1). |
 | `kin track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
 | `kin share <id>... [--remote <name>]` / `kin fetch [--remote <name>] [--no-sandbox]` | Share Workouts or Tracks with the team on the `kintsugi/workouts` branch, or bring in theirs, re-verified (§11.3.2). |
+| `kin map [<path>] [--json]` | Your comprehension debt by directory, or one directory's files: local and free (§11.4). |
 | `kin quick [--no-sandbox]` | Start the queue's best Quick Workout right away (§11.2.3). |
 | `kin train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
 | `kin mcp` | Kintsugi's MCP server (stdio), started by your coding agent (§11.1.1). |
@@ -369,7 +370,7 @@ Per [ADR 0006](./docs/adr/0006-workouts-shared-on-a-dedicated-branch.md), Workou
 - **What can't be shared.** `kin share` refuses Workouts made from uncommitted code, and warns (but shares) when the anchored commit isn't on any remote branch yet ("push your branch so teammates' source links work").
 - **In the queue.** Fetched Workouts become *queued* for the recipient, keep their Origin, and count toward the background queue cap (unsolved Drills are unsolved, whoever generated them); fetched Track Drills don't. Expiry applies only to the user's own background Drills, never to fetched or Track ones.
 
-### 11.4 v3.1: `kin map`
+### 11.4 v3.1: `kin map` (implemented)
 
 **Your** comprehension debt in this repository, at a glance. Built only from your Attempts, git history, and the shortlist's complexity score: purely local, no LLM calls, free to run as often as you like. Practice data never leaves the machine, so there is no team view.
 
@@ -378,9 +379,9 @@ Per [ADR 0006](./docs/adr/0006-workouts-shared-on-a-dedicated-branch.md), Workou
 - **Stale:** your practice on a file is Stale when the file has changed by 20 or more lines (`git diff --numstat <commit> -- <file>`, working tree included) since the commit the most recently practised Workout was made from.
 - **States, worst first:**
   - ● **red:** never Practised, and in the repository's top quarter by logic density (the shortlist's score, repo-wide).
-  - ◐ **amber:** Practised but Stale, or never Practised and changed in the last 30 days by AI-authored commits.
+  - ◐ **amber:** Practised but Stale, or never Practised, at or above the repository's median logic score, and changed in the last 30 days by AI-authored commits. (Without the median floor, a repository written mostly with AI agents turned half amber, which says nothing: measured on real repositories, 37 of 50 and 66 of 88 drillable files, versus 12 and 22 with it.)
   - ✓ **green:** Practised and not Stale.
-  - · **grey:** never Practised and low in logic, or not drillable.
+  - · **grey:** never Practised and below those thresholds (including AI-changed glue below the median), or not drillable (tests, generated code).
 - **Suggestions** (at most 3, in this order): a Workout already waiting (queued or in progress) for a red or amber file → `kin train <id>`; a directory with several red files → `kin explore <dir>`; a single red or amber file → `kin drill <file>` (or `/kin-drill`).
 
 ### 11.5 Later (not yet designed)

@@ -50,19 +50,28 @@ export async function shortlist(repoRoot: string, modulePath: string, profiles: 
     }
     const source = await readFile(join(repoRoot, path), 'utf8').catch(() => undefined);
     if (source === undefined) continue;
-    const lines = source.split('\n');
-    if (lines.length < MIN_LINES || lines.length > MAX_SOURCE_LINES) continue;
-    const branches = source.match(BRANCHING)?.length ?? 0;
+    const scored = logicScore(source);
+    if (!scored) continue;
     candidates.push({
       path: path.split(sep).join('/'),
       profile,
-      lines: lines.length,
-      // Density, gently favouring bigger files: a 40-line helper and a 600-line module can tie on density alone.
-      score: (branches / lines.length) * Math.log10(lines.length),
-      outline: lines.filter((line) => DECLARATION.test(line)).slice(0, OUTLINE_LINES).map((line) => line.trim().slice(0, 120)),
+      ...scored,
+      outline: source.split('\n').filter((line) => DECLARATION.test(line)).slice(0, OUTLINE_LINES).map((line) => line.trim().slice(0, 120)),
     });
   }
   return candidates.sort((a, b) => b.score - a.score).slice(0, SHORTLIST_SIZE);
+}
+
+/**
+ * How much logic a source file holds: branching constructs per line, gently favouring bigger files (a
+ * 40-line helper and a 600-line module can tie on density alone). Undefined for files too short or too
+ * long to drill. Shared by `kin explore` and `kin map`.
+ */
+export function logicScore(source: string): { lines: number; score: number } | undefined {
+  const lines = source.split('\n').length;
+  if (lines < MIN_LINES || lines > MAX_SOURCE_LINES) return undefined;
+  const branches = source.match(BRANCHING)?.length ?? 0;
+  return { lines, score: (branches / lines) * Math.log10(lines) };
 }
 
 export const repoRelativeDir = (repoRoot: string, dir: string) => relative(repoRoot, dir).split(sep).join('/');

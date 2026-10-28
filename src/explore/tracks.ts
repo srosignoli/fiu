@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { Generator } from '../workouts/save.ts';
+import type { Generator, SharedBy } from '../workouts/save.ts';
 import { listWorkouts, type WorkoutStatus } from '../workouts/store.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 
@@ -21,6 +21,8 @@ export interface TrackRecord {
   createdAt: string;
   generator: Generator;
   steps: TrackStep[];
+  /** Set on Tracks fetched from the team's shared branch. */
+  sharedBy?: SharedBy;
 }
 
 export class TrackNotFoundError extends Error {

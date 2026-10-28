@@ -30,6 +30,13 @@ export type Generator = 'kintsugi' | 'agent';
 /** Why a Workout exists: the user asked for it, an agent made it at the end of its own task, a commit triggered it, or it is a Track step. */
 export type Origin = 'manual' | 'agent-task' | 'commit' | 'explore';
 
+/** Who shared a Workout or Track with the team, stamped when it was shared. */
+export interface SharedBy {
+  name: string;
+  email: string;
+  at: string;
+}
+
 /** The Track a Drill belongs to. Step order lives in the Track's manifest, not here: a dropped step would make a number here wrong for good. */
 export interface TrackPlacement {
   id: string;
@@ -52,6 +59,8 @@ export interface WorkoutRecord {
   commit?: { sha: string; aiAuthored: boolean };
   /** For Origin `explore`: the Track this Drill is a step of. */
   track?: TrackPlacement;
+  /** Set on Workouts fetched from the team's shared branch: who shared them. */
+  sharedBy?: SharedBy;
   title: string;
   slug: string;
   pillar: DrillOutput['pillar'];

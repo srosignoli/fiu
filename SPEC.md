@@ -41,6 +41,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin drill <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill (Quick with `--quick`) from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
 | `kin explore <path> [--yes] [--no-sandbox] [--no-train]` | Build a Track for a module directory (§11.3.1). |
 | `kin track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
+| `kin share <id>... [--remote <name>]` / `kin fetch [--remote <name>] [--no-sandbox]` | Share Workouts or Tracks with the team on the `kintsugi/workouts` branch, or bring in theirs, re-verified (§11.3.2). |
 | `kin quick [--no-sandbox]` | Start the queue's best Quick Workout right away (§11.2.3). |
 | `kin train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
 | `kin mcp` | Kintsugi's MCP server (stdio), started by your coding agent (§11.1.1). |
@@ -354,11 +355,12 @@ For the **newcomer to a codebase** (a new hire, a contributor, a future you): so
 - **Recording.** The ordering call's cost enters the spend ledger with `result: "track-plan"` (`kin cost` shows a *Planning Tracks* line). The ordering call also returns up to 3 alternates, best first, each with its *why*: a step that can't be Verified (or isn't worth practicing) is replaced by the next alternate in the same position. `kin explore` needs a module directory with at least 3 eligible source files (15 to 3,000 lines; tests, generated, and vendored files excluded).
 - **`kin track [<track-id>]`** shows a Track's progress step by step and opens the next unattempted step with the usual runner and Attempts.
 
-#### 11.3.2 Team sharing
+#### 11.3.2 Team sharing (implemented)
 
 Per [ADR 0006](./docs/adr/0006-workouts-shared-on-a-dedicated-branch.md), Workouts are shared on a dedicated `kintsugi/workouts` branch, reaching exactly the people who can read the repository.
 
-- **Explicit.** `kin share <workout-id | track-id>` publishes (a Track as a unit); `kin fetch` brings in what teammates shared. Generating never publishes on its own.
+- **Explicit.** `kin share <id>... [--remote <name>]` publishes Workouts or Tracks (a Track with all its steps); `kin fetch [--remote <name>] [--no-sandbox]` brings in what teammates shared. Generating never publishes on its own.
+- **Layout.** The branch holds `workouts/<id>/…` (each Workout's definition files) and `tracks/<track-id>.json`. Locally Kintsugi keeps its copy in a hidden ref, `refs/kintsugi/workouts`, so no local branch appears. Content is compared by a fingerprint of the definition files that ignores `workout.json`'s `id` and `sharedBy`, so sharing or fetching the same Workout again is a no-op, and a renamed import is recognised next time. Fetched files are staged inside `.kintsugi/` and moved into place only after they re-verify; fetched Track manifests are remapped to the steps' local ids.
 - **Only definitions travel:** incident report, Starting Code, tests, Reference Solution, Hints, Source Anchors, `workout.json` (cost included), and Track manifests, each stamped with who shared it (git `user.name` and `user.email`). Attempts, `state.json`, the spend ledger, and config never leave the machine.
 - **The branch.** Kintsugi writes it with git plumbing: the user's working tree, index, and current branch are never touched. It pushes to `origin` (configurable). If the push is rejected because a teammate pushed first, it fetches, unions both sets (each Workout is its own folder), and pushes again. A fetched Workout with the same id as a local one but different content is imported under a suffixed id; identical content is a no-op. Docs note that pushing a new branch can trigger CI on some setups.
 - **Re-verified on fetch.** Each incoming Workout runs through the Verified gate in the local sandbox (no LLM); failures (toolchain differences, corrupted or tampered files) are skipped and reported.
@@ -400,5 +402,5 @@ Each item needs its own design round before implementation.
 
 1. ~~**Tracks**~~ Done: the static shortlist, the ordering call, up-front generation with cost confirmation and step replacement, Track manifests, Origin `explore` (excluded from `kin quick`, the cap, and expiry), `kin explore`, `kin track`.
 2. ~~**Tracks in agent mode**~~ Done: `prepare_track`, `{ trackId, why }` on `prepare_drill`, `finish_track`, and the skill's guidance.
-3. **Team sharing:** the `kintsugi/workouts` branch via git plumbing, `kin share` (with the uncommitted-code refusal and unpushed-commit warning), `kin fetch` (union, id clashes, re-verification), "shared by" stamps, and the queue and expiry rules for fetched Workouts.
+3. ~~**Team sharing**~~ Done: the `kintsugi/workouts` branch via git plumbing, `kin share` (with the uncommitted-code refusal and unpushed-commit warning), `kin fetch` (union, id clashes, re-verification), "shared by" stamps, and the queue and expiry rules for fetched Workouts.
 

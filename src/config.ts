@@ -31,6 +31,8 @@ export const RepoConfigSchema = z.strictObject({
     .optional(),
   profiles: z.array(UserProfileSchema).optional(),
   prices: z.record(z.string(), ModelPriceSchema).optional(),
+  /** Team sharing: the remote the `kintsugi/workouts` branch lives on (default `origin`). */
+  share: z.strictObject({ remote: z.string().min(1).optional() }).optional(),
   /** Background generation from commits (`kin auto on`): its consent and caps. */
   auto: z
     .strictObject({

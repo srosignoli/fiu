@@ -234,7 +234,8 @@ program
         log.info('No Tracks yet. Build one with: kin explore <module-directory>');
         return;
       }
-      if (listing.length > 1) {
+      // One Track opens directly, but only where there's a terminal to train in.
+      if (listing.length > 1 || !process.stdin.isTTY) {
         log.message(listing.map(({ track, done, total }) => `${track.id}  ${done}/${total}  ${track.title}`).join('\n'));
         log.info('Continue one with: kin track <track-id>');
         return;
@@ -256,6 +257,45 @@ async function runTrack(id: string, options: { sandbox: boolean }): Promise<void
   if (result.status === 'track-complete') log.success('Every step of this Track has been attempted. Redo any step with: kin train <workout-id>');
   else if (result.status === 'completed' || result.status === 'abandoned') log.info(`Next step: kin track ${id}`);
 }
+
+program
+  .command('share')
+  .description("Share Workouts or whole Tracks with your team on the repository's kintsugi/workouts branch.")
+  .argument('<ids...>', 'Workout or Track ids')
+  .option('--remote <name>', 'the remote to share through (default: share.remote in config, else origin)')
+  .action(async (ids: string[], options: { remote?: string }) => {
+    const { share } = await import('./sharing/share.ts');
+    const report = await share(process.cwd(), ids, options);
+    for (const warning of report.warnings) log.warn(warning);
+    for (const item of report.shared) log.success(`Shared ${item.kind} ${item.id}${item.as !== item.id ? ` as ${item.as} (a different Workout already had its id)` : ''}`);
+    for (const id of report.alreadyShared) log.info(`${id} was already shared`);
+    if (report.shared.length > 0) log.info(`Teammates get them with: kin fetch  (branch kintsugi/workouts on ${report.remote})`);
+  });
+
+program
+  .command('fetch')
+  .description("Bring in Workouts and Tracks your team shared, re-verifying each in your sandbox.")
+  .option('--remote <name>', 'the remote to fetch from (default: share.remote in config, else origin)')
+  .option('--no-sandbox', "run teammates' Workout code without isolation, for this invocation only")
+  .action(async (options: { remote?: string; sandbox: boolean }) => {
+    const { fetchWorkouts } = await import('./sharing/share.ts');
+    const ui = terminalUi();
+    let report;
+    try {
+      report = await fetchWorkouts(process.cwd(), options, (m) => ui.step(m));
+    } finally {
+      ui.settle();
+    }
+    if (report.nothingShared) {
+      log.info(`Nothing has been shared on ${report.remote} yet.`);
+      return;
+    }
+    for (const item of report.imported) log.success(`Fetched ${item.id}${item.as !== item.id ? ` as ${item.as}` : ''}`);
+    for (const item of report.tracks) log.success(`Fetched Track ${item.id}: start it with kin track ${item.as}`);
+    for (const item of report.rejected) log.warn(`Skipped ${item.id}: it didn't re-verify here (${item.reason})`);
+    for (const item of report.skippedTracks) log.warn(`Skipped Track ${item.id}: ${item.reason}`);
+    if (report.imported.length === 0 && report.tracks.length === 0) log.info('You already have everything your team has shared.');
+  });
 
 program
   .command('quick')

@@ -231,7 +231,8 @@ export function generationsToday(spend: { at: string; origin: string; generation
 export async function expireStaleWorkouts(paths: WorkspacePaths, expiryDays: number, now: Date): Promise<string[]> {
   const cutoff = now.getTime() - expiryDays * 24 * 60 * 60 * 1000;
   const expired = (await listWorkouts(paths)).filter(
-    (w) => w.status === 'queued' && w.record.origin === 'commit' && Date.parse(w.record.createdAt) < cutoff,
+    // Only the user's own background Drills: a teammate's, fetched weeks after it was made, mustn't expire on arrival.
+    (w) => w.status === 'queued' && w.record.origin === 'commit' && !w.record.sharedBy && Date.parse(w.record.createdAt) < cutoff,
   );
   for (const workout of expired) await discardWorkout(paths, workout.record.id, 'expired', now);
   return expired.map((w) => w.record.id);

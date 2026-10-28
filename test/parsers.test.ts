@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { parseGoJson, parseJunitXml, parseTap, parseUnittestVerbose } from '../src/languages/parsers.ts';
+import { parseGoJson, parseJunitXml, parseTap, parseUnittestVerbose, trimPythonTraceback } from '../src/languages/parsers.ts';
 import type { TestResult } from '../src/languages/profile.ts';
 
 // Captured from real runs of node 22, Python 3.12, and Go 1.22.
@@ -51,6 +51,58 @@ describe('parseUnittestVerbose', () => {
     ]);
     assert.match(messageOf(tests, 'AddTest.test_wrong')!, /^Traceback[\s\S]*\nAssertionError: 3 != 4$/);
     assert.match(messageOf(tests, 'AddTest.test_throws')!, /TypeError: boom$/);
+  });
+
+  it("trims tracebacks to the Workout's own frames", () => {
+    // An IsolatedAsyncioTestCase: four unittest and asyncio frames above the test's own.
+    const message = messageOf(parseUnittestVerbose(fixture('unittest-async.txt')), 'ResolveTests.test_accept_reports_mission')!;
+    assert.equal(
+      message.split('\n').slice(0, 4).join('\n'),
+      [
+        'Traceback (most recent call last):',
+        '  File "test_kata.py", line 12, in test_accept_reports_mission',
+        '    self.assertEqual(resolve("abc", True), (True, "m1"))',
+        "AssertionError: Tuples differ: (False, None) != (True, 'm1')",
+      ].join('\n'),
+    );
+    assert.doesNotMatch(message, /asyncio|unittest|\^\^/);
+  });
+
+  it('keeps frames in the code under test, and the innermost frame when every frame is library code', () => {
+    const traceback = [
+      'Traceback (most recent call last):',
+      '  File "/usr/lib/python3.12/unittest/case.py", line 58, in testPartExecutor',
+      '    yield',
+      '  File "/tmp/kintsugi-verify-x/test_kata.py", line 9, in test_x',
+      '    pick([])',
+      '  File "/tmp/kintsugi-verify-x/kata.py", line 4, in pick',
+      '    return jobs[0]',
+      '           ~~~~^^^',
+      'IndexError: list index out of range',
+    ];
+    assert.deepEqual(trimPythonTraceback(traceback), [
+      'Traceback (most recent call last):',
+      '  File "test_kata.py", line 9, in test_x',
+      '    pick([])',
+      '  File "kata.py", line 4, in pick',
+      '    return jobs[0]',
+      'IndexError: list index out of range',
+    ]);
+    const libraryOnly = [
+      'Traceback (most recent call last):',
+      '  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run',
+      '    return self._loop.run_until_complete(task)',
+      '  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete',
+      '    return future.result()',
+      '           ^^^^^^^^^^^^^^^',
+      'asyncio.exceptions.CancelledError',
+    ];
+    assert.deepEqual(trimPythonTraceback(libraryOnly), [
+      'Traceback (most recent call last):',
+      '  File "base_events.py", line 687, in run_until_complete',
+      '    return future.result()',
+      'asyncio.exceptions.CancelledError',
+    ]);
   });
 
   it('treats an import or syntax error as not run', () => {

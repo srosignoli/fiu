@@ -164,7 +164,7 @@ export function parseUnittestVerbose(stderr: string): ParsedTests {
       const block: string[] = [];
       for (i += 2; i < lines.length && !/^(={20,}|-{20,})$/.test(lines[i]!); i++) block.push(lines[i]!);
       i--;
-      messages.set(name, [...(messages.get(name) ?? []), block.join('\n').trim()]);
+      messages.set(name, [...(messages.get(name) ?? []), trimPythonTraceback(block).join('\n').trim()]);
       continue;
     }
     const skip = UNITTEST_SKIP.exec(line);
@@ -176,6 +176,49 @@ export function parseUnittestVerbose(stderr: string): ParsedTests {
     .filter(([name]) => !skipped.has(name))
     .map(([name, outcome]) => withMessage({ name, outcome }, messages.get(name)?.join('\n\n')));
   return tests.length > 0 ? tests : undefined;
+}
+
+const PY_FRAME = /^(\s*)File "([^"]+)", (line \d+.*)$/;
+/** Frames from Python itself or installed packages: the machinery between the runner and the test. */
+const PY_LIBRARY = /[\\/]lib[\\/]python\d[^\\/]*[\\/]|[\\/](site|dist)-packages[\\/]|^<frozen /;
+const PY_CARETS = /^\s*[~^]+\s*$/;
+
+/**
+ * A traceback as the developer needs it: the frames in the Workout's own files (by file name), without
+ * the unittest and asyncio frames above them or the `^^^^` markers. If every frame is library code, the
+ * innermost one is kept, so the error still has a place.
+ */
+export function trimPythonTraceback(lines: string[]): string[] {
+  const out: string[] = [];
+  let lastLibraryFrame: string[] | undefined;
+  let keptFrame = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const frame = PY_FRAME.exec(line);
+    if (!frame) {
+      if (PY_CARETS.test(line)) continue;
+      // The exception line ends a traceback: if no frame of it was kept, show the innermost.
+      if (lastLibraryFrame && !keptFrame && !/^\s/.test(line) && line.trim() !== '') out.push(...lastLibraryFrame);
+      if (!/^\s/.test(line)) [lastLibraryFrame, keptFrame] = [undefined, false];
+      out.push(line);
+      continue;
+    }
+    // A frame is its File line plus the indented source and caret lines under it.
+    const body: string[] = [];
+    while (i + 1 < lines.length && /^\s{4,}\S/.test(lines[i + 1]!) && !PY_FRAME.test(lines[i + 1]!)) {
+      i++;
+      if (!PY_CARETS.test(lines[i]!)) body.push(lines[i]!);
+    }
+    const [, indent = '', path = '', rest = ''] = frame;
+    const shown = [`${indent}File "${path.split(/[\\/]/).pop()}", ${rest}`, ...body];
+    if (PY_LIBRARY.test(path)) {
+      lastLibraryFrame = shown;
+    } else {
+      out.push(...shown);
+      keptFrame = true;
+    }
+  }
+  return out;
 }
 
 const TESTCASE = /<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { styleText } from 'node:util';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { confirm, log, spinner } from '@clack/prompts';
@@ -9,7 +10,8 @@ import { drill, type DrillUi } from './commands/drill.ts';
 import type { WorkoutKind } from './synthesis/schema.ts';
 import { describeCost, formatUsd, totalTokens } from './cost/usage.ts';
 import { EDITOR_TIP, init } from './commands/init.ts';
-import { quick, train, type TrainResult } from './commands/train.ts';
+import { quick, quickWhile, train, type TrainResult } from './commands/train.ts';
+import { runInForeground } from './runner/background.ts';
 import { terminalTrainIo } from './terminal.ts';
 import { VERSION } from './version.ts';
 import { discardWorkout, legacyDoneNotice, restoreWorkout } from './workouts/store.ts';
@@ -335,7 +337,9 @@ program
   .command('quick')
   .description('Start the best Quick Workout in the queue right away: for a short wait.')
   .option('--no-sandbox', 'run the tests without isolation, for this invocation only')
-  .action(async (options: { sandbox: boolean }) => {
+  .option('--while <cmd>', 'run a slow command (a build, tests) in the background meanwhile; exits with its exit code')
+  .action(async (options: { sandbox: boolean; while?: string }) => {
+    if (options.while !== undefined) return quickWhileCommand(options.while, options);
     await failureSummary();
     const io = terminalTrainIo();
     let result;
@@ -488,6 +492,32 @@ async function runRefill(options: { commit?: string; background: boolean; yes?: 
 }
 
 /** One line about background failures not yet shown. */
+/** `kin quick --while`: never stands between the user and their command; with nothing to serve, it just runs it. */
+async function quickWhileCommand(command: string, options: { sandbox: boolean }): Promise<void> {
+  const foreground = async (note?: string) => {
+    if (note) log.message(styleText('dim', note));
+    process.exitCode = await runInForeground(command, { cwd: process.cwd() });
+  };
+  if (!process.stdin.isTTY) return foreground();
+  let repoRoot: string;
+  try {
+    repoRoot = await findRepoRoot(process.cwd());
+  } catch {
+    return foreground();
+  }
+  if (!existsSync(workspacePaths(repoRoot).root)) return foreground();
+
+  const io = terminalTrainIo();
+  let result;
+  try {
+    result = await quickWhile(process.cwd(), command, options, io);
+  } finally {
+    io.close();
+  }
+  if (result.status === 'nothing-ready') return foreground('No Quick Workout is ready (make some with `kin refill` or `/kin-drill <file> quick`).');
+  process.exitCode = result.result.exitCode;
+}
+
 async function failureSummary(): Promise<void> {
   try {
     const { unseenFailureSummary } = await import('./background/log.ts');

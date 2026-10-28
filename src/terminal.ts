@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { emitKeypressEvents } from 'node:readline';
-import { isCancel, log, select } from '@clack/prompts';
+import { isCancel, log, select, spinner } from '@clack/prompts';
 import type { TrainIo } from './commands/train.ts';
 import { describeCost } from './cost/usage.ts';
 import { shellQuote } from './sandbox/process.ts';
@@ -79,6 +79,17 @@ export function terminalTrainIo(): TrainIo & { close(): void } {
       const child = spawn(`${editor} ${files.map(shellQuote).join(' ')}`, { shell: true, detached: true, stdio: 'ignore' });
       child.on('error', (error) => log.warn(`Could not open $VISUAL: ${error.message}`));
       child.unref();
+    },
+    async wait(status, until) {
+      const progress = spinner();
+      progress.start(status());
+      const timer = setInterval(() => progress.message(status()), 1000);
+      try {
+        await until;
+      } finally {
+        clearInterval(timer);
+        progress.stop('Done waiting.');
+      }
     },
     close: () => keys?.close(),
   };

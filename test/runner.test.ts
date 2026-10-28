@@ -4,7 +4,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execa } from 'execa';
-import { quick, train, type TrainIo, type TrainResult } from '../src/commands/train.ts';
+import { quick, quickWhile, train, type TrainIo, type TrainResult } from '../src/commands/train.ts';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { ignoredByWatcher, TrainingSession } from '../src/runner/session.ts';
 import { watchForChanges } from '../src/runner/watch.ts';
@@ -422,5 +422,83 @@ describe(`kin quick (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     io.press('q');
     await session;
     assert.deepEqual(await run(repo), { status: 'nothing-ready' }, 'the Workout now has an Attempt, so the queue is empty');
+  });
+
+  describe('--while', () => {
+    /** A command that waits for the test to let it finish, then exits with `exitCode`. */
+    async function gatedCommand(exitCode = 0) {
+      const flag = join(await tempDir(), 'go');
+      return { command: `echo building; while [ ! -f ${flag} ]; do sleep 0.05; done; echo built; exit ${exitCode}`, release: () => writeFile(flag, '') };
+    }
+    const runWhile = (repo: string, command: string, io: ScriptedIo) =>
+      tempDir().then(async (cacheRoot) =>
+        quickWhile(repo, command, { sandbox: sandboxWorks }, io, { configEnv: { env: {}, home: await tempDir() }, cacheRoot, debounceMs: 20, shell: '/bin/sh' }),
+      );
+
+    it('serves a Quick Workout while the command runs, and announces the moment it ends', async () => {
+      const { repo, paths, attempt } = await repoWithDrill();
+      const { command, release } = await gatedCommand();
+      const io = new ScriptedIo();
+      const running = runWhile(repo, command, io);
+
+      await io.waitFor(/^Initial run/);
+      assert.match(io.printed[0]!, new RegExp(`^Running \`echo building;.*\` in the background\\. Log: ${join(paths.root, 'while', 'last.log')}$`));
+      assert.match(io.transcript, /\[q\] quit {3}\[s\] `echo building;/);
+      io.press('s');
+      await io.waitFor(/running for \d+s\n {2}│ building$/);
+
+      await release();
+      await io.waitFor(/^\x07✓ `echo building;.*` finished in \d+s/);
+      // The Workout carries on after the command ends.
+      await writeFile(join(attempt(), 'kata.ts'), TS_REFERENCE);
+      const result = await running;
+      assert.equal(result.status === 'ran' && result.result.exitCode, 0);
+      assert.match(io.transcript, /Completed\./);
+      assert.doesNotMatch(io.transcript, /Another Quick Workout|Waiting for/);
+      assert.equal(io.printed.filter((t) => /finished in/.test(t)).length, 1, 'announced once');
+    });
+
+    it('offers another Quick Workout, then waits for the command and reports its failure', async () => {
+      const { repo, attempt, record } = await repoWithDrill('first');
+      const second = await addDrill(repo, 'second', 10);
+      const { command, release } = await gatedCommand(3);
+      const io = new ScriptedIo();
+      const running = runWhile(repo, command, io);
+
+      await io.waitFor(new RegExp(`^${second.title} \\(${second.id}\\)`));
+      await io.waitFor(/^Initial run/);
+      io.press('q');
+      await io.waitFor(/^Another Quick Workout while `echo building;.*` runs\? \[y\]/);
+      io.press('y');
+      await io.waitFor(new RegExp(`^${record.title} \\(${record.id}\\)`));
+      await writeFile(join(attempt(), 'kata.ts'), TS_REFERENCE);
+      await io.waitFor(/^Waiting for `echo building;.*`\. \[q\] stop it$/);
+
+      await release();
+      const result = await running;
+      assert.equal(result.status === 'ran' && result.result.exitCode, 3);
+      assert.match(io.transcript, /✗ `echo building;.*` failed \(exit 3\) after \d+s\n {2}│ building\n {2}│ built\nLog: /);
+    });
+
+    it('stops the command on [q] while waiting for it', async () => {
+      const { repo } = await repoWithDrill();
+      const io = new ScriptedIo();
+      const running = runWhile(repo, 'sleep 30', io);
+      await io.waitFor(/^Initial run/);
+      io.press('q');
+      await io.waitFor(/^Waiting for `sleep 30`/);
+      io.press('q');
+      const result = await running;
+      assert.equal(result.status === 'ran' && result.result.exitCode, 130);
+      assert.match(io.transcript, /✗ `sleep 30` was stopped \(SIGINT\)/);
+    });
+
+    it('starts nothing when no Quick Workout is ready', async () => {
+      const { repo, paths } = await repoWithDrill();
+      await discardWorkout(paths, (await nextQuickWorkout(paths))!.record.id, 'manual');
+      assert.deepEqual(await runWhile(repo, 'touch should-not-exist', new ScriptedIo()), { status: 'nothing-ready' });
+      assert.equal(existsSync(join(repo, 'should-not-exist')), false);
+      assert.equal(existsSync(join(paths.root, 'while')), false);
+    });
   });
 });

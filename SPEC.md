@@ -44,7 +44,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
 | `kin share <id>... [--remote <name>]` / `kin fetch [--remote <name>] [--no-sandbox]` | Share Workouts or Tracks with the team on the `kintsugi/workouts` branch, or bring in theirs, re-verified (§11.3.2). |
 | `kin map [<path>] [--json]` | Your comprehension debt by directory, or one directory's files: local and free (§11.4). |
-| `kin quick [--no-sandbox]` | Start the queue's best Quick Workout right away (§11.2.3). |
+| `kin quick [--while "<cmd>"] [--no-sandbox]` | Start the queue's best Quick Workout right away (§11.2.3); with `--while`, during a slow command (§11.6). |
 | `kin train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
 | `kin mcp` | Kintsugi's MCP server (stdio), started by your coding agent (§11.1.1). |
 | `kin agent install claude [--project] [--after-tasks]` / `kin agent uninstall claude [--project]` | Install or remove the skill, `/kin-drill` command, and MCP registration for Claude Code (§11.1.1). |
@@ -399,11 +399,24 @@ A **Kata** trains *writing*: rebuild a missing piece of logic from its contract 
 - **No answers in the brief.** Any line of the removed region with at least 15 characters (trimmed) that appears verbatim in the README or Hints is `[schema]` retry feedback.
 - **Everywhere else** Katas are Workouts like any other: the runner's header says *Fill in:* instead of *Fix the bug in:*; practising one counts toward the file in `kin map`; cost and the ledger, Attempts, sharing, and re-verification on fetch follow `workout.json`'s `kind`. Kata ids start with `kata_`.
 
-### 11.6 Later (not yet designed)
+### 11.6 v3.3: `kin quick --while` (implemented)
+
+Practice in time already lost: a slow build or test run.
+
+- **`kin quick --while "<cmd>"`** runs `<cmd>` through the user's `$SHELL -c` (`/bin/sh` if unset) from the current directory, in the background, and serves the queue's best Quick Workout meanwhile. The command is the user's own, not Workout code: it runs exactly as if typed, with the full environment and no sandbox (ADR 0002 covers Workout code only; `--no-sandbox` still applies only to the Workout's tests). Its stdin is `/dev/null`, so a command that prompts fails instead of hanging.
+- **Output** goes to `.kintsugi/while/last.log` (overwritten each time), never into the runner. Its path is printed at the start and the end; the last 20 lines are shown when the command fails.
+- **Status** is event lines, not a redrawn bar: a notice at the start; the moment the command ends, a line with a terminal bell (`✓ npm test finished in 3m02s`, or `✗ npm test failed (exit 1) after 41s` and the log tail); and an `[s]` key in the runner, while a command is attached, for the elapsed time and the last lines of the log.
+- **The command finishes first:** the Workout carries on; nothing is cut off. `[q]` leaves the Attempt open as usual.
+- **The Workout finishes first:** with another Quick Workout ready, "Another Quick Workout while `npm test` runs? [y]"; otherwise (or on any other key) Kintsugi waits for the command, showing the elapsed time, then reports it.
+- **Interrupting:** `[q]` and Ctrl+C in the runner leave the Workout and never touch the command. `[q]` or Ctrl+C while waiting for the command afterwards stops it (SIGINT to its process group, SIGKILL 5 s later). If Kintsugi fails mid-way (a sandbox error, say), it reports the error and still waits for the command.
+- **Exit code:** `kin quick --while` exits with the command's exit code (128 + the signal number when it was stopped by one), so `kin quick --while "make" && ./deploy` behaves like `make && ./deploy`.
+- **Nothing to serve** (no Quick Workout ready, no interactive terminal, or no Kintsugi workspace in this repository): the command runs in the foreground with its output passed through and its exit code returned, plus at most one dim note. No generation is offered: Kintsugi never stands between the user and their command, so an alias like `t='kin quick --while "npm test"'` is safe anywhere.
+- Only `kin quick` takes `--while` for now.
+
+### 11.7 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 
-- **`kin quick --while "<cmd>"`:** serve a Quick Workout while a slow build or CI command runs in the background, with a status line (v2.1).
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.
 - **Spaced repetition:** resurfacing attempted Workouts on a schedule.
 - **A public Workout library** for open-source codebases (a hosted service; a separate decision from team sharing).

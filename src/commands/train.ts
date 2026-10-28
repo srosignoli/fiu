@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { AUTO_DEFAULTS, loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { expireStaleWorkouts } from '../background/refill.ts';
 import { describeCost } from '../cost/usage.ts';
+import { BackgroundCommand, describeDuration, reportResult, type CommandResult } from '../runner/background.ts';
 import { watchForChanges } from '../runner/watch.ts';
 import { formatRun } from '../runner/render.ts';
 import { ignoredByWatcher, TrainingSession } from '../runner/session.ts';
@@ -24,6 +25,8 @@ export interface TrainIo {
   rate(): Promise<Outcome['rating']>;
   /** Open these files for editing, if the user has an editor configured. */
   openEditor?(files: string[]): void;
+  /** Show progress (e.g. a spinner with `status()`) until `until` settles. */
+  wait?(status: () => string, until: Promise<unknown>): Promise<void>;
 }
 
 export interface TrainOptions {
@@ -36,6 +39,8 @@ export interface TrainDependencies {
   cacheRoot?: string;
   /** Quiet period before a save triggers a run (tests shorten it). */
   debounceMs?: number;
+  /** `kin quick --while`: the user's command running alongside, announced when it ends and shown on [s]. */
+  background?: BackgroundCommand;
 }
 
 export type TrainResult =
@@ -70,7 +75,7 @@ export async function train(
   id: string | undefined,
   options: TrainOptions,
   io: TrainIo,
-  { configEnv = { env: process.env, home: homedir() }, cacheRoot, debounceMs }: TrainDependencies = {},
+  { configEnv = { env: process.env, home: homedir() }, cacheRoot, debounceMs, background }: TrainDependencies = {},
 ): Promise<TrainResult> {
   const repoRoot = await findRepoRoot(cwd);
   const paths = workspacePaths(repoRoot);
@@ -100,7 +105,7 @@ export async function train(
     await preflight(sandbox, profile, cacheRoot);
     const { attempt, resumed } = await openAttempt(paths, workout, profile);
     const session = new TrainingSession({ paths, workout, attempt, profile, sandbox, cacheRoot });
-    return await runSession(session, io, { debounceMs, resumed, ignore: ignoredByWatcher(profile) });
+    return await runSession(session, io, { debounceMs, resumed, ignore: ignoredByWatcher(profile), background });
   } finally {
     await sandbox.dispose();
   }
@@ -109,8 +114,14 @@ export async function train(
 async function runSession(
   session: TrainingSession,
   io: TrainIo,
-  { debounceMs, resumed, ignore }: { debounceMs?: number; resumed: boolean; ignore: (path: string) => boolean },
+  {
+    debounceMs,
+    resumed,
+    ignore,
+    background,
+  }: { debounceMs?: number; resumed: boolean; ignore: (path: string) => boolean; background?: BackgroundCommand },
 ): Promise<TrainResult> {
+  const keysHelp = background ? `${KEYS_HELP}   [s] \`${background.command}\`` : KEYS_HELP;
   const { record } = session.workout;
   const attempt = session.attempt;
   const files = [join(session.workout.dir, 'README.md'), join(attempt.dir, record.files.code)];
@@ -146,16 +157,27 @@ async function runSession(
         if (result.verdict.kind === 'completed') return finish('completed');
         next = rerun ? 'save' : undefined;
       }
-      io.print(KEYS_HELP);
+      io.print(keysHelp);
     })().finally(() => (running = undefined));
   };
 
   const watcher = await watchForChanges(attempt.dir, () => runTests('save'), { ignore, debounceMs });
   runTests('start');
 
+  // The moment the user's command ends, say so (with a bell): the Workout itself carries on.
+  let ended = false;
+  void background?.done.then(async (result) => {
+    if (ended || background.reported) return;
+    const report = await reportResult(background, result);
+    if (ended || background.reported) return;
+    background.reported = true;
+    io.print(`\x07${report}`);
+  });
+
   const keys = new AbortController();
-  const outcome = await Promise.race([finished, readKeys(session, io, keys.signal, finish)]);
+  const outcome = await Promise.race([finished, readKeys(session, io, keys.signal, finish, background)]);
   keys.abort();
+  ended = true;
   watcher.close();
   // Let a run in progress finish before the Attempt is closed.
   await running;
@@ -176,6 +198,7 @@ async function readKeys(
   io: TrainIo,
   signal: AbortSignal,
   finish: (outcome: Outcome['outcome'] | 'quit') => void,
+  background?: BackgroundCommand,
 ): Promise<never> {
   for (;;) {
     const key = await io.readKey(signal);
@@ -187,9 +210,79 @@ async function readKeys(
       io.print(`Here is what the Reference Solution changes:\n${await session.solutionDiff()}`);
       finish('abandoned');
       return new Promise<never>(() => {});
+    } else if (key === 's' && background) {
+      io.print(await backgroundStatus(background));
     } else if (key === 'q') {
       finish('quit');
       return new Promise<never>(() => {});
     }
   }
+}
+
+async function backgroundStatus(background: BackgroundCommand): Promise<string> {
+  if (background.result) return reportResult(background, background.result);
+  const tail = await background.tail(5);
+  return [`\`${background.command}\` running for ${describeDuration(background.elapsedMs())}`, ...(tail ? [tail.replace(/^/gm, '  │ ')] : [])].join('\n');
+}
+
+export type QuickWhileResult = { status: 'nothing-ready' } | { status: 'ran'; result: CommandResult };
+
+/**
+ * `kin quick --while "<cmd>"`: the user's command runs in the background while they solve Quick
+ * Workouts. Returns how the command ended; with no Quick Workout ready it starts nothing, and the
+ * caller runs the command in the foreground instead.
+ */
+export async function quickWhile(
+  cwd: string,
+  command: string,
+  options: TrainOptions,
+  io: TrainIo,
+  dependencies: TrainDependencies & { shell?: string } = {},
+): Promise<QuickWhileResult> {
+  const paths = workspacePaths(await findRepoRoot(cwd));
+  const repoConfig = await loadRepoConfig(paths.configFile);
+  await expireStaleWorkouts(paths, { ...AUTO_DEFAULTS, ...repoConfig.auto }.expiryDays, new Date());
+  let next = await nextQuickWorkout(paths);
+  if (!next) return { status: 'nothing-ready' };
+
+  const background = await BackgroundCommand.start(command, { cwd, logFile: join(paths.root, 'while', 'last.log'), shell: dependencies.shell });
+  io.print(`Running \`${command}\` in the background. Log: ${background.logFile}`);
+  try {
+    for (;;) {
+      await train(cwd, next.record.id, options, io, { ...dependencies, background });
+      if (background.result) break;
+      next = await nextQuickWorkout(paths);
+      if (!next) break;
+      io.print(`Another Quick Workout while \`${command}\` runs? [y] yes   [any other key] wait for it`);
+      const answer = new AbortController();
+      const key = await Promise.race([io.readKey(answer.signal), background.done.then(() => undefined)]);
+      answer.abort();
+      if (key !== 'y') break;
+    }
+  } catch (error) {
+    // Kintsugi failing must not cost the user their command: report it, and keep waiting.
+    io.print(`Kintsugi stopped: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (!background.result) {
+    io.print(`Waiting for \`${command}\`. [q] stop it`);
+    const stopKey = new AbortController();
+    const stop = (async () => {
+      for (;;) {
+        const key = await io.readKey(stopKey.signal);
+        if (key === undefined) return;
+        if (key === 'q') return void (await background.stop());
+      }
+    })();
+    const waiting = io.wait?.(() => `\`${command}\` running for ${describeDuration(background.elapsedMs())}`, background.done);
+    await background.done;
+    stopKey.abort();
+    await Promise.all([stop, waiting]);
+  }
+  const result = background.result!;
+  if (!background.reported) {
+    background.reported = true;
+    io.print(await reportResult(background, result));
+  }
+  return { status: 'ran', result };
 }

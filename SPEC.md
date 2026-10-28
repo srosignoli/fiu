@@ -343,6 +343,8 @@ Per [ADR 0003](./docs/adr/0003-workouts-are-immutable-attempts-hold-outcomes.md)
 
 ### 11.3 v3: Onboarding and team sharing
 
+*v3.0.0 was tagged on 2026-10-28, package still private. Verified for real: two Tracks built by headless Claude Code (agent mode) on clew and N4List, and a Track shared and fetched through a scratch remote. Not yet run for real: `kin explore` in API mode (no API key; covered by mock-model tests). Still open from v1.0: Drill ratings, the macOS and native Linux sandbox check, the npm scope.*
+
 For the **newcomer to a codebase** (a new hire, a contributor, a future you): someone who knows the code generates a Track once; teammates reuse it without paying again. Out of scope for v3: `kin map` (it needs practice history first) and Katas (Tracks are Drills only).
 
 #### 11.3.1 `kin explore` and Tracks (implemented)

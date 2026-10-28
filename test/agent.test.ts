@@ -13,6 +13,7 @@ import { costReport } from '../src/commands/cost.ts';
 import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
 import type { DrillOutput } from '../src/synthesis/schema.ts';
 import type { WorkoutRecord } from '../src/workouts/save.ts';
+import { workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
 import { goodDrill, TS_REFERENCE } from './mock-model.ts';
 
@@ -60,7 +61,7 @@ describe('kin mcp', () => {
   it('offers its tools and the rules for using them', async () => {
     const { client } = await connect(await repoWithSources('queue.ts'));
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((t) => t.name).sort(), ['list_workouts', 'prepare_drill', 'submit_drill']);
+    assert.deepEqual(tools.map((t) => t.name).sort(), ['finish_track', 'list_workouts', 'prepare_drill', 'prepare_track', 'submit_drill']);
     assert.match(client.getInstructions() ?? '', /^Kintsugi turns code in this repository into Drills/);
     // The submit schema is the Drill schema itself, so the client checks the shape.
     const submit = tools.find((t) => t.name === 'submit_drill')!;
@@ -260,3 +261,84 @@ describe('kin agent install claude', () => {
     assert.equal(await readFile(join(repo, '.claude', 'commands', 'kin-drill.md'), 'utf8'), 'team version\n');
   });
 });
+
+describe(`Tracks in agent mode (${sandboxWorks ? 'sandboxed' : 'skipped: no sandbox'})`, { skip: !sandboxWorks }, () => {
+  /** A module of four logic-bearing files, long enough to be candidates. */
+  async function repoWithModule(): Promise<string> {
+    const repo = await tempGitRepo();
+    const file = (name: string, n: number) =>
+      `${TS_REFERENCE}\n${Array.from({ length: n }, (_, i) => `export const ${name}${i} = (x: number) => (x > ${i} ? x : ${i});`).join('\n')}\n${'// note\n'.repeat(8)}`;
+    await mkdir(join(repo, 'src', 'core'), { recursive: true });
+    for (const [name, n] of [['store', 9], ['queue', 7], ['worker', 5], ['extra', 3]] as const) {
+      await writeFile(join(repo, 'src', 'core', `${name}.ts`), file(name, n));
+    }
+    await execa('git', ['add', '.'], { cwd: repo });
+    await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'module'], { cwd: repo });
+    return repo;
+  }
+
+  async function step(call: Awaited<ReturnType<typeof connect>>['call'], trackId: string, target: string, workouts: DrillOutput[]) {
+    const prepared = await call('prepare_drill', { target, trackId, why: `${target} matters.` });
+    assert.equal(prepared.isError, false, prepared.text);
+    let last;
+    for (const workout of workouts) last = await call('submit_drill', { generationId: prepared.json.generationId, workout });
+    return { prepared: prepared.json, last: last! };
+  }
+
+  it('builds a Track step by step and saves it in order', async () => {
+    const repo = await repoWithModule();
+    const { call } = await connect(repo);
+    const { json: track } = await call('prepare_track', { module: 'src/core' });
+    assert.match(track.trackId, /^track_\d{8}_src-core$/);
+    assert.deepEqual(track.candidates.map((c: { path: string }) => c.path), ['src/core/store.ts', 'src/core/queue.ts', 'src/core/worker.ts', 'src/core/extra.ts']);
+    assert.match(track.rules, /foundations first/);
+
+    const first = await step(call, track.trackId, 'src/core/worker.ts', [goodDrill({ slug: 'w' })]);
+    assert.match(first.prepared.source, /step 1 in a Track teaching a newcomer the module src\/core\. This file matters because: src\/core\/worker\.ts matters\./);
+    // A step that can't be Verified is dropped; another candidate takes its place.
+    const noBug = goodDrill({ startingCode: TS_REFERENCE });
+    await step(call, track.trackId, 'src/core/extra.ts', [noBug, noBug, noBug]);
+    await step(call, track.trackId, 'src/core/store.ts', [goodDrill({ slug: 's' })]);
+    await step(call, track.trackId, 'src/core/queue.ts', [goodDrill({ slug: 'q' })]);
+
+    const { json: finished } = await call('finish_track', { trackId: track.trackId, title: 'The job scheduler' });
+    assert.equal(finished.status, 'saved', JSON.stringify(finished));
+    assert.deepEqual(finished.steps.map((s: { path: string }) => s.path), ['src/core/worker.ts', 'src/core/store.ts', 'src/core/queue.ts']);
+    assert.deepEqual(finished.dropped, ['src/core/extra.ts: no Verified Drill']);
+    assert.equal(finished.next, `The user starts it with: kin track ${track.trackId}`);
+
+    const paths = workspacePaths(repo);
+    const saved = JSON.parse(await readFile(join(paths.root, 'tracks', `${track.trackId}.json`), 'utf8'));
+    assert.equal(saved.generator, 'agent');
+    const firstWorkout = finished.steps[0].workoutId;
+    const record = JSON.parse(await readFile(join(paths.workoutsDir, firstWorkout, 'workout.json'), 'utf8'));
+    assert.deepEqual([record.origin, record.generator, record.track.module], ['explore', 'agent', 'src/core']);
+    assert.match(await readFile(join(paths.workoutsDir, firstWorkout, 'README.md'), 'utf8'), /^\*Part of a Track on src\/core: src\/core\/worker\.ts matters\.\*$/m);
+  });
+
+  it('keeps Track steps to the shortlist, one per file, each with a why', async () => {
+    const repo = await repoWithModule();
+    const { call } = await connect(repo);
+    const { json: track } = await call('prepare_track', { module: 'src/core' });
+    assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId })).text, /needs `why`/);
+    assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: 'track_nope', why: 'x' })).text, /Unknown track id/);
+    await writeFile(join(repo, 'src', 'core', 'new.ts'), TS_REFERENCE);
+    assert.match((await call('prepare_drill', { target: 'src/core/new.ts', trackId: track.trackId, why: 'x' })).text, /not one of the Track's candidate files/);
+    await step(call, track.trackId, 'src/core/store.ts', [goodDrill({ slug: 's' })]);
+    assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId, why: 'x' })).text, /already a step of this Track/);
+    assert.match((await call('prepare_track', { module: 'src/core/store.ts' })).text, /is a file: explore a module directory/);
+  });
+
+  it('saves no Track with fewer than 3 Verified steps', async () => {
+    const repo = await repoWithModule();
+    const { call } = await connect(repo);
+    const { json: track } = await call('prepare_track', { module: 'src/core' });
+    await step(call, track.trackId, 'src/core/store.ts', [goodDrill({ slug: 's' })]);
+    await step(call, track.trackId, 'src/core/queue.ts', [goodDrill({ slug: 'q' })]);
+    const { json: finished } = await call('finish_track', { trackId: track.trackId, title: 'Too short' });
+    assert.equal(finished.status, 'not-enough');
+    assert.equal(finished.workoutIds.length, 2);
+    assert.ok(!existsSync(join(repo, '.kintsugi', 'tracks', `${track.trackId}.json`)));
+  });
+});
+

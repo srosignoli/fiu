@@ -143,7 +143,7 @@ export async function explore(
           revision: await sourceRevision(repoRoot, step.path),
           quick: false,
           origin: 'explore',
-          track: { id, title: plan.title, why: step.why },
+          track: { id, title: plan.title, module, why: step.why },
           cacheRoot,
           step: (message) => ui.step(message),
         });

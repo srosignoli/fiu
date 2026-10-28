@@ -11,6 +11,11 @@ To create a Drill:
 3. Call submit_drill with the generationId and the Drill. Kintsugi runs the tests itself.
 4. If the result is "rejected", fix every problem in the feedback and submit again. The Drill is done when the result is "saved" or "not-worth-practicing"; when no submissions are left, tell the user it could not be Verified.
 
+To build a Track (3 to 5 Drills that teach a newcomer one module, foundations first):
+1. Call prepare_track with the module directory. Choose and order the steps from its candidates by its rules.
+2. For each step, in order, create the Drill as above, passing trackId and a one-line why to prepare_drill. If a step can't be Verified, use another candidate in its place.
+3. Call finish_track with the trackId and a short title. The Track is done when the result is "saved", or "not-enough" when fewer than 3 steps were Verified.
+
 Drills under .kintsugi/ are the user's practice material: leave their files for the user to solve. When the user asks for help with a Drill, give a hint or a guiding question and let them find the fix.`;
 
 export const PREPARE_DESCRIPTION =
@@ -18,6 +23,12 @@ export const PREPARE_DESCRIPTION =
 
 export const SUBMIT_DESCRIPTION =
   'Submit a Drill written for a generationId. Kintsugi checks it and runs its tests in a sandbox: "saved" returns the Workout id; "rejected" returns feedback to fix before resubmitting; "not-worth-practicing" ends the generation.';
+
+export const PREPARE_TRACK_DESCRIPTION =
+  'Start a Track for a module directory: returns a trackId, the candidate files with their outlines, and the rules for choosing and ordering 3 to 5 steps.';
+
+export const FINISH_TRACK_DESCRIPTION =
+  'Save a Track once its steps are created: "saved" returns the trackId to start it with; "not-enough" means fewer than 3 steps were Verified (those Drills stay as ordinary Workouts).';
 
 export const LIST_DESCRIPTION = "List the Drills waiting to be solved in this repository's Kintsugi queue.";
 
@@ -28,7 +39,7 @@ export const STAMP_PATTERN = /<!-- kintsugi-version: ([^ ]+) -->/;
 export function skillMarkdown(version: string): string {
   return `---
 name: kintsugi
-description: Creates Kintsugi Drills, debugging exercises built from this repository's code, with the kintsugi MCP tools. Use when the user asks for a drill, workout, or practice exercise on some code, or an end-of-task rule asks for one.
+description: Creates Kintsugi Drills and Tracks, debugging exercises built from this repository's code, with the kintsugi MCP tools. Use when the user asks for a drill, workout, or practice exercise on some code, wants to learn, explore, or onboard onto a module, or an end-of-task rule asks for a Drill.
 ---
 
 ${stamp(version)}
@@ -40,6 +51,18 @@ ${stamp(version)}
 2. **Delegate the generation.** Hand it to a subagent so this conversation stays focused on the user's work. Give it the target, whether it is quick, whether it is an end-of-task Drill (afterTask: true), and this brief: "Create a Kintsugi Drill with the kintsugi MCP tools prepare_drill and submit_drill, following their instructions, until the result is saved, not worth practicing, or out of submissions. Reply with only the outcome: the Workout id and title, or the reason." Without subagents, do the same steps here.
 
 3. **Report the outcome.** For a saved Drill, give its title and tell the user to start it with \`kin train <workout-id>\`. The bug is the user's to find, so the report names only the symptom the Drill's title describes. For any other outcome, give the reason and offer a different target.
+
+# Building a Kintsugi Track
+
+When the user wants to learn a module rather than practise one file, build a Track: 3 to 5 Drills, each from a different file, foundations first.
+
+1. **Start it.** Call prepare_track with the module directory the user named, or the one their question is about.
+
+2. **Choose and order the steps** from its candidates by its rules: the files the others build on come first. Write one line per step saying why it matters for the module.
+
+3. **Delegate the generation.** Hand it to a subagent with the trackId, the ordered steps and their why lines, and this brief: "For each step in order, create a Kintsugi Drill with prepare_drill (passing trackId and why) and submit_drill, following their instructions. If a step can't be Verified, use another candidate in its place. Then call finish_track with the trackId and a short title naming what the module does. Reply with only the outcome." Without subagents, do the same steps here.
+
+4. **Report the outcome.** For a saved Track, give its title and steps, and tell the user to start it with \`kin track <track-id>\`. For "not-enough", say how many steps were Verified and that those Drills can still be trained with \`kin train\`.
 
 When the user asks for help with a Drill they are solving, coach: one hint or guiding question at a time, so they find the fix themselves.
 `;

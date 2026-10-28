@@ -128,7 +128,7 @@ describe(`kin explore (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     const paths = workspacePaths(repo);
     const first = await loadWorkout(paths, track.steps[0]!.workoutId);
     assert.equal(first.record.origin, 'explore');
-    assert.deepEqual((first.record as WorkoutRecord).track, { id: track.id, title: 'The job scheduler', why: 'src/core/store.ts is what the rest builds on.' });
+    assert.deepEqual((first.record as WorkoutRecord).track, { id: track.id, title: 'The job scheduler', module: 'src/core', why: 'src/core/store.ts is what the rest builds on.' });
     assert.match(await readFile(join(first.dir, 'README.md'), 'utf8'), /^\*Part of the Track "The job scheduler": src\/core\/store\.ts is what the rest builds on\.\*$/m);
 
     const ledger = (await readState(paths)).spend.map((e) => e.result);

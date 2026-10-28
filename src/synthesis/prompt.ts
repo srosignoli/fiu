@@ -10,7 +10,7 @@ export interface DrillTarget {
   /** The commit that just changed this file: the Drill is built around the change. */
   change?: { sha: string; subject: string; diff: string };
   /** This Drill is one step of a Track teaching a module. */
-  track?: { module: string; step: number; of: number; why: string };
+  track?: { module: string; step: number; of?: number; why: string };
 }
 
 /** Above this, the user should pin a symbol in a smaller file rather than have us truncate silently. */
@@ -62,7 +62,7 @@ export function drillUserPrompt(target: DrillTarget): string {
       : 'Pick the unit in this file whose logic is most worth practicing.';
   const change = target.change ? `\n\n<diff>\n${target.change.diff}\n</diff>` : '';
   const track = target.track
-    ? `\nThis Drill is step ${target.track.step} of ${target.track.of} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the Drill around the logic that makes it matter.`
+    ? `\nThis Drill is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the Drill around the logic that makes it matter.`
     : '';
   return `Source file: ${target.path}\n${focus}${track}\n\n<source>\n${numbered}\n</source>${change}`;
 }

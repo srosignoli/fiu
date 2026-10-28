@@ -11,7 +11,8 @@ import { SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { NotAGitRepositoryError } from '../workspace.ts';
 import { AgentDrills, AgentRequestError } from './drills.ts';
 import { compareVersions, installedVersion } from './install.ts';
-import { LIST_DESCRIPTION, PREPARE_DESCRIPTION, SERVER_INSTRUCTIONS, SUBMIT_DESCRIPTION } from './texts.ts';
+import { FINISH_TRACK_DESCRIPTION, LIST_DESCRIPTION, PREPARE_DESCRIPTION, PREPARE_TRACK_DESCRIPTION, SERVER_INSTRUCTIONS, SUBMIT_DESCRIPTION } from './texts.ts';
+import { ExploreTargetError } from '../explore/shortlist.ts';
 
 /** Errors the agent can act on (wrong target, no sandbox, full queue…), returned as tool errors rather than crashes. */
 const AGENT_FACING_ERRORS = [
@@ -23,6 +24,7 @@ const AGENT_FACING_ERRORS = [
   SourceTooLargeError,
   NotAGitRepositoryError,
   ToolchainMissingError,
+  ExploreTargetError,
 ];
 
 export interface KinMcpServerOptions {
@@ -43,11 +45,13 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
         target: z.string().describe('A source file in this repository, relative to its root, optionally followed by #symbol.'),
         quick: z.boolean().optional().describe('A Quick Drill: small enough for a short wait.'),
         afterTask: z.boolean().optional().describe('True only when generating at the end of your own coding task.'),
+        trackId: z.string().optional().describe('Makes this Drill the next step of a Track started with prepare_track.'),
+        why: z.string().optional().describe('For a Track step: one line on why this file matters for the module.'),
       },
     },
-    ({ target, quick, afterTask }) =>
+    ({ target, quick, afterTask, trackId, why }) =>
       respond(async () => {
-        const prepared = await drills.prepare({ target, quick, origin: afterTask ? 'agent-task' : 'manual' });
+        const prepared = await drills.prepare({ target, quick, origin: afterTask ? 'agent-task' : 'manual', trackId, why });
         const notice = await staleInstallNotice(home, prepared.repository, version);
         return { ...prepared, ...(notice ? { notice } : {}) };
       }),
@@ -65,6 +69,26 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
         const result = await drills.submit(generationId, workout);
         return result.status === 'saved' ? { ...result, next: `The user starts it with: kin train ${result.workoutId}` } : result;
       }),
+  );
+
+  server.registerTool(
+    'prepare_track',
+    {
+      title: 'Prepare a Kintsugi Track',
+      description: PREPARE_TRACK_DESCRIPTION,
+      inputSchema: { module: z.string().describe('A module directory in this repository, relative to its root.') },
+    },
+    ({ module }) => respond(() => drills.prepareTrack(module)),
+  );
+
+  server.registerTool(
+    'finish_track',
+    {
+      title: 'Finish a Kintsugi Track',
+      description: FINISH_TRACK_DESCRIPTION,
+      inputSchema: { trackId: z.string(), title: z.string().describe('A short title naming what the module does.') },
+    },
+    ({ trackId, title }) => respond(() => drills.finishTrack(trackId, title)),
   );
 
   server.registerTool('list_workouts', { title: 'List Kintsugi Workouts', description: LIST_DESCRIPTION }, () =>

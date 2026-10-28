@@ -6,6 +6,7 @@ import { confirm, log, spinner } from '@clack/prompts';
 import { Command } from 'commander';
 import { costReport, startOfMonth, type SpendBucket } from './commands/cost.ts';
 import { drill, type DrillUi } from './commands/drill.ts';
+import type { WorkoutKind } from './synthesis/schema.ts';
 import { describeCost, formatUsd, totalTokens } from './cost/usage.ts';
 import { EDITOR_TIP, init } from './commands/init.ts';
 import { quick, train, type TrainResult } from './commands/train.ts';
@@ -37,6 +38,44 @@ program
     console.log('To get a Quick Drill from each of your commits in the background, run: kin auto on');
   });
 
+/** `kin drill` and `kin kata`: the same flow, differing only in what is generated and how it is described. */
+function generationCommand(kind: WorkoutKind) {
+  const noun = kind === 'drill' ? 'Drill' : 'Kata';
+  return async (target: string, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean }) => {
+    const ui = terminalUi();
+    try {
+      const result = await drill(process.cwd(), target, { ...options, kind }, ui);
+      ui.settle();
+      if (result.status === 'not-worth-practicing') {
+        log.warn(`Nothing worth practising in ${target} (${describeCost(result.cost)} spent): ${result.reason}`);
+      } else if (result.status === 'failed') {
+        log.error(
+          `Couldn't produce a Verified Workout from ${target} (${describeCost(result.cost)} spent). The last attempt failed with:\n${result.feedback}`,
+        );
+        process.exitCode = 1;
+      } else {
+        const { record, workoutDir } = result;
+        log.success(`Saved ${noun} "${record.title}" (${record.id}), generated for ${describeCost(result.cost)}`);
+        if (options.train && process.stdin.isTTY) {
+          ui.settle();
+          await runTrain(record.id, options);
+        } else {
+          log.message(
+            (kind === 'drill'
+              ? [`Read the incident report: ${join(workoutDir, 'README.md')}`, `Fix the bug in:           ${join(workoutDir, record.files.code)}`]
+              : [`Read the brief:           ${join(workoutDir, 'README.md')}`, `Fill in the gap in:       ${join(workoutDir, record.files.code)}`]
+            )
+              .concat(`Then train with:          kin train ${record.id}`)
+              .join('\n'),
+          );
+        }
+      }
+    } finally {
+      ui.settle();
+    }
+  };
+}
+
 program
   .command('drill')
   .description('Generate a Drill from a file (optionally pinned to a symbol), verify it, and save it.')
@@ -45,38 +84,17 @@ program
   .option('--no-train', 'only save the Drill, without opening the runner')
   .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
-  .action(async (target: string, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean }) => {
-    const ui = terminalUi();
-    try {
-      const result = await drill(process.cwd(), target, options, ui);
-      ui.settle();
-      if (result.status === 'not-worth-practicing') {
-        log.warn(`Nothing worth drilling in ${target} (${describeCost(result.cost)} spent): ${result.reason}`);
-      } else if (result.status === 'failed') {
-        log.error(
-          `Couldn't produce a Verified Workout from ${target} (${describeCost(result.cost)} spent). The last attempt failed with:\n${result.feedback}`,
-        );
-        process.exitCode = 1;
-      } else {
-        const { record, workoutDir } = result;
-        log.success(`Saved Drill "${record.title}" (${record.id}), generated for ${describeCost(result.cost)}`);
-        if (options.train && process.stdin.isTTY) {
-          ui.settle();
-          await runTrain(record.id, options);
-        } else {
-          log.message(
-            [
-              `Read the incident report: ${join(workoutDir, 'README.md')}`,
-              `Fix the bug in:           ${join(workoutDir, record.files.code)}`,
-              `Then train with:          kin train ${record.id}`,
-            ].join('\n'),
-          );
-        }
-      }
-    } finally {
-      ui.settle();
-    }
-  });
+  .action(generationCommand('drill'));
+
+program
+  .command('kata')
+  .description('Generate a Kata from a file (optionally pinned to a symbol): one piece removed, for you to rebuild from a brief.')
+  .argument('<target>', 'the source file, optionally followed by #symbol')
+  .option('--quick', 'a Quick Kata, small enough for a short wait')
+  .option('--no-train', 'only save the Kata, without opening the runner')
+  .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
+  .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
+  .action(generationCommand('kata'));
 
 program
   .command('mcp')

@@ -284,7 +284,8 @@ export async function fetchWorkouts(cwd: string, options: FetchOptions, step: (m
       const text = (name: string) => files.get(name)?.toString('utf8') ?? '';
       const verification = await verify(
         {
-          kind: 'drill',
+          // A Quick Kata's gap (5–12 lines) is within a regular Kata's bounds, so `quick` isn't needed here.
+          kind: record.kind,
           startingCode: text(record.files.code),
           referenceSolution: text(record.files.solution),
           testSuiteCode: text(record.files.test),

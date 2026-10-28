@@ -17,7 +17,7 @@ import { openAttempt } from '../src/workouts/attempts.ts';
 import { discardWorkout, listWorkouts, loadWorkout, readState, restoreWorkout, type Outcome, type StoredWorkout } from '../src/workouts/store.ts';
 import { ensureWorkspace, workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -28,7 +28,7 @@ const sandboxWorks = await openSandbox().then(
 );
 
 /** A repo with one committed source file and a saved Drill derived from it. */
-async function repoWithDrill(slug = 'tie-breaker') {
+async function repoWithDrill(slug = 'tie-breaker', kind: 'drill' | 'kata' = 'drill') {
   const repo = await tempGitRepo();
   await writeFile(join(repo, 'queue.ts'), TS_REFERENCE);
   await execa('git', ['add', '.'], { cwd: repo });
@@ -38,7 +38,8 @@ async function repoWithDrill(slug = 'tie-breaker') {
   const record = await saveDrill({
     paths,
     profile: TYPESCRIPT,
-    drill: goodDrill({ slug }),
+    drill: kind === 'drill' ? goodDrill({ slug }) : goodKata({ slug }),
+    kind,
     sourcePath: 'queue.ts',
     revision: await sourceRevision(repo, 'queue.ts'),
     cost: estimateCost([{ model: 'claude-opus-5-5', inputTokens: 10_000, outputTokens: 20_000, cacheReadTokens: 0, cacheWriteTokens: 0 }]),
@@ -150,6 +151,17 @@ describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.equal(await readFile(join(dir, 'kata.ts'), 'utf8'), startingCode);
     assert.equal(result.status === 'completed' && result.dir, attempt());
     assert.deepEqual((await listWorkouts(paths)).map((w) => w.status), ['attempted']);
+  });
+
+  it('heads a Kata with its brief and the file to fill in', async () => {
+    const { repo, record, attempt } = await repoWithDrill('pick-next', 'kata');
+    const io = new ScriptedIo();
+    const training = startTraining(repo, record.id, io);
+    await io.waitFor(/^Initial run: 1\/3 passing/);
+    assert.match(io.printed[0]!, /\n {2}Brief: +\S+README\.md\n {2}Fill in: +\S+kata\.ts/);
+    assert.doesNotMatch(io.printed[0]!, /Incident report|Fix the bug/);
+    await writeFile(join(attempt(), 'kata.ts'), TS_REFERENCE);
+    assert.equal((await training).status, 'completed', io.transcript);
   });
 
   it('shows failing tests with their output, and ignores saves that change nothing', async () => {

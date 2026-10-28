@@ -116,8 +116,9 @@ async function runSession(
   const files = [join(session.workout.dir, 'README.md'), join(attempt.dir, record.files.code)];
   const header = [
     `${record.title} (${record.id}), attempt ${attempt.record.number}${resumed ? ', resumed' : ''}`,
-    `  Incident report: ${files[0]}`,
-    `  Fix the bug in:  ${files[1]}`,
+    ...(record.kind === 'kata'
+      ? [`  Brief:           ${files[0]}`, `  Fill in:         ${files[1]}`]
+      : [`  Incident report: ${files[0]}`, `  Fix the bug in:  ${files[1]}`]),
   ];
   // Workouts saved before cost recording have none.
   if (record.cost) header.push(`  Generated for:   ${describeCost(record.cost)}`);

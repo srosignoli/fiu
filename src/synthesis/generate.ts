@@ -8,6 +8,7 @@ import { averageSpend, readState, recordSpend, type Spend } from '../workouts/st
 import type { WorkspacePaths } from '../workspace.ts';
 import type { createModel } from './model.ts';
 import type { DrillTarget } from './prompt.ts';
+import type { WorkoutKind } from './schema.ts';
 import { MAX_ATTEMPTS, synthesizeDrill, type SynthesisEvent } from './synthesize.ts';
 
 export type GenerationResult =
@@ -25,6 +26,8 @@ export interface GenerateOptions {
   target: DrillTarget;
   revision: SourceRevision;
   quick: boolean;
+  /** A Drill unless asked for a Kata. */
+  kind?: WorkoutKind;
   origin: Origin;
   /** The commit a background Drill was generated from. */
   commit?: { sha: string; aiAuthored: boolean };
@@ -38,7 +41,7 @@ export interface GenerateOptions {
 
 /**
  * Kintsugi's own generation, shared by `kin drill` and `kin refill`: generate, verify, and save a
- * Drill, recording everything it cost in the spend ledger whatever the outcome.
+ * Drill or Kata, recording everything it cost in the spend ledger whatever the outcome.
  */
 export async function generateWorkout(options: GenerateOptions): Promise<GenerationResult> {
   const { paths, config, profile, sandbox, target, step } = options;
@@ -52,6 +55,7 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
   try {
     const result = await synthesizeDrill({
       quick: options.quick,
+      kind: options.kind,
       maxAttempts,
       target,
       profile,
@@ -83,7 +87,8 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
     const record = await saveDrill({
       paths,
       profile,
-      drill: result.drill,
+      drill: result.workout,
+      kind: options.kind,
       sourcePath: target.path,
       symbol: target.symbol,
       revision: options.revision,

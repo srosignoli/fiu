@@ -11,6 +11,7 @@ import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox } from '../sandbox/sandbox.ts';
 import { createModel as createModelDefault } from '../synthesis/model.ts';
 import { generateWorkout, type GenerationResult } from '../synthesis/generate.ts';
+import type { WorkoutKind } from '../synthesis/schema.ts';
 import { sourceRevision } from '../workouts/save.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from '../workspace.ts';
 
@@ -21,6 +22,8 @@ export interface DrillCommandOptions {
   sandbox: boolean;
   /** --quick: a Drill that fits a short wait. */
   quick?: boolean;
+  /** `kin kata`: a Kata instead of a Drill. */
+  kind?: WorkoutKind;
 }
 
 /** How the command talks to the user; the CLI renders it, tests record it. */
@@ -42,7 +45,7 @@ export type DrillCommandResult = GenerationResult;
 
 export class DrillTargetError extends Error {}
 
-/** `kin drill <file>[#symbol]`: generate a Drill, verify it, and save it. */
+/** `kin drill <file>[#symbol]` (and `kin kata`): generate a Drill or Kata, verify it, and save it. */
 export async function drill(
   cwd: string,
   target: string,
@@ -53,6 +56,8 @@ export async function drill(
   const repoRoot = await findRepoRoot(cwd);
   const { file, symbol } = parseTarget(cwd, target);
   const sourcePath = repoRelative(repoRoot, file);
+  const kind = options.kind ?? 'drill';
+  const noun = kind === 'drill' ? 'Drill' : 'Kata';
 
   const paths = workspacePaths(repoRoot);
   await ensureWorkspace(paths);
@@ -67,7 +72,7 @@ export async function drill(
     apiKey = resolveApiKey(config.provider, userConfig, configEnv);
   } catch (error) {
     if (!(error instanceof MissingApiKeyError)) throw error;
-    error.message += `\nOr generate it with your coding agent instead: run \`kin agent install claude\`, then ask it to \`/kin-drill ${sourcePath}\`.`;
+    error.message += `\nOr generate it with your coding agent instead: run \`kin agent install claude\`, then ask it to \`/kin-drill ${sourcePath}${kind === 'kata' ? ' kata' : ''}\`.`;
     throw error;
   }
 
@@ -82,7 +87,7 @@ export async function drill(
       if (!options.yes) {
         if (!ui.confirm) throw new ConsentRequiredError(config.provider);
         const granted = await ui.confirm(
-          `Kintsugi will send ${sourcePath} to ${config.provider} (${config.model}) to generate the Drill. Send code from this repository to ${config.provider}?`,
+          `Kintsugi will send ${sourcePath} to ${config.provider} (${config.model}) to generate the ${noun}. Send code from this repository to ${config.provider}?`,
         );
         if (!granted) throw new ConsentDeclinedError();
       }
@@ -99,6 +104,7 @@ export async function drill(
       target: { path: sourcePath, source: await readFile(file, 'utf8'), symbol },
       revision: await sourceRevision(repoRoot, sourcePath),
       quick: options.quick ?? false,
+      kind,
       origin: 'manual',
       cacheRoot,
       step: (message) => ui.step(message),

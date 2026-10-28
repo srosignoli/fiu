@@ -1,5 +1,5 @@
 import { MockLanguageModelV4 } from 'ai/test';
-import type { DrillOutput } from '../src/synthesis/schema.ts';
+import type { AnyWorkoutOutput, DrillOutput, KataOutput } from '../src/synthesis/schema.ts';
 
 export interface ScriptedModel {
   model: MockLanguageModelV4;
@@ -8,7 +8,7 @@ export interface ScriptedModel {
 }
 
 /** A model that answers successive calls with the given replies (objects are sent as JSON; Errors are thrown). */
-export function scriptedModel(...replies: (Partial<DrillOutput> | string | Error)[]): ScriptedModel {
+export function scriptedModel(...replies: (Partial<AnyWorkoutOutput> | string | Error)[]): ScriptedModel {
   const prompts: string[] = [];
   const model = new MockLanguageModelV4({
     doGenerate: async (options) => {
@@ -69,6 +69,35 @@ export function goodDrill(overrides: Partial<DrillOutput> = {}): DrillOutput {
     testSuiteCode: TS_TESTS,
     regressionTestName: 'serves equal priorities first come, first served',
     injectedBugDescription: 'The tie-breaker compares arrival times the wrong way round.',
+    ...overrides,
+  };
+}
+
+/** The body of pickNext: the five lines a Kata removes. */
+const PICK_NEXT_BODY = `  let best: Job | undefined;
+  for (const job of jobs) {
+    if (!best || job.priority > best.priority || (job.priority === best.priority && job.at < best.at)) best = job;
+  }
+  return best?.id;
+`;
+
+/** A Kata that passes the Verified gate with the TypeScript profile: pickNext's body is the gap. */
+export function goodKata(overrides: Partial<KataOutput> = {}): KataOutput {
+  return {
+    worthPracticing: true,
+    notWorthReason: '',
+    slug: 'pick-next',
+    title: 'Choose the next job',
+    pillar: 'algorithm',
+    estimatedMinutes: 5,
+    sourceAnchors: [{ startLine: 3, endLine: 9, explanation: 'The scheduler picks the next job here.' }],
+    readmeMarkdown:
+      '## What it must do\npickNext returns the id of the job with the highest priority; ties go to the job that arrived first (lowest `at`). An empty queue gives undefined.\n\n## Where it fits\nThe scheduler calls it to choose what runs next.\n\n## Mission\nFill in pickNext until every test passes.',
+    hints: ['Keep the best job seen so far.', 'A tie on priority is decided by arrival time.'],
+    startingCode: TS_REFERENCE.replace(PICK_NEXT_BODY, '  // TODO: choose the next job.\n  return undefined;\n'),
+    referenceSolution: TS_REFERENCE,
+    testSuiteCode: TS_TESTS,
+    gapSummary: 'The whole body of pickNext: a single pass keeping the best job, ties broken by earliest arrival.',
     ...overrides,
   };
 }

@@ -13,8 +13,8 @@ import { repoRelativeDir, shortlist } from '../explore/shortlist.ts';
 import { saveTrack, trackId, type TrackStep } from '../explore/tracks.ts';
 import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox, type Sandbox } from '../sandbox/sandbox.ts';
-import { drillSystemPrompt, drillUserPrompt, MAX_SOURCE_LINES } from '../synthesis/prompt.ts';
-import { checkDrillOutput, DrillOutputSchema, type DrillOutput } from '../synthesis/schema.ts';
+import { drillUserPrompt, MAX_SOURCE_LINES, systemPromptFor } from '../synthesis/prompt.ts';
+import { checkWorkoutOutput, outputSchemaFor, type AnyWorkoutOutput, type WorkoutKind } from '../synthesis/schema.ts';
 import { MAX_ATTEMPTS, SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { describeFailures, verify } from '../verify/gate.ts';
 import { saveDrill, sourceRevision, type Origin } from '../workouts/save.ts';
@@ -33,6 +33,7 @@ interface Generation {
   sourcePath: string;
   symbol?: string;
   sourceLines: number;
+  kind: WorkoutKind;
   quick: boolean;
   origin: Origin;
   submissions: number;
@@ -67,6 +68,8 @@ export type FinishedTrack =
 
 export interface PrepareRequest {
   target: string;
+  /** A Drill (find the bug, the default) or a Kata (fill the gap). */
+  kind?: WorkoutKind;
   quick?: boolean;
   origin?: Origin;
   /** Makes this Drill the next step of a Track started with prepareTrack. */
@@ -80,9 +83,10 @@ export interface Prepared {
   repository: string;
   target: string;
   language: string;
+  kind: WorkoutKind;
   quick: boolean;
   maxSubmissions: number;
-  /** The rules for writing the Drill: the same system prompt Kintsugi's own generation uses. */
+  /** The rules for writing the Workout: the same system prompt Kintsugi's own generation uses. */
   instructions: string;
   /** The source file with numbered lines (for sourceAnchors), and the unit to build around if one was pinned. */
   source: string;
@@ -167,12 +171,13 @@ export class AgentDrills {
     return { status: 'saved', trackId: id, title: title.trim(), steps: pending.steps, dropped: pending.dropped, next: `The user starts it with: kin track ${id}` };
   }
 
-  async prepare({ target, quick = false, origin = 'manual', trackId: forTrack, why }: PrepareRequest): Promise<Prepared> {
+  async prepare({ target, kind = 'drill', quick = false, origin = 'manual', trackId: forTrack, why }: PrepareRequest): Promise<Prepared> {
     const repoRoot = await this.repository();
     const { file, symbol } = parseTarget(repoRoot, target);
     const sourcePath = repoRelative(repoRoot, file);
     let pendingTrack: PendingTrack | undefined;
     if (forTrack) {
+      if (kind !== 'drill') throw new AgentRequestError('Track steps are Drills: leave out `kind`, or prepare the Kata on its own.');
       pendingTrack = this.#tracks.get(forTrack);
       if (!pendingTrack) throw new AgentRequestError(`Unknown track id "${forTrack}". Call prepare_track to start a Track.`);
       if (!why?.trim()) throw new AgentRequestError('A Track step needs `why`: one line on why this file matters for the module.');
@@ -203,6 +208,7 @@ export class AgentDrills {
       sourcePath,
       symbol,
       sourceLines,
+      kind,
       quick,
       origin,
       submissions: 0,
@@ -213,20 +219,21 @@ export class AgentDrills {
       repository: repoRoot,
       target: sourcePath,
       language: profile.id,
+      kind,
       quick,
       maxSubmissions: MAX_ATTEMPTS,
-      instructions: drillSystemPrompt(profile, { quick }),
+      instructions: systemPromptFor(kind, profile, { quick }),
       source: drillUserPrompt({
         path: sourcePath,
         source,
         symbol,
         ...(pendingTrack ? { track: { module: pendingTrack.module, step: pendingTrack.steps.length + 1, why: why!.trim() } } : {}),
-      }),
-      workoutSchema: z.toJSONSchema(DrillOutputSchema),
+      }, kind),
+      workoutSchema: z.toJSONSchema(outputSchemaFor(kind)),
     };
   }
 
-  async submit(generationId: string, workout: DrillOutput): Promise<Submitted> {
+  async submit(generationId: string, workout: AnyWorkoutOutput): Promise<Submitted> {
     const generation = this.#generations.get(generationId);
     if (!generation) throw new AgentRequestError(`Unknown generation id "${generationId}". Call prepare_drill to start a new generation.`);
     // A missing sandbox is not the agent's fault, so it doesn't use up a submission.
@@ -265,12 +272,13 @@ export class AgentDrills {
       return { status: 'rejected', feedback, submissionsLeft: MAX_ATTEMPTS - generation.submissions };
     };
 
-    const problems = checkDrillOutput(workout, generation.sourceLines, { quick: generation.quick });
+    const problems = checkWorkoutOutput(generation.kind, workout, generation.sourceLines, { quick: generation.quick });
     if (problems.length > 0) return reject(problems.map((p) => `[schema] ${p}`).join('\n'));
 
     const verification = await verify(
       {
-        kind: 'drill',
+        kind: generation.kind,
+        quick: generation.quick,
         startingCode: workout.startingCode,
         referenceSolution: workout.referenceSolution,
         testSuiteCode: workout.testSuiteCode,
@@ -289,6 +297,7 @@ export class AgentDrills {
       paths: generation.paths,
       profile: generation.profile,
       drill: workout,
+      kind: generation.kind,
       sourcePath: generation.sourcePath,
       symbol: generation.symbol,
       revision: await sourceRevision(generation.paths.repoRoot, generation.sourcePath),

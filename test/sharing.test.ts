@@ -14,7 +14,7 @@ import { saveDrill, sourceRevision, type WorkoutRecord } from '../src/workouts/s
 import { listWorkouts } from '../src/workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, workspacePaths } from '../src/workspace.ts';
 import { tempDir } from './helpers.ts';
-import { goodDrill, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -89,6 +89,23 @@ describe(`team sharing (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
 
     assert.deepEqual((await fetchFor(bob)).alreadyHave, [workout.id], 'fetching again is a no-op');
     assert.deepEqual((await share(alice, [workout.id])).alreadyShared, [workout.id], 'sharing again is a no-op');
+  });
+
+  it('re-verifies a shared Kata as a Kata', async () => {
+    const { alice, bob } = await team();
+    const kata = await saveDrill({
+      paths: workspacePaths(alice),
+      profile: TYPESCRIPT,
+      drill: goodKata(),
+      kind: 'kata',
+      sourcePath: 'queue.ts',
+      revision: await sourceRevision(alice, 'queue.ts'),
+      generationAttempts: 1,
+    });
+    await share(alice, [kata.id]);
+    const fetched = await fetchFor(bob);
+    assert.deepEqual(fetched.imported, [{ id: kata.id, as: kata.id }], JSON.stringify(fetched));
+    assert.equal((await listWorkouts(workspacePaths(bob)))[0]!.record.kind, 'kata');
   });
 
   it('combines both sets when a teammate pushed first', async () => {

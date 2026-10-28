@@ -4,8 +4,8 @@ import type { LanguageProfile } from '../languages/profile.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
 import { describeFailures, verify, type Verification } from '../verify/gate.ts';
 import type { ProviderOptions } from './model.ts';
-import { drillSystemPrompt, drillUserPrompt, MAX_SOURCE_LINES, retryPrompt, type DrillTarget } from './prompt.ts';
-import { checkDrillOutput, DrillOutputSchema, type DrillOutput } from './schema.ts';
+import { drillUserPrompt, MAX_SOURCE_LINES, retryPrompt, systemPromptFor, type DrillTarget } from './prompt.ts';
+import { checkWorkoutOutput, outputSchemaFor, AnyWorkoutOutputSchema, type AnyWorkoutOutput, type WorkoutKind } from './schema.ts';
 
 /** One generation plus up to two retries, per spec §6. */
 export const MAX_ATTEMPTS = 3;
@@ -32,10 +32,12 @@ export interface SynthesizeDrillOptions {
   quick?: boolean;
   /** At most this many attempts (never more than MAX_ATTEMPTS). */
   maxAttempts?: number;
+  /** A Drill (find the bug) or a Kata (fill the gap). */
+  kind?: WorkoutKind;
 }
 
 export type SynthesisResult =
-  | { status: 'verified'; drill: DrillOutput; verification: Extract<Verification, { verified: true }>; attempts: number }
+  | { status: 'verified'; workout: AnyWorkoutOutput; verification: Extract<Verification, { verified: true }>; attempts: number }
   | { status: 'not-worth-practicing'; reason: string }
   | { status: 'failed'; feedback: string; attempts: number };
 
@@ -60,18 +62,19 @@ export async function synthesizeDrill({
   cacheRoot,
   quick = false,
   maxAttempts = MAX_ATTEMPTS,
+  kind = 'drill',
 }: SynthesizeDrillOptions): Promise<SynthesisResult> {
   const sourceLines = target.source.replace(/\n$/, '').split('\n').length;
   if (sourceLines > MAX_SOURCE_LINES) throw new SourceTooLargeError(target.path, sourceLines);
 
   // The conversation only ever grows, so each retry sees its own earlier attempts and their feedback.
-  const messages: ModelMessage[] = [{ role: 'user', content: drillUserPrompt(target) }];
+  const messages: ModelMessage[] = [{ role: 'user', content: drillUserPrompt(target, kind) }];
   let feedback = '';
 
   const attempts = Math.min(maxAttempts, MAX_ATTEMPTS);
   for (let attempt = 1; attempt <= attempts; attempt++) {
     onEvent({ type: 'generating', attempt });
-    const generated = await generate(model, modelId, profile, messages, providerOptions, quick);
+    const generated = await generate(model, modelId, profile, messages, providerOptions, quick, kind);
     onEvent({ type: 'usage', attempt, usage: generated.usage });
     messages.push(...generated.responseMessages);
 
@@ -80,16 +83,17 @@ export async function synthesizeDrill({
     }
 
     if (!generated.output) {
-      feedback = `[schema] The response was not a valid Drill object: ${generated.error}`;
+      feedback = `[schema] The response was not a valid ${kind === 'drill' ? 'Drill' : 'Kata'} object: ${generated.error}`;
     } else {
-      const problems = checkDrillOutput(generated.output, sourceLines, { quick });
+      const problems = checkWorkoutOutput(kind, generated.output, sourceLines, { quick });
       if (problems.length > 0) {
         feedback = problems.map((problem) => `[schema] ${problem}`).join('\n');
       } else {
         onEvent({ type: 'verifying', attempt });
         const verification = await verify(
           {
-            kind: 'drill',
+            kind,
+            quick,
             startingCode: generated.output.startingCode,
             referenceSolution: generated.output.referenceSolution,
             testSuiteCode: generated.output.testSuiteCode,
@@ -99,19 +103,19 @@ export async function synthesizeDrill({
           sandbox,
           { cacheRoot },
         );
-        if (verification.verified) return { status: 'verified', drill: generated.output, verification, attempts: attempt };
+        if (verification.verified) return { status: 'verified', workout: generated.output, verification, attempts: attempt };
         feedback = describeFailures(verification.failures);
       }
     }
 
     onEvent({ type: 'rejected', attempt, feedback });
-    messages.push({ role: 'user', content: retryPrompt(feedback) });
+    messages.push({ role: 'user', content: retryPrompt(feedback, kind) });
   }
   return { status: 'failed', feedback, attempts };
 }
 
 interface Generated {
-  output?: DrillOutput;
+  output?: AnyWorkoutOutput;
   error?: string;
   responseMessages: ModelMessage[];
   usage: ModelUsage[];
@@ -124,13 +128,15 @@ async function generate(
   messages: ModelMessage[],
   providerOptions: ProviderOptions | undefined,
   quick: boolean,
+  kind: WorkoutKind,
 ): Promise<Generated> {
   try {
     const result = await generateText({
       model,
-      system: drillSystemPrompt(profile, { quick }),
+      system: systemPromptFor(kind, profile, { quick }),
       messages,
-      output: Output.object({ schema: DrillOutputSchema }),
+      // Each kind's schema is a subset of AnyWorkoutOutputSchema's shape, so its output is one too.
+      output: Output.object({ schema: outputSchemaFor(kind) as unknown as typeof AnyWorkoutOutputSchema }),
       providerOptions,
       maxOutputTokens: 32_000,
     });

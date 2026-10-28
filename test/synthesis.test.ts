@@ -4,10 +4,10 @@ import { APICallError } from 'ai';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { openSandbox } from '../src/sandbox/sandbox.ts';
 import { drillSystemPrompt, drillUserPrompt, MAX_SOURCE_LINES } from '../src/synthesis/prompt.ts';
-import { checkDrillOutput } from '../src/synthesis/schema.ts';
+import { checkDrillOutput, checkWorkoutOutput } from '../src/synthesis/schema.ts';
 import { SourceTooLargeError, synthesizeDrill, type SynthesisEvent } from '../src/synthesis/synthesize.ts';
 import { tempDir } from './helpers.ts';
-import { goodDrill, scriptedModel, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, scriptedModel, TS_REFERENCE } from './mock-model.ts';
 
 describe('prompts', () => {
   it('number the source lines and name the pinned symbol', () => {
@@ -71,10 +71,30 @@ describe('checkDrillOutput', () => {
   });
 });
 
+describe('checkWorkoutOutput for Katas', () => {
+  it('accepts a well-formed Kata', () => {
+    assert.deepEqual(checkWorkoutOutput('kata', goodKata(), 10), []);
+  });
+
+  it('catches a brief or hint that gives the missing code away', () => {
+    const leakyReadme = goodKata({ readmeMarkdown: `${goodKata().readmeMarkdown}\n\nStart with: for (const job of jobs) {` });
+    assert.match(checkWorkoutOutput('kata', leakyReadme, 10).join(), /contain the missing code verbatim \("for \(const job of jobs\) \{"\)/);
+    const fragment = goodKata({ hints: ['Keep the best job seen so far.', 'In the end, return its id.'] });
+    assert.deepEqual(checkWorkoutOutput('kata', fragment, 10), [], 'naming a fragment of the code is fine');
+    const sharper = goodKata({ hints: ['Keep the best job seen so far.', 'Use let best: Job | undefined; and a loop.'] });
+    assert.match(checkWorkoutOutput('kata', sharper, 10).join(), /missing code verbatim/);
+  });
+
+  it('needs a gapSummary, not a Regression Test', () => {
+    assert.match(checkWorkoutOutput('kata', goodKata({ gapSummary: ' ' }), 10).join(), /gapSummary is empty/);
+    assert.match(checkWorkoutOutput('drill', { ...goodKata(), regressionTestName: undefined }, 10).join(), /regressionTestName is empty/);
+  });
+});
+
 const sandbox = await openSandbox({ allowUnsandboxed: true });
 after(() => sandbox.dispose());
 
-async function synthesize(model: ReturnType<typeof scriptedModel>['model'], source = TS_REFERENCE) {
+async function synthesize(model: ReturnType<typeof scriptedModel>['model'], source = TS_REFERENCE, options: { kind?: 'drill' | 'kata'; quick?: boolean } = {}) {
   const events: SynthesisEvent[] = [];
   const result = await synthesizeDrill({
     target: { path: 'src/queue.ts', source },
@@ -84,6 +104,7 @@ async function synthesize(model: ReturnType<typeof scriptedModel>['model'], sour
     modelId: 'mock-model-id',
     cacheRoot: await tempDir(),
     onEvent: (event) => events.push(event),
+    ...options,
   });
   return {
     result,
@@ -150,5 +171,33 @@ describe(`synthesizeDrill (${sandbox.isolated ? 'sandboxed' : 'UNSANDBOXED'})`, 
     const { model, prompts } = scriptedModel(goodDrill());
     await assert.rejects(synthesize(model, 'x\n'.repeat(MAX_SOURCE_LINES + 1)), SourceTooLargeError);
     assert.equal(prompts.length, 0);
+  });
+});
+
+describe(`synthesizing Katas (${sandbox.isolated ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
+  it('asks for a Kata and verifies its gap', async () => {
+    const { model, prompts } = scriptedModel(goodKata());
+    const { result } = await synthesize(model, TS_REFERENCE, { kind: 'kata' });
+    assert.equal(result.status, 'verified', JSON.stringify(result));
+    assert.equal(result.status === 'verified' && result.workout.gapSummary, goodKata().gapSummary);
+    assert.match(prompts[0]!, /You create Katas/);
+    assert.match(prompts[0]!, /Remove one contiguous region of 5 to 25 lines/);
+    assert.match(prompts[0]!, /Pick the unit in this file whose logic is most worth practicing/);
+  });
+
+  it('sends a Drill-sized gap back as too small for a Kata', async () => {
+    const tooSmall = goodKata({ startingCode: TS_REFERENCE.replace('job.at < best.at', 'false') });
+    const { model, prompts } = scriptedModel(tooSmall, goodKata());
+    const { result } = await synthesize(model, TS_REFERENCE, { kind: 'kata' });
+    assert.equal(result.status === 'verified' && result.attempts, 2);
+    assert.match(prompts[1]!, /That Kata was not Verified/);
+    assert.match(prompts[1]!, /\[minimal-diff\] The gap removes 1 lines; a Kata removes 5 to 25\./);
+  });
+
+  it('holds a Quick Kata to a gap of 12 lines at most', async () => {
+    const { model, prompts } = scriptedModel(goodKata());
+    await synthesize(model, TS_REFERENCE, { kind: 'kata', quick: true });
+    assert.match(prompts[0]!, /This is a Quick Kata/);
+    assert.match(prompts[0]!, /5 to 12 lines/);
   });
 });

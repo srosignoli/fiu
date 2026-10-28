@@ -4,7 +4,7 @@ import { dirname, join, relative } from 'node:path';
 import { execa } from 'execa';
 import { describeCost, type Cost } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
-import type { DrillOutput } from '../synthesis/schema.ts';
+import type { AnyWorkoutOutput, WorkoutKind } from '../synthesis/schema.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 
 export const SOLUTION_DIRNAME = '.solution';
@@ -50,7 +50,7 @@ export interface TrackPlacement {
 /** The metadata saved beside a Workout as workout.json. */
 export interface WorkoutRecord {
   id: string;
-  kind: 'drill';
+  kind: WorkoutKind;
   /** Absent on Workouts made before agent mode: those are `kintsugi`. */
   generator?: Generator;
   /** Absent on Workouts made before agent mode: those are `manual`. */
@@ -63,15 +63,19 @@ export interface WorkoutRecord {
   sharedBy?: SharedBy;
   title: string;
   slug: string;
-  pillar: DrillOutput['pillar'];
+  pillar: AnyWorkoutOutput['pillar'];
   estimatedMinutes: number;
   language: string;
   createdAt: string;
   source: { path: string; symbol?: string } & SourceRevision;
   sourceAnchors: SourceAnchor[];
   hints: string[];
-  regressionTestName: string;
-  injectedBugDescription: string;
+  /** Drill only: the test that exposes the injected bug. */
+  regressionTestName?: string;
+  /** Drill only: internal note on the bug. */
+  injectedBugDescription?: string;
+  /** Kata only: internal note on what was removed and what a correct fill must do. */
+  gapSummary?: string;
   /** What generating this Workout cost, across all its generation attempts. Absent when the user's agent generated it (not measured) and on Workouts made before cost recording. */
   cost?: Cost & { generationAttempts: number };
   /** `solution` is the Reference Solution; `originalTest` the tests the Workout was Verified with. */
@@ -88,7 +92,9 @@ export async function sourceRevision(repoRoot: string, path: string): Promise<So
 export interface SaveDrillOptions {
   paths: WorkspacePaths;
   profile: LanguageProfile;
-  drill: DrillOutput;
+  /** The generated Workout, of either kind. */
+  drill: AnyWorkoutOutput;
+  kind?: WorkoutKind;
   /** The source file, relative to the repository root. */
   sourcePath: string;
   symbol?: string;
@@ -103,11 +109,12 @@ export interface SaveDrillOptions {
   now?: Date;
 }
 
-/** Writes a Verified Drill into .kintsugi/workouts/<id>/ and returns its record. */
+/** Writes a Verified Drill or Kata into .kintsugi/workouts/<id>/ and returns its record. */
 export async function saveDrill({
   paths,
   profile,
   drill,
+  kind = 'drill',
   sourcePath,
   symbol,
   revision,
@@ -119,14 +126,14 @@ export async function saveDrill({
   track,
   now = new Date(),
 }: SaveDrillOptions): Promise<WorkoutRecord> {
-  const id = uniqueId(paths, `drill_${now.toISOString().slice(0, 10).replaceAll('-', '')}_${drill.slug}`);
+  const id = uniqueId(paths, `${kind}_${now.toISOString().slice(0, 10).replaceAll('-', '')}_${drill.slug}`);
   const dir = join(paths.workoutsDir, id);
   const solution = join(SOLUTION_DIRNAME, profile.codeFilename);
   const originalTest = join(SOLUTION_DIRNAME, profile.testFilename);
 
   const record: WorkoutRecord = {
     id,
-    kind: 'drill',
+    kind,
     generator,
     origin,
     ...(commit ? { commit } : {}),
@@ -140,8 +147,9 @@ export async function saveDrill({
     source: { path: sourcePath, ...(symbol ? { symbol } : {}), ...revision },
     sourceAnchors: drill.sourceAnchors.map((anchor) => ({ path: sourcePath, ...anchor, commit: revision.commit })),
     hints: drill.hints,
-    regressionTestName: drill.regressionTestName,
-    injectedBugDescription: drill.injectedBugDescription,
+    ...(kind === 'drill'
+      ? { regressionTestName: drill.regressionTestName, injectedBugDescription: drill.injectedBugDescription }
+      : { gapSummary: drill.gapSummary }),
     ...(cost ? { cost: { ...cost, generationAttempts } } : {}),
     files: { code: profile.codeFilename, test: profile.testFilename, solution, originalTest },
   };
@@ -171,7 +179,7 @@ function uniqueId(paths: WorkspacePaths, base: string): string {
   return id;
 }
 
-function readme(drill: DrillOutput, record: WorkoutRecord, dir: string, repoRoot: string): string {
+function readme(drill: AnyWorkoutOutput, record: WorkoutRecord, dir: string, repoRoot: string): string {
   const link = relative(dir, join(repoRoot, record.source.path)).split('\\').join('/');
   const anchors = record.sourceAnchors.map(
     (a) => `- [${a.path}:${a.startLine}-${a.endLine}](${link}#L${a.startLine}-L${a.endLine}): ${a.explanation}`,

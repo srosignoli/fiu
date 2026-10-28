@@ -95,10 +95,18 @@ describe('checkMinimalDiff', () => {
     assert.match(checkMinimalDiff(candidate(rewrite))[0]!.message, /changes 4 lines/);
   });
 
-  it('checks a Kata gap and, for a Quick Kata, its size', () => {
+  it('checks a Kata gap: 5 to 25 lines removed (5 to 12 when Quick)', () => {
+    // The 3-line body of f is too small a gap for any Kata.
     const gapped = ['function f(xs) {', '  // TODO', '}', ''].join('\n');
-    assert.deepEqual(checkMinimalDiff(candidate(gapped, { kind: 'kata' })), []);
+    assert.match(checkMinimalDiff(candidate(gapped, { kind: 'kata' }))[0]!.message, /removes 3 lines; a Kata removes 5 to 25/);
     assert.match(checkMinimalDiff(candidate(gapped, { kind: 'kata', quick: true }))[0]!.message, /removes 3 lines; a Quick Kata removes 5 to 12/);
+
+    const body = Array.from({ length: 8 }, (_, i) => `  const step${i} = ${i};`);
+    const longer = ['function g() {', ...body, '  return 0;', '}', ''].join('\n');
+    const gappedLonger = ['function g() {', '  return 0; // TODO', '}', ''].join('\n');
+    assert.deepEqual(checkMinimalDiff({ kind: 'kata', referenceSolution: longer, startingCode: gappedLonger, testSuiteCode: '' }), []);
+    const tooLong = ['function h() {', ...Array.from({ length: 30 }, (_, i) => `  const s${i} = ${i};`), '}', ''].join('\n');
+    assert.match(checkMinimalDiff({ kind: 'kata', referenceSolution: tooLong, startingCode: gappedLonger.replace('g()', 'h()'), testSuiteCode: '' })[0]!.message, /a Kata removes 5 to 25/);
     const padded = ['function f(xs) {', '  // a', '  // b', '  // c', '  // d', '}'].join('\n');
     assert.match(checkMinimalDiff(candidate(padded, { kind: 'kata' }))[0]!.message, /4 placeholder lines/);
   });

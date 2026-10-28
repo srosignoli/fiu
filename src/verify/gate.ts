@@ -34,6 +34,8 @@ export type Verification =
 export const DRILL_MAX_CHANGED_LINES = 3;
 export const KATA_MAX_GAP_LINES = 3;
 export const QUICK_KATA_REMOVED_LINES = { min: 5, max: 12 };
+/** A Kata's gap is one mechanism: fewer lines is trivia, more is rebuilding a module. */
+export const KATA_REMOVED_LINES = { min: 5, max: 25 };
 
 export interface VerifyOptions {
   /** Root for the profile's persistent cache directories (tests use a temp dir). */
@@ -159,9 +161,9 @@ export function checkMinimalDiff(candidate: Candidate): CheckFailure[] {
   if (hunk.added.length > KATA_MAX_GAP_LINES) {
     return fail(`The gap is filled with ${hunk.added.length} placeholder lines; use at most ${KATA_MAX_GAP_LINES}.`);
   }
-  const { min, max } = QUICK_KATA_REMOVED_LINES;
-  if (candidate.quick && (hunk.removed.length < min || hunk.removed.length > max)) {
-    return fail(`The gap removes ${hunk.removed.length} lines; a Quick Kata removes ${min} to ${max}.`);
+  const { min, max } = candidate.quick ? QUICK_KATA_REMOVED_LINES : KATA_REMOVED_LINES;
+  if (hunk.removed.length < min || hunk.removed.length > max) {
+    return fail(`The gap removes ${hunk.removed.length} lines; a ${candidate.quick ? 'Quick ' : ''}Kata removes ${min} to ${max}.`);
   }
   return [];
 }

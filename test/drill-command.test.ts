@@ -16,7 +16,7 @@ import { MissingApiKeyError } from '../src/credentials.ts';
 import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
 import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, scriptedModel, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, scriptedModel, TS_REFERENCE } from './mock-model.ts';
 
 // Use the real sandbox where it is installed.
 const sandboxWorks = await openSandbox().then(
@@ -166,6 +166,33 @@ describe('kin drill', () => {
     const { result } = await run({ repo, options: { yes: true } });
     const { workoutDir } = result.status === 'saved' ? result : assert.fail();
     assert.match(await readFile(join(workoutDir, 'README.md'), 'utf8'), /plus uncommitted changes/);
+  });
+});
+
+describe('kin kata', () => {
+  it('generates, verifies, and saves a Kata with its brief', async () => {
+    const repo = await repoWithSource();
+    const { result, prompts } = await run({ repo, options: { yes: true, kind: 'kata' }, replies: [goodKata()], target: 'src/queue.ts#pickNext' });
+    const { record, workoutDir } = result.status === 'saved' ? result : assert.fail(JSON.stringify(result));
+    assert.match(prompts[0]!, /You create Katas/);
+    assert.match(prompts[0]!, /Build the Kata around `pickNext`/);
+    assert.match(record.id, /^kata_\d{8}_pick-next$/);
+
+    const saved: WorkoutRecord = await readJson(join(workoutDir, 'workout.json'));
+    assert.equal(saved.kind, 'kata');
+    assert.equal(saved.gapSummary, goodKata().gapSummary);
+    assert.equal(saved.regressionTestName, undefined);
+    assert.equal(saved.injectedBugDescription, undefined);
+    assert.equal(await readFile(join(workoutDir, 'kata.ts'), 'utf8'), goodKata().startingCode);
+    assert.match(await readFile(join(workoutDir, 'README.md'), 'utf8'), /^# Choose the next job\n\n## What it must do/);
+    assert.doesNotMatch(await readFile(join(workoutDir, 'README.md'), 'utf8'), /single pass keeping the best job/, 'the gapSummary stays internal');
+  });
+
+  it('asks consent naming a Kata', async () => {
+    const repo = await repoWithSource();
+    const asked: string[] = [];
+    await run({ repo, options: { kind: 'kata' }, replies: [goodKata()], confirm: async (m) => (asked.push(m), true) });
+    assert.match(asked[0]!, /to generate the Kata\./);
   });
 });
 

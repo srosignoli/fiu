@@ -1,5 +1,5 @@
 import type { LanguageProfile } from '../languages/profile.ts';
-import { QUICK } from './schema.ts';
+import { QUICK, type WorkoutKind } from './schema.ts';
 
 export interface DrillTarget {
   /** Path relative to the repository root, as shown to the model. */
@@ -49,28 +49,63 @@ ${profile.promptRules
   .join('\n')}${quickRules}`;
 }
 
-export function drillUserPrompt(target: DrillTarget): string {
+/** The rules for a Kata: rebuild one missing piece of logic from its contract and tests. */
+export function kataSystemPrompt(profile: LanguageProfile, { quick = false } = {}): string {
+  const gap = quick ? '5 to 12' : '5 to 25';
+  const quickRules = quick
+    ? `\n\nThis is a Quick Kata, for a short wait: pick a small unit, keep startingCode to at most ${QUICK.maxStartingCodeLines} lines, and make estimatedMinutes ${QUICK.maxMinutes} or less.`
+    : '';
+  return `You create Katas: small exercises in which developers rebuild a missing piece of their own codebase's logic, so they keep the ability to write it themselves.
+
+A Kata takes one real unit of code from the developer's repository, makes it self-contained, removes one piece of its logic, and asks the developer to write it back, guided by a brief and by tests.
+
+How to build the Kata:
+- Extract one unit (a function, class, or small cluster of them) from the source file. If a symbol is named, use it; otherwise pick the unit whose logic is most worth being able to write.
+- Make it self-contained in a single code file. Replace infrastructure the original touches (databases, network, filesystem, clocks, queues, loggers) with small inline fakes or parameters. Keep the interesting logic faithful to the original.
+- Remove one contiguous region of ${gap} lines: ideally one function body or one cohesive block, the mechanism that makes the unit work. Replace it with at most 3 placeholder lines that compile and return a type-correct but wrong value (e.g. 0, an empty list, None, the zero value), with a TODO comment. Never throw or raise in the placeholder: the tests must fail by assertion, not crash.
+- startingCode and referenceSolution must be identical except for that region.
+- Write 3 to 5 tests. Most pin down the missing unit's contract, edge cases included; at least one exercises code outside the gap, so it passes against startingCode. Against startingCode at least one test fails by assertion; against referenceSolution every test passes.
+- readmeMarkdown is a brief: "## What it must do" (the missing unit's contract: inputs, outputs, and the edge cases that matter), "## Where it fits" (one line on its role in the original code), and "## Mission" (make all tests pass without changing function signatures). Describe behaviour; never include the missing code.
+- Write exactly 2 hints in hints (not in the README), gentle first, then sharper. Neither may contain the missing code.
+- gapSummary is an internal note, never shown: what was removed and what a correct fill must do.
+- sourceAnchors point at the line ranges of the source file the Kata was derived from, using the line numbers shown, each explained as neutral documentation of what that region does in the original file.
+
+If the file is trivial (CRUD, configuration, glue code, declarations only) and holds no logic worth practicing, set worthPracticing to false, explain why in notWorthReason, and leave the other fields empty.
+
+Rules for this language (${profile.id}):
+- The code file is named ${profile.codeFilename} and the test file ${profile.testFilename}.
+${profile.promptRules
+  .split('\n')
+  .map((rule) => `- ${rule}`)
+  .join('\n')}${quickRules}`;
+}
+
+export const systemPromptFor = (kind: WorkoutKind, profile: LanguageProfile, options: { quick?: boolean } = {}) =>
+  kind === 'drill' ? drillSystemPrompt(profile, options) : kataSystemPrompt(profile, options);
+
+export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'): string {
+  const noun = kind === 'drill' ? 'Drill' : 'Kata';
   const numbered = target.source
     .replace(/\n$/, '')
     .split('\n')
     .map((line, i) => `${String(i + 1).padStart(5)} | ${line}`)
     .join('\n');
   const focus = target.symbol
-    ? `Build the Drill around \`${target.symbol}\`.`
+    ? `Build the ${noun} around \`${target.symbol}\`.`
     : target.change
-      ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"). Build the Drill around the code that changed, so the developer practises understanding it. The source below is the file as of that commit.`
+      ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"). Build the ${noun} around the code that changed, so the developer practises understanding it. The source below is the file as of that commit.`
       : 'Pick the unit in this file whose logic is most worth practicing.';
   const change = target.change ? `\n\n<diff>\n${target.change.diff}\n</diff>` : '';
   const track = target.track
-    ? `\nThis Drill is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the Drill around the logic that makes it matter.`
+    ? `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the ${noun} around the logic that makes it matter.`
     : '';
   return `Source file: ${target.path}\n${focus}${track}\n\n<source>\n${numbered}\n</source>${change}`;
 }
 
-export function retryPrompt(feedback: string): string {
-  return `That Drill was not Verified, so it was discarded. Here is what the verifier found:
+export function retryPrompt(feedback: string, kind: WorkoutKind = 'drill'): string {
+  return `That ${kind === 'drill' ? 'Drill' : 'Kata'} was not Verified, so it was discarded. Here is what the verifier found:
 
 ${feedback}
 
-Produce a corrected Drill that fixes every problem above.`;
+Produce a corrected ${kind === 'drill' ? 'Drill' : 'Kata'} that fixes every problem above.`;
 }

@@ -6,7 +6,7 @@ import { ConfigError } from '../config.ts';
 import { UnsupportedLanguageError } from '../languages/registry.ts';
 import { ToolchainMissingError } from '../languages/run.ts';
 import { SandboxUnavailableError } from '../sandbox/sandbox.ts';
-import { DrillOutputSchema } from '../synthesis/schema.ts';
+import { AnyWorkoutOutputSchema } from '../synthesis/schema.ts';
 import { SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { NotAGitRepositoryError } from '../workspace.ts';
 import { AgentDrills, AgentRequestError } from './drills.ts';
@@ -39,19 +39,20 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'prepare_drill',
     {
-      title: 'Prepare a Kintsugi Drill',
+      title: 'Prepare a Kintsugi Drill or Kata',
       description: PREPARE_DESCRIPTION,
       inputSchema: {
         target: z.string().describe('A source file in this repository, relative to its root, optionally followed by #symbol.'),
-        quick: z.boolean().optional().describe('A Quick Drill: small enough for a short wait.'),
+        kind: z.enum(['drill', 'kata']).optional().describe('"drill" (find the bug, the default) or "kata" (rebuild a removed piece from a brief).'),
+        quick: z.boolean().optional().describe('A Quick Drill or Kata: small enough for a short wait.'),
         afterTask: z.boolean().optional().describe('True only when generating at the end of your own coding task.'),
         trackId: z.string().optional().describe('Makes this Drill the next step of a Track started with prepare_track.'),
         why: z.string().optional().describe('For a Track step: one line on why this file matters for the module.'),
       },
     },
-    ({ target, quick, afterTask, trackId, why }) =>
+    ({ target, kind, quick, afterTask, trackId, why }) =>
       respond(async () => {
-        const prepared = await drills.prepare({ target, quick, origin: afterTask ? 'agent-task' : 'manual', trackId, why });
+        const prepared = await drills.prepare({ target, kind, quick, origin: afterTask ? 'agent-task' : 'manual', trackId, why });
         const notice = await staleInstallNotice(home, prepared.repository, version);
         return { ...prepared, ...(notice ? { notice } : {}) };
       }),
@@ -60,9 +61,9 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'submit_drill',
     {
-      title: 'Submit a Kintsugi Drill',
+      title: 'Submit a Kintsugi Drill or Kata',
       description: SUBMIT_DESCRIPTION,
-      inputSchema: { generationId: z.string(), workout: DrillOutputSchema },
+      inputSchema: { generationId: z.string(), workout: AnyWorkoutOutputSchema },
     },
     ({ generationId, workout }) =>
       respond(async () => {

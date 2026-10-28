@@ -11,11 +11,11 @@ import { installClaude, TrackedFileError, uninstallClaude, type ClaudeInstallOpt
 import { createMcpServer } from '../src/agent/mcp.ts';
 import { costReport } from '../src/commands/cost.ts';
 import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
-import type { DrillOutput } from '../src/synthesis/schema.ts';
+import type { AnyWorkoutOutput } from '../src/synthesis/schema.ts';
 import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -106,7 +106,7 @@ describe('kin mcp', () => {
 });
 
 describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandbox'})`, { skip: !sandboxWorks }, () => {
-  async function prepareAndSubmit(call: Awaited<ReturnType<typeof connect>>['call'], target: string, workouts: DrillOutput[], extra = {}) {
+  async function prepareAndSubmit(call: Awaited<ReturnType<typeof connect>>['call'], target: string, workouts: AnyWorkoutOutput[], extra = {}) {
     const { json: prepared } = await call('prepare_drill', { target, ...extra });
     const results = [];
     for (const workout of workouts) results.push(await call('submit_drill', { generationId: prepared.generationId, workout }));
@@ -160,6 +160,23 @@ describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     assert.match(prepared.instructions, /This is a Quick Drill/);
     const { json } = await call('submit_drill', { generationId: prepared.generationId, workout: goodDrill({ estimatedMinutes: 9 }) });
     assert.match(json.feedback, /\[schema\] a Quick Drill takes at most 5 minutes, not 9\./);
+  });
+
+  it('verifies and saves a Kata when asked for one', async () => {
+    const { call } = await connect(await repoWithSources('queue.ts'));
+    const { json: prepared } = await call('prepare_drill', { target: 'src/queue.ts', kind: 'kata' });
+    assert.equal(prepared.kind, 'kata');
+    assert.match(prepared.instructions, /You create Katas/);
+    assert.ok(prepared.workoutSchema.properties.gapSummary, 'the schema asks for a gapSummary');
+    assert.equal(prepared.workoutSchema.properties.regressionTestName, undefined);
+
+    const leaky = goodKata({ hints: ['Keep the best job.', 'Start with let best: Job | undefined;'] });
+    const { json: rejected } = await call('submit_drill', { generationId: prepared.generationId, workout: leaky });
+    assert.match(rejected.feedback, /\[schema\] the brief or hints contain the missing code verbatim/);
+    const { json: saved } = await call('submit_drill', { generationId: prepared.generationId, workout: goodKata() });
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    assert.match(saved.workoutId, /^kata_\d{8}_pick-next$/);
+    assert.equal((await readJson(join(saved.workoutDir, 'workout.json'))).kind, 'kata');
   });
 
   it('ends a generation the agent judges not worth practicing', async () => {
@@ -277,7 +294,7 @@ describe(`Tracks in agent mode (${sandboxWorks ? 'sandboxed' : 'skipped: no sand
     return repo;
   }
 
-  async function step(call: Awaited<ReturnType<typeof connect>>['call'], trackId: string, target: string, workouts: DrillOutput[]) {
+  async function step(call: Awaited<ReturnType<typeof connect>>['call'], trackId: string, target: string, workouts: AnyWorkoutOutput[]) {
     const prepared = await call('prepare_drill', { target, trackId, why: `${target} matters.` });
     assert.equal(prepared.isError, false, prepared.text);
     let last;
@@ -322,6 +339,7 @@ describe(`Tracks in agent mode (${sandboxWorks ? 'sandboxed' : 'skipped: no sand
     const { json: track } = await call('prepare_track', { module: 'src/core' });
     assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId })).text, /needs `why`/);
     assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: 'track_nope', why: 'x' })).text, /Unknown track id/);
+    assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId, why: 'x', kind: 'kata' })).text, /Track steps are Drills/);
     await writeFile(join(repo, 'src', 'core', 'new.ts'), TS_REFERENCE);
     assert.match((await call('prepare_drill', { target: 'src/core/new.ts', trackId: track.trackId, why: 'x' })).text, /not one of the Track's candidate files/);
     await step(call, track.trackId, 'src/core/store.ts', [goodDrill({ slug: 's' })]);

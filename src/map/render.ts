@@ -42,14 +42,14 @@ function counts(dir: DirEntry, paint: (state: FileState, text: string) => string
 }
 
 function describe(file: FileEntry): string {
-  const waiting = file.waitingWorkout ? ` (a Drill is waiting: kin train ${file.waitingWorkout})` : '';
+  const waiting = file.waitingWorkout ? ` (a ${noun(file.waitingWorkout)} is waiting: kin train ${file.waitingWorkout})` : '';
   switch (file.state) {
     case 'red':
       return `complex, never practised${waiting}`;
     case 'amber':
       return file.practice ? `changed ${file.staleBy} lines since you practised it${waiting}` : `changed by AI recently, never practised${waiting}`;
     case 'green':
-      return file.practice === 'completed' ? 'practised' : 'practised (gave up, saw the fix)';
+      return file.practice === 'completed' ? 'practised' : 'practised (gave up, saw the solution)';
     case 'grey':
       return '';
   }
@@ -58,12 +58,15 @@ function describe(file: FileEntry): string {
 function command(suggestion: Suggestion): string {
   switch (suggestion.kind) {
     case 'train':
-      return `kin train ${suggestion.workoutId}   (a Drill is already waiting for ${suggestion.path})`;
+      return `kin train ${suggestion.workoutId}   (a ${noun(suggestion.workoutId)} is already waiting for ${suggestion.path})`;
     case 'explore':
       return `kin explore ${suggestion.path || '.'}   (${suggestion.red} complex files never practised)`;
     case 'drill':
       return `kin drill ${suggestion.path}   (or ask your agent: /kin-drill ${suggestion.path})`;
   }
 }
+
+/** Workout ids start with their kind. */
+const noun = (workoutId: string) => (workoutId.startsWith('kata_') ? 'Kata' : 'Drill');
 
 const basename = (path: string) => path.split('/').pop() ?? path;

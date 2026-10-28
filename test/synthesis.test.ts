@@ -3,7 +3,7 @@ import { after, describe, it } from 'node:test';
 import { APICallError } from 'ai';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { openSandbox } from '../src/sandbox/sandbox.ts';
-import { drillSystemPrompt, drillUserPrompt, MAX_SOURCE_LINES } from '../src/synthesis/prompt.ts';
+import { drillSystemPrompt, drillUserPrompt, kataSystemPrompt, MAX_SOURCE_LINES } from '../src/synthesis/prompt.ts';
 import { checkDrillOutput, checkWorkoutOutput } from '../src/synthesis/schema.ts';
 import { SourceTooLargeError, synthesizeDrill, type SynthesisEvent } from '../src/synthesis/synthesize.ts';
 import { tempDir } from './helpers.ts';
@@ -21,6 +21,11 @@ describe('prompts', () => {
     const system = drillSystemPrompt(TYPESCRIPT);
     assert.match(system, /named kata\.ts and the test file kata\.test\.ts/);
     assert.match(system, /- Use only erasable TypeScript syntax/);
+  });
+
+  it('keep Hints to nudges in plain words', () => {
+    assert.match(drillSystemPrompt(TYPESCRIPT), /Hints name no expression, operator, or value from the fix\./);
+    assert.match(kataSystemPrompt(TYPESCRIPT), /Hints name no expression, call sequence, or index arithmetic from the missing code\./);
   });
 });
 

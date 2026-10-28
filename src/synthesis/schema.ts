@@ -36,7 +36,7 @@ function commonFields(kind: WorkoutKind) {
           ? 'A 3 AM incident report: "## Symptom" (observable production behaviour only) and "## Mission". No hints, no cause.'
           : 'A brief: "## What it must do" (the missing unit\'s contract, inputs and outputs, edge cases), "## Where it fits" (one line), "## Mission". Never the missing code itself.',
       ),
-    hints: z.array(z.string()).describe(`Exactly 2 hints, gentle first then sharper. Neither states the ${drill ? 'fix' : 'missing code'}.`),
+    hints: z.array(z.string()).describe(`Exactly 2 hints, gentle first then sharper: nudges in plain words, naming no expression or call from the ${drill ? 'fix' : 'missing code'}.`),
     startingCode: z
       .string()
       .describe(

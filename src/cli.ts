@@ -137,7 +137,7 @@ agent
     } else {
       log.step('Registered the kintsugi MCP server with Claude Code');
     }
-    log.success('Done. In Claude Code, ask for a drill (or type /kin-drill <file>), then start it with kin train.');
+    log.success('Done. In Claude Code, ask for a drill or a kata (or type /kin-drill <file> [kata]), then start it with kin train.');
   });
 
 agent

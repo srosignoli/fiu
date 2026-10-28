@@ -36,7 +36,7 @@ How to build the Drill:
 - Write 3 to 5 tests. Against startingCode, at least one test passes and at least one fails by assertion; against referenceSolution, every test passes.
 - The Regression Test is the test that exposes the bug. Name and describe it by the observable symptom ("serves late jobs first when priorities tie"), never by the cause. The developer can read every test.
 - readmeMarkdown is a 3 AM incident report: "## Symptom" describes what production users observed, never the cause; "## Mission" says: make all tests pass without changing function signatures.
-- Write exactly 2 hints in hints (not in the README), gentle first, then sharper. Neither may state the fix.
+- Write exactly 2 hints in hints (not in the README), gentle first, then sharper. Each is a nudge in plain words: the sharper one narrows down where to look and what to question, and the developer still finds the change. Hints name no expression, operator, or value from the fix.
 - sourceAnchors point at the line ranges of the source file the Drill was derived from, using the line numbers shown. The developer reads them in the README before solving, so each explanation is neutral documentation of what that region does in the original file, the same for every line of it, and silent about the bug and the changes you made.
 
 If the file is trivial (CRUD, configuration, glue code, declarations only) and holds no logic worth practicing, set worthPracticing to false, explain why in notWorthReason, and leave the other fields empty.
@@ -66,7 +66,7 @@ How to build the Kata:
 - startingCode and referenceSolution must be identical except for that region.
 - Write 3 to 5 tests. Most pin down the missing unit's contract, edge cases included; at least one exercises code outside the gap, so it passes against startingCode. Against startingCode at least one test fails by assertion; against referenceSolution every test passes.
 - readmeMarkdown is a brief: "## What it must do" (the missing unit's contract: inputs, outputs, and the edge cases that matter), "## Where it fits" (one line on its role in the original code), and "## Mission" (make all tests pass without changing function signatures). Describe behaviour; never include the missing code.
-- Write exactly 2 hints in hints (not in the README), gentle first, then sharper. Neither may contain the missing code.
+- Write exactly 2 hints in hints (not in the README), gentle first, then sharper. Each is a nudge in plain words: the sharper one names the idea or approach (e.g. "keep the best seen so far"), and the developer still writes every expression. Hints name no expression, call sequence, or index arithmetic from the missing code.
 - gapSummary is an internal note, never shown: what was removed and what a correct fill must do.
 - sourceAnchors point at the line ranges of the source file the Kata was derived from, using the line numbers shown, each explained as neutral documentation of what that region does in the original file.
 

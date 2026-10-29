@@ -167,7 +167,7 @@ describe(`verify (${sandbox.isolated ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
       cacheRoot: await tempDir(),
     });
     assert.ok(result.verified, result.verified ? '' : describeFailures(result.failures));
-    assert.equal(result.startingRun.tests.find((t) => t.name.endsWith('first served'))?.outcome, 'assertion-failure');
+    assert.equal(result.startingRun!.tests.find((t) => t.name.endsWith('first served'))?.outcome, 'assertion-failure');
   });
 
   it('rejects a Drill whose "bug" changes nothing observable', async () => {

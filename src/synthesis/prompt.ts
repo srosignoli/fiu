@@ -1,5 +1,5 @@
 import type { LanguageProfile } from '../languages/profile.ts';
-import { QUICK, type WorkoutKind } from './schema.ts';
+import { NOUN, PREDICTION_OPTIONS, QUICK, type WorkoutKind } from './schema.ts';
 
 export interface DrillTarget {
   /** Path relative to the repository root, as shown to the model. */
@@ -82,11 +82,38 @@ ${profile.promptRules
   .join('\n')}${quickRules}`;
 }
 
+/** The rules for a Prediction: what the system does in a concrete situation, for people who never read code. */
+export function predictionSystemPrompt(profile: LanguageProfile): string {
+  return `You create Predictions: short exercises in which people who never read code (engineering managers, architects, developers who let agents write their code) predict what their own system does in a concrete situation, so they keep an accurate picture of it.
+
+A Prediction takes one real unit of code from the repository, makes it self-contained, and asks what happens in a Scenario, with ${PREDICTION_OPTIONS} outcomes to choose from. Every outcome is measured: the true one is what the referenceSolution does, and each wrong one is what a Variant (a small change to it) does. Kintsugi runs the tests against each to prove it.
+
+How to build the Prediction:
+- Extract the unit whose behaviour matters most to the people relying on it: business rules, policies, limits and caps, ordering, state transitions, what is skipped, deferred, retried, or kept. Not the one with the most interesting logic. If a symbol is named, use it.
+- Make it self-contained in a single code file. Replace infrastructure the original touches (databases, network, filesystem, clocks, queues, loggers) with small inline fakes or parameters. Keep the behaviour faithful to the original: the referenceSolution must do what the original does. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect. Otherwise leave originalDefect empty.
+- scenario: a situation in plain English with concrete values ("3 Workouts are waiting and the cap is 3"), ending in a question about what happens. Never use names from the code (functions, variables, classes); product words a user knows are fine.
+- options: exactly ${PREDICTION_OPTIONS}. One is correct: what the referenceSolution does. The other ${PREDICTION_OPTIONS - 1} each stand for one coherent, plausible wrong idea of the system (a different limit, order, or rule), never a random change. Write all ${PREDICTION_OPTIONS} as outcomes of similar length and style, in plain English with no names from the code, so the true one doesn't stand out.
+- Each wrong option has a variant: { original, changed }, where original is text that occurs exactly once in referenceSolution (at most 3 lines) and changed replaces it so the code behaves as that option says. The correct option's variant is empty strings. Each wrong option also has a misunderstanding: the wrong idea of the system it stands for, in plain English ("You were picturing a system where a full queue evicts its oldest item.").
+- testSuiteCode: exactly ${PREDICTION_OPTIONS} tests, one per option, each named in testName and asserting that option's outcome in the Scenario. Against the referenceSolution, only the correct option's test passes; against each Variant, only that option's test passes. Every other test fails by assertion, never by an unexpected exception.
+- explanation: why the system behaves the way the correct option says, in plain English. Shown after answering.
+- sourceAnchors point at the line ranges of the source file the Prediction was derived from, using the line numbers shown, each explained as neutral documentation of what that region does. Shown after answering.
+- estimatedMinutes is 2 to 5.
+
+If no user would ever notice how the file behaves (pure algorithms, plumbing, configuration, declarations only), set worthPracticing to false, explain why in notWorthReason, and leave the other fields empty.
+
+Rules for this language (${profile.id}):
+- The code file is named ${profile.codeFilename} and the test file ${profile.testFilename}.
+${profile.promptRules
+  .split('\n')
+  .map((rule) => `- ${rule}`)
+  .join('\n')}`;
+}
+
 export const systemPromptFor = (kind: WorkoutKind, profile: LanguageProfile, options: { quick?: boolean } = {}) =>
-  kind === 'drill' ? drillSystemPrompt(profile, options) : kataSystemPrompt(profile, options);
+  kind === 'drill' ? drillSystemPrompt(profile, options) : kind === 'kata' ? kataSystemPrompt(profile, options) : predictionSystemPrompt(profile);
 
 export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'): string {
-  const noun = kind === 'drill' ? 'Drill' : 'Kata';
+  const noun = NOUN[kind];
   const numbered = target.source
     .replace(/\n$/, '')
     .split('\n')
@@ -96,7 +123,9 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
     ? `Build the ${noun} around \`${target.symbol}\`.`
     : target.change
       ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"). Build the ${noun} around the code that changed, so the developer practises understanding it. The source below is the file as of that commit.`
-      : 'Pick the unit in this file whose logic is most worth practicing.';
+      : kind === 'prediction'
+        ? 'Pick the unit in this file whose behaviour matters most to the people relying on it.'
+        : 'Pick the unit in this file whose logic is most worth practicing.';
   const change = target.change ? `\n\n<diff>\n${target.change.diff}\n</diff>` : '';
   const track = target.track
     ? `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the ${noun} around the logic that makes it matter.`
@@ -105,9 +134,9 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
 }
 
 export function retryPrompt(feedback: string, kind: WorkoutKind = 'drill'): string {
-  return `That ${kind === 'drill' ? 'Drill' : 'Kata'} was not Verified, so it was discarded. Here is what the verifier found:
+  return `That ${NOUN[kind]} was not Verified, so it was discarded. Here is what the verifier found:
 
 ${feedback}
 
-Produce a corrected ${kind === 'drill' ? 'Drill' : 'Kata'} that fixes every problem above.`;
+Produce a corrected ${NOUN[kind]} that fixes every problem above.`;
 }

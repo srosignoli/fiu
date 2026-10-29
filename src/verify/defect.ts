@@ -20,9 +20,12 @@ export function normaliseLine(line: string, lineComment?: string): string {
   return (cut === -1 ? line : line.slice(0, cut)).replace(/\s+/g, '');
 }
 
+/** The correct code and a version with one region changed: a Drill's Starting Code, or a Prediction's Variant. */
+type BugPair = { referenceSolution: string; startingCode?: string };
+
 /** The Drill's single changed region: the buggy lines (Starting Code) and the fixed ones (Reference Solution). */
-function bugRegion(workout: Pick<AnyWorkoutOutput, 'referenceSolution' | 'startingCode'>): { buggy: string[]; fixed: string[] } | undefined {
-  const hunks = diffLines(workout.referenceSolution, workout.startingCode);
+function bugRegion(workout: BugPair): { buggy: string[]; fixed: string[] } | undefined {
+  const hunks = diffLines(workout.referenceSolution, workout.startingCode ?? '');
   if (hunks.length !== 1) return undefined;
   const [hunk] = hunks as [Hunk];
   return { buggy: hunk.added, fixed: hunk.removed };
@@ -33,7 +36,7 @@ function bugRegion(workout: Pick<AnyWorkoutOutput, 'referenceSolution' | 'starti
  * it, and no significant fixed line does. Undefined when the bug only removes lines, or doesn't match.
  */
 export function matchSource(
-  workout: Pick<AnyWorkoutOutput, 'referenceSolution' | 'startingCode'>,
+  workout: BugPair,
   source: string,
   lineComment?: string,
 ): { startLine: number; endLine: number } | undefined {
@@ -80,7 +83,7 @@ export function findOriginalDefect(
 }
 
 /** Comments on the Drill's buggy lines that the fixed lines don't have: they point at the bug. */
-export function bugComments(workout: Pick<AnyWorkoutOutput, 'referenceSolution' | 'startingCode'>, lineComment?: string): string[] {
+export function bugComments(workout: BugPair, lineComment?: string): string[] {
   if (!lineComment) return [];
   const region = bugRegion(workout);
   if (!region) return [];

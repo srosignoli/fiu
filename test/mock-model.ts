@@ -1,5 +1,5 @@
 import { MockLanguageModelV4 } from 'ai/test';
-import type { AnyWorkoutOutput, DrillOutput, KataOutput } from '../src/synthesis/schema.ts';
+import type { AnyWorkoutOutput, DrillOutput, KataOutput, PredictionOutput } from '../src/synthesis/schema.ts';
 
 export interface ScriptedModel {
   model: MockLanguageModelV4;
@@ -102,6 +102,66 @@ export function goodKata(overrides: Partial<KataOutput> = {}): KataOutput {
     referenceSolution: TS_REFERENCE,
     testSuiteCode: TS_TESTS,
     gapSummary: 'The whole body of pickNext: a single pass keeping the best job, ties broken by earliest arrival.',
+    originalDefect: NO_DEFECT,
+    ...overrides,
+  };
+}
+
+/** Tests pinning each of a Prediction's four outcomes, one per option. */
+export const TS_PREDICTION_TESTS = `import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { pickNext } from './kata.ts';
+
+const jobs = [{ id: 'late', priority: 3, at: 2 }, { id: 'low', priority: 1, at: 0 }, { id: 'early', priority: 3, at: 1 }];
+
+describe('what runs next', () => {
+  it('runs the early job', () => assert.equal(pickNext(jobs), 'early'));
+  it('runs the late job', () => assert.equal(pickNext(jobs), 'late'));
+  it('runs the low-priority job', () => assert.equal(pickNext(jobs), 'low'));
+  it('runs no job', () => assert.equal(pickNext(jobs), undefined));
+});
+`;
+
+/** A Prediction that passes the Verified gate with the TypeScript profile: which job pickNext serves on a tie. */
+export function goodPrediction(overrides: Partial<PredictionOutput> = {}): PredictionOutput {
+  const none = { original: '', changed: '' };
+  return {
+    worthPracticing: true,
+    notWorthReason: '',
+    slug: 'tied-priorities',
+    title: 'Who goes first on a tie',
+    pillar: 'algorithm',
+    estimatedMinutes: 3,
+    sourceAnchors: [{ startLine: 3, endLine: 9, explanation: 'The scheduler picks the next job here.' }],
+    scenario:
+      'Three jobs are waiting. "late" has priority 3 and arrived at 2 o\'clock, "low" has priority 1 and arrived at midnight, and "early" has priority 3 and arrived at 1 o\'clock. Which job runs next?',
+    options: [
+      { text: 'The "early" job runs next.', testName: 'runs the early job', correct: true, variant: none, misunderstanding: '' },
+      {
+        text: 'The "late" job runs next.',
+        testName: 'runs the late job',
+        correct: false,
+        variant: { original: 'job.at < best.at', changed: 'job.at > best.at' },
+        misunderstanding: 'You were picturing a system where the newest job wins a tie.',
+      },
+      {
+        text: 'The "low" job runs next.',
+        testName: 'runs the low-priority job',
+        correct: false,
+        variant: { original: 'job.priority > best.priority', changed: 'job.priority < best.priority' },
+        misunderstanding: 'You were picturing a system where a lower number means more urgent.',
+      },
+      {
+        text: 'No job runs until the tie is resolved.',
+        testName: 'runs no job',
+        correct: false,
+        variant: { original: ' best = job;', changed: ' best = best && job.priority === best.priority ? undefined : job;' },
+        misunderstanding: 'You were picturing a system where a tie holds the queue.',
+      },
+    ],
+    explanation: 'The highest priority wins, and between equal priorities the job that arrived first runs: first come, first served.',
+    referenceSolution: TS_REFERENCE,
+    testSuiteCode: TS_PREDICTION_TESTS,
     originalDefect: NO_DEFECT,
     ...overrides,
   };

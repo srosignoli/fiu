@@ -4,21 +4,29 @@ import { dirname, join } from 'node:path';
 import type { LanguageProfile, TestResult, TestRun } from '../languages/profile.ts';
 import { runTests } from '../languages/run.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
+import type { PredictionOption, WorkoutKind } from '../synthesis/schema.ts';
+import { matchSource } from './defect.ts';
 import { diffLines, type Hunk } from './diff.ts';
 
 /** The parts of a generated Workout the gate checks. */
 export interface Candidate {
-  kind: 'kata' | 'drill';
+  kind: WorkoutKind;
   /** A Quick Workout: for a Kata, the gap must be 5–12 lines. */
   quick?: boolean;
-  startingCode: string;
+  /** Drill and Kata only. */
+  startingCode?: string;
   referenceSolution: string;
   testSuiteCode: string;
   /** Drill only: the test that exposes the injected bug. */
   regressionTestName?: string;
+  /** Prediction only: its four options, each pinned by its own test. */
+  options?: PredictionOption[];
+  /** Prediction only: the source file, where a Variant must not be found (it would be what the code really does). */
+  source?: string;
+  lineComment?: string;
 }
 
-export type Check = 'reference-passes' | 'starting-code-fails' | 'regression-test' | 'minimal-diff';
+export type Check = 'reference-passes' | 'starting-code-fails' | 'regression-test' | 'minimal-diff' | 'option-tests' | 'outcomes' | 'real-variant';
 
 export interface CheckFailure {
   check: Check;
@@ -28,7 +36,8 @@ export interface CheckFailure {
 }
 
 export type Verification =
-  | { verified: true; referenceRun: TestRun; startingRun: TestRun }
+  /** `startingRun` for a Drill or Kata; `variantRuns` for a Prediction, one per wrong option in order. */
+  | { verified: true; referenceRun: TestRun; startingRun?: TestRun; variantRuns?: TestRun[] }
   | { verified: false; failures: CheckFailure[] };
 
 export const DRILL_MAX_CHANGED_LINES = 3;
@@ -52,8 +61,9 @@ export async function verify(
   sandbox: Sandbox,
   { cacheRoot }: VerifyOptions = {},
 ): Promise<Verification> {
+  if (candidate.kind === 'prediction') return verifyPrediction(candidate, profile, sandbox, cacheRoot);
   const referenceRun = await runInTempWorkout(candidate.referenceSolution, candidate.testSuiteCode, profile, sandbox, cacheRoot);
-  const startingRun = await runInTempWorkout(candidate.startingCode, candidate.testSuiteCode, profile, sandbox, cacheRoot);
+  const startingRun = await runInTempWorkout(candidate.startingCode ?? '', candidate.testSuiteCode, profile, sandbox, cacheRoot);
 
   const failures = [
     ...checkReferencePasses(referenceRun),
@@ -136,7 +146,7 @@ export function findTests(name: string, tests: TestResult[]): TestResult[] {
 }
 
 export function checkMinimalDiff(candidate: Candidate): CheckFailure[] {
-  const hunks = diffLines(candidate.referenceSolution, candidate.startingCode);
+  const hunks = diffLines(candidate.referenceSolution, candidate.startingCode ?? '');
   const fail = (message: string): CheckFailure[] => [{ check: 'minimal-diff', message }];
   const what = candidate.kind === 'drill' ? 'injected bug' : 'gap';
 
@@ -166,6 +176,89 @@ export function checkMinimalDiff(candidate: Candidate): CheckFailure[] {
     return fail(`The gap removes ${hunk.removed.length} lines; a ${candidate.quick ? 'Quick ' : ''}Kata removes ${min} to ${max}.`);
   }
   return [];
+}
+
+/** A wrong option's Variant: the Reference Solution with its one snippet replaced. */
+export function buildVariant(referenceSolution: string, variant: PredictionOption['variant']): string {
+  return referenceSolution.replace(variant.original, () => variant.changed);
+}
+
+/**
+ * A Prediction's gate: against the Reference Solution only the true option's test passes, and against
+ * each Variant only that option's test passes; every other test fails by assertion. Each Variant is one
+ * small region, distinct from the others, and not what the source file itself does.
+ */
+async function verifyPrediction(candidate: Candidate, profile: LanguageProfile, sandbox: Sandbox, cacheRoot: string | undefined): Promise<Verification> {
+  const options = candidate.options ?? [];
+  const run = (code: string) => runInTempWorkout(code, candidate.testSuiteCode, profile, sandbox, cacheRoot);
+  const referenceRun = await run(candidate.referenceSolution);
+  const wrong = options.flatMap((option, index) => (option.correct ? [] : [{ option, index, code: buildVariant(candidate.referenceSolution, option.variant) }]));
+  const variantRuns: TestRun[] = [];
+  for (const { code } of wrong) variantRuns.push(await run(code));
+
+  const failures = [
+    ...checkOptionTests(options, referenceRun),
+    ...checkOutcomes(options, options.findIndex((o) => o.correct), 'the Reference Solution', referenceRun),
+    ...wrong.flatMap(({ index }, i) => checkOutcomes(options, index, `option ${index + 1}'s Variant`, variantRuns[i]!)),
+    ...wrong.flatMap(({ index, code }, i) => checkVariantDiff(candidate, index, code, wrong.slice(0, i))),
+  ];
+  return failures.length === 0 ? { verified: true, referenceRun, variantRuns } : { verified: false, failures };
+}
+
+/** Each option names exactly one test, and every test belongs to an option. */
+export function checkOptionTests(options: PredictionOption[], run: TestRun): CheckFailure[] {
+  if (!run.ran) return [];
+  const fail = (message: string): CheckFailure[] => [{ check: 'option-tests', message }];
+  const known = run.tests.map((t) => t.name).join(', ');
+  const problems: string[] = [];
+  const claimed = new Set<string>();
+  options.forEach((option, i) => {
+    const matches = findTests(option.testName, run.tests);
+    if (matches.length === 0) problems.push(`option ${i + 1}'s test "${option.testName}" doesn't exist`);
+    else if (matches.length > 1) problems.push(`option ${i + 1}'s test "${option.testName}" matches several tests (${describe(matches)})`);
+    else claimed.add(matches[0]!.name);
+  });
+  const extra = run.tests.filter((t) => !claimed.has(t.name));
+  if (problems.length === 0 && extra.length > 0) problems.push(`these tests belong to no option: ${describe(extra)}; a Prediction has exactly one test per option`);
+  return problems.length === 0 ? [] : fail(`${problems.join('; ')}. The tests are: ${known}.`);
+}
+
+/** Against one version of the code, only the expected option's test passes; the others fail by assertion. */
+export function checkOutcomes(options: PredictionOption[], expected: number, label: string, run: TestRun): CheckFailure[] {
+  const fail = (message: string): CheckFailure[] => [{ check: 'outcomes', message, output: run.output }];
+  if (!run.ran) return fail(`The tests did not run against ${label}.`);
+  const problems: string[] = [];
+  options.forEach((option, i) => {
+    const [test] = findTests(option.testName, run.tests);
+    if (!test) return; // Reported by the option-tests check.
+    if (test.outcome === 'error') problems.push(`option ${i + 1}'s test crashes`);
+    else if (i === expected && test.outcome !== 'pass') problems.push(`option ${i + 1}'s test fails, but it must pass`);
+    else if (i !== expected && test.outcome === 'pass') problems.push(`option ${i + 1}'s test passes too`);
+  });
+  if (problems.length === 0) return [];
+  return fail(`Against ${label}, only option ${expected + 1}'s test may pass and the others must fail by assertion: ${problems.join('; ')}.`);
+}
+
+/** One small region per Variant, no two alike, and none of them what the source file itself does. */
+function checkVariantDiff(candidate: Candidate, index: number, code: string, earlier: { index: number; code: string }[]): CheckFailure[] {
+  const failures: CheckFailure[] = [];
+  const which = `Option ${index + 1}'s Variant`;
+  const hunks = diffLines(candidate.referenceSolution, code);
+  if (hunks.length === 0) failures.push({ check: 'minimal-diff', message: `${which} is identical to the Reference Solution.` });
+  else if (hunks.length > 1) failures.push({ check: 'minimal-diff', message: `${which} differs from the Reference Solution in ${hunks.length} places; it must be one region.` });
+  else {
+    const changed = Math.max(hunks[0]!.removed.length, hunks[0]!.added.length);
+    if (changed > DRILL_MAX_CHANGED_LINES) failures.push({ check: 'minimal-diff', message: `${which} changes ${changed} lines; it must change at most ${DRILL_MAX_CHANGED_LINES}.` });
+  }
+  const twin = earlier.find((e) => diffLines(e.code, code).length === 0);
+  if (twin) failures.push({ check: 'minimal-diff', message: `${which} is identical to option ${twin.index + 1}'s.` });
+  if (candidate.source !== undefined && matchSource({ referenceSolution: candidate.referenceSolution, startingCode: code }, candidate.source, candidate.lineComment)) {
+    failures.push({
+      check: 'real-variant',
+      message: `Option ${index + 1}'s code is what the source does: the Reference Solution must behave like the source, and that option is then the true one.`,
+    });
+  }
+  return failures;
 }
 
 /** Retry feedback for the LLM: each failed check, with the test output that shows why. */

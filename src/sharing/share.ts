@@ -290,6 +290,8 @@ export async function fetchWorkouts(cwd: string, options: FetchOptions, step: (m
           referenceSolution: text(record.files.solution),
           testSuiteCode: text(record.files.test),
           regressionTestName: record.regressionTestName,
+          // The sharer's source isn't here to compare with: that check ran when the Prediction was made.
+          options: record.prediction?.options,
         },
         profile,
         await sandboxFor(profile),

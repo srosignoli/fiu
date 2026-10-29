@@ -5,7 +5,7 @@ import type { Sandbox } from '../sandbox/sandbox.ts';
 import { describeFailures, verify, type Verification } from '../verify/gate.ts';
 import type { ProviderOptions } from './model.ts';
 import { drillUserPrompt, MAX_SOURCE_LINES, retryPrompt, systemPromptFor, type DrillTarget } from './prompt.ts';
-import { checkWorkoutOutput, outputSchemaFor, AnyWorkoutOutputSchema, type AnyWorkoutOutput, type WorkoutKind } from './schema.ts';
+import { checkWorkoutOutput, NOUN, outputSchemaFor, AnyWorkoutOutputSchema, type AnyWorkoutOutput, type WorkoutKind } from './schema.ts';
 
 /** One generation plus up to two retries, per spec §6. */
 export const MAX_ATTEMPTS = 3;
@@ -83,7 +83,7 @@ export async function synthesizeDrill({
     }
 
     if (!generated.output) {
-      feedback = `[schema] The response was not a valid ${kind === 'drill' ? 'Drill' : 'Kata'} object: ${generated.error}`;
+      feedback = `[schema] The response was not a valid ${NOUN[kind]} object: ${generated.error}`;
     } else {
       const problems = checkWorkoutOutput(kind, generated.output, sourceLines, { quick, lineComment: profile.lineComment });
       if (problems.length > 0) {
@@ -98,6 +98,9 @@ export async function synthesizeDrill({
             referenceSolution: generated.output.referenceSolution,
             testSuiteCode: generated.output.testSuiteCode,
             regressionTestName: generated.output.regressionTestName,
+            options: generated.output.options,
+            source: target.source,
+            lineComment: profile.lineComment,
           },
           profile,
           sandbox,

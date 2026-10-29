@@ -131,10 +131,15 @@ export class TrainingSession {
     return { outcome: chosen.correct ? 'completed' : 'abandoned', chosen, truth };
   }
 
-  /** What would have to change in the code for the chosen (wrong) option to be what happens. */
+  /**
+   * What would have to change in the code for the chosen (wrong) option to be what happens. For the
+   * old-behaviour option of a Prediction from a commit: what the commit changed, old lines first.
+   */
   async variantDiff(option: PredictionOption): Promise<string> {
     const { workout } = this.#options;
-    const reference = await readFile(join(workout.dir, workout.record.files.solution), 'utf8');
+    const read = (file: string) => readFile(join(workout.dir, file), 'utf8');
+    const reference = await read(workout.record.files.solution);
+    if (option.previous && workout.record.files.previous) return formatHunks(diffLines(await read(workout.record.files.previous), reference));
     return formatHunks(diffLines(reference, buildVariant(reference, option.variant)));
   }
 

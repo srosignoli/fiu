@@ -17,7 +17,7 @@ import { openAttempt } from '../src/workouts/attempts.ts';
 import { discardWorkout, listWorkouts, loadWorkout, readState, restoreWorkout, type Outcome, type StoredWorkout } from '../src/workouts/store.ts';
 import { ensureWorkspace, workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
+import { goodCommitPrediction, goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -229,6 +229,34 @@ describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
       assert.match(io.transcript, /Not quite\. What happens: The "early" job runs next\.\nYou were picturing a system where the newest job wins a tie\./);
       assert.match(io.transcript, /the code would change like this:\n@@ line 6 @@\n- .*job\.at < best\.at.*\n\+ .*job\.at > best\.at/);
       assert.equal((await readJson(join(attempt(), 'attempt.json'))).answer, 1);
+    });
+
+    it('from a commit: says the old behaviour was true until the commit, and shows what it changed', async () => {
+      const { repo, paths } = await repoWithDrill('tied-priorities', 'prediction');
+      const record = await saveDrill({
+        paths,
+        profile: TYPESCRIPT,
+        drill: goodCommitPrediction(),
+        kind: 'prediction',
+        sourcePath: 'queue.ts',
+        revision: await sourceRevision(repo, 'queue.ts'),
+        generationAttempts: 1,
+        origin: 'commit',
+        commit: { sha: 'abcdef1234567890', aiAuthored: true, subject: 'Serve ties first come, first served' },
+      });
+      const io = new ScriptedIo();
+      const training = startTraining(repo, record.id, io);
+      await io.waitFor(/\[1\]-\[4\] answer/);
+      io.press(keyFor(io, 'The "late" job runs next.'));
+      await io.waitFor(/^\[d\] what the commit changed/);
+      io.press('d');
+
+      assert.equal((await training).status, 'abandoned', io.transcript);
+      assert.match(
+        io.transcript,
+        /Not quite\. What happens: The "early" job runs next\.\nThat was true until commit abcdef123456\.\n\nWhat changed: commit abcdef123456 \("Serve ties first come, first served"\), co-written by an AI assistant\.\nBefore it: The "late" job runs next\./,
+      );
+      assert.match(io.transcript, /What commit abcdef123456 changed \(- before, \+ now\):\n@@ line 6 @@\n- .*job\.at > best\.at.*\n\+ .*job\.at < best\.at/);
     });
 
     it('leaves the Attempt open on [q], keeping its order for the resume', async () => {

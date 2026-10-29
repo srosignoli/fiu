@@ -57,7 +57,7 @@ export interface WorkoutRecord {
   /** Absent on Workouts made before agent mode: those are `manual`. */
   origin?: Origin;
   /** For Origin `commit`: the commit it was generated from, and whether an AI co-authored it. */
-  commit?: { sha: string; aiAuthored: boolean };
+  commit?: { sha: string; aiAuthored: boolean; subject?: string };
   /** For Origin `explore`: the Track this Drill is a step of. */
   track?: TrackPlacement;
   /** Set on Workouts fetched from the team's shared branch: who shared them. */
@@ -111,7 +111,7 @@ export interface SaveDrillOptions {
   generationAttempts: number;
   generator?: Generator;
   origin?: Origin;
-  commit?: { sha: string; aiAuthored: boolean };
+  commit?: { sha: string; aiAuthored: boolean; subject?: string };
   track?: TrackPlacement;
   now?: Date;
 }

@@ -211,7 +211,7 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
           quick: true,
           kind,
           origin: 'commit',
-          commit: { sha: commitSha, aiAuthored: info.aiAuthored },
+          commit: { sha: commitSha, aiAuthored: info.aiAuthored, subject: info.subject },
           maxAttempts,
           cacheRoot: deps.cacheRoot,
           step: (message) => ui.step(message),

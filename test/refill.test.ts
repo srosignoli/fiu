@@ -124,7 +124,7 @@ describe(`kin refill (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     const paths = workspacePaths(repo);
     const [workout] = await listWorkouts(paths);
     assert.equal(workout!.record.origin, 'commit');
-    assert.deepEqual(workout!.record.commit, { sha, aiAuthored: true });
+    assert.deepEqual(workout!.record.commit, { sha, aiAuthored: true, subject: 'Schedule jobs by priority' });
     assert.equal(workout!.record.sourceAnchors[0]!.commit, sha);
     const state = await readState(paths);
     assert.deepEqual([state.spend[0]!.origin, state.spend[0]!.result], ['commit', 'verified']);
@@ -260,7 +260,7 @@ describe(`Predictions from commits (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'
 
     const [workout] = await listWorkouts(workspacePaths(repo));
     assert.equal(workout!.record.kind, 'prediction');
-    assert.deepEqual(workout!.record.commit, { sha, aiAuthored: false });
+    assert.deepEqual(workout!.record.commit, { sha, aiAuthored: false, subject: 'Serve ties first come, first served' });
     assert.equal(workout!.record.files.previous, '.solution/previous.ts');
     assert.equal(await readFile(join(workout!.dir, '.solution', 'previous.ts'), 'utf8'), TS_BEFORE_COMMIT);
   });

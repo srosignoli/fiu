@@ -30,7 +30,7 @@ export interface GenerateOptions {
   kind?: WorkoutKind;
   origin: Origin;
   /** The commit a background Drill was generated from. */
-  commit?: { sha: string; aiAuthored: boolean };
+  commit?: { sha: string; aiAuthored: boolean; subject?: string };
   /** For a Track step: its placement, recorded on the Workout. */
   track?: TrackPlacement;
   /** Fewer than the usual attempts when a daily limit has fewer left. */

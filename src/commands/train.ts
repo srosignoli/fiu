@@ -12,6 +12,7 @@ import { openSandbox } from '../sandbox/sandbox.ts';
 import { preflight } from '../languages/run.ts';
 import { openAttempt } from '../workouts/attempts.ts';
 import { nextQuickWorkout } from '../workouts/queue.ts';
+import type { PredictionOption } from '../synthesis/schema.ts';
 import type { WorkoutRecord } from '../workouts/save.ts';
 import { listWorkouts, loadWorkout, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
@@ -263,13 +264,21 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
   ended = true;
 
   const { outcome, chosen, truth } = await session.answer(picked);
-  const reveal = outcome === 'completed' ? [`Right: ${truth.text.trim()}`] : [`Not quite. What happens: ${truth.text.trim()}`, chosen.misunderstanding.trim()];
+  // In a Prediction from a commit, why the old behaviour is wrong is known for a fact: Kintsugi says it.
+  const old = record.prediction!.options.find((o) => o.previous);
+  const commit = record.commit ? `commit ${record.commit.sha.slice(0, 12)}` : 'the commit';
+  const why = chosen.previous ? `That was true until ${commit}.` : chosen.misunderstanding.trim();
+  const reveal = outcome === 'completed' ? [`Right: ${truth.text.trim()}`] : [`Not quite. What happens: ${truth.text.trim()}`, why];
+  const changed = old ? ['', describeChange(record, old)] : [];
   const anchors = record.sourceAnchors.map((a) => `  ${a.path}:${a.startLine}-${a.endLine}: ${a.explanation}`);
-  io.print([...reveal, '', explanation.trim(), '', 'Where this lives:', ...anchors].join('\n'));
+  io.print([...reveal, ...changed, '', explanation.trim(), '', 'Where this lives:', ...anchors].join('\n'));
   if (outcome === 'abandoned') {
-    io.print('[d] the code difference behind your answer   [any other key] continue');
+    io.print(`[d] ${chosen.previous ? 'what the commit changed' : 'the code difference behind your answer'}   [any other key] continue`);
     const read = new AbortController();
-    if ((await io.readKey(read.signal)) === 'd') io.print(`For your answer to be what happens, the code would change like this:\n${await session.variantDiff(chosen)}`);
+    if ((await io.readKey(read.signal)) === 'd') {
+      const heading = chosen.previous ? `What ${commit} changed (- before, + now):` : 'For your answer to be what happens, the code would change like this:';
+      io.print(`${heading}\n${await session.variantDiff(chosen)}`);
+    }
   }
   return closeAttempt(session, io, outcome);
 }
@@ -286,6 +295,14 @@ export function describeDefect(record: WorkoutRecord): string {
       : `⚠ This bug may be real: ${where} has the same logic as this Workout's bug${madeFrom}.`;
   return defect.description ? `${notice}
   ${defect.description}` : notice;
+}
+
+/** For a Prediction from a commit: which commit changed the behaviour, and what it did before. */
+function describeChange(record: WorkoutRecord, old: PredictionOption): string {
+  const commit = record.commit;
+  const which = commit ? `commit ${commit.sha.slice(0, 12)}${commit.subject ? ` ("${commit.subject}")` : ''}` : 'a commit';
+  const by = commit?.aiAuthored ? ', co-written by an AI assistant' : '';
+  return `What changed: ${which}${by}.\nBefore it: ${old.text.trim()}`;
 }
 
 async function readKeys(

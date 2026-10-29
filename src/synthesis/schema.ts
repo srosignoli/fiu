@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { bugComments } from '../verify/defect.ts';
 import { diffLines } from '../verify/diff.ts';
 
 export type WorkoutKind = 'drill' | 'kata';
@@ -46,8 +47,18 @@ function commonFields(kind: WorkoutKind) {
       ),
     referenceSolution: z.string().describe(`The complete, correct code file. Identical to startingCode except for the ${drill ? 'bug' : 'gap'}.`),
     testSuiteCode: z.string().describe('The complete test file: 3 to 5 tests.'),
+    originalDefect: OriginalDefectSchema,
   };
 }
+
+/** The model's report that the source itself looks wrong. Always present, empty when it doesn't, since structured output support for optional fields varies. */
+const OriginalDefectSchema = z
+  .object({
+    startLine: z.number().describe('First line in the source file (1-based) of the defect; 0 when there is none.'),
+    endLine: z.number().describe('Last line in the source file (inclusive); 0 when there is none.'),
+    description: z.string().describe('What is wrong in the original and why; empty when the original looks right.'),
+  })
+  .describe('Only when the original source itself looks wrong: where and why. Never shown before solving. Empty (lines 0, description "") otherwise.');
 
 export const DrillOutputSchema = z.object({
   ...commonFields('drill'),
@@ -68,6 +79,7 @@ export const AnyWorkoutOutputSchema = z.object({
   regressionTestName: z.string().optional().describe('Drills only: the test that exposes the bug, named by symptom.'),
   injectedBugDescription: z.string().optional().describe('Drills only: internal note on the bug.'),
   gapSummary: z.string().optional().describe('Katas only: internal note on what was removed and what a correct fill must do.'),
+  originalDefect: OriginalDefectSchema.optional(),
 });
 export type AnyWorkoutOutput = z.infer<typeof AnyWorkoutOutputSchema>;
 
@@ -85,7 +97,12 @@ const KATA_LEAK_MIN_CHARS = 15;
 export const QUICK = { maxMinutes: 5, maxStartingCodeLines: 60 };
 
 /** The rules the schema can't express. Returns human-readable problems; empty when the output is well-formed. */
-export function checkWorkoutOutput(kind: WorkoutKind, output: AnyWorkoutOutput, sourceLineCount: number, { quick = false } = {}): string[] {
+export function checkWorkoutOutput(
+  kind: WorkoutKind,
+  output: AnyWorkoutOutput,
+  sourceLineCount: number,
+  { quick = false, lineComment }: { quick?: boolean; lineComment?: string } = {},
+): string[] {
   const noun = kind === 'drill' ? 'Drill' : 'Kata';
   const problems: string[] = [];
   if (quick) {
@@ -116,6 +133,8 @@ export function checkWorkoutOutput(kind: WorkoutKind, output: AnyWorkoutOutput, 
     for (const field of ['regressionTestName', 'injectedBugDescription'] as const) {
       if (!output[field]?.trim()) problems.push(`${field} is empty.`);
     }
+    const comments = bugComments(output, lineComment);
+    if (comments.length > 0) problems.push(`the bug region carries a comment that points at the bug ("${comments[0]}"); remove it.`);
   } else {
     if (!output.gapSummary?.trim()) problems.push('gapSummary is empty.');
     problems.push(...kataLeaks(output));
@@ -132,5 +151,5 @@ function kataLeaks(output: AnyWorkoutOutput): string[] {
 }
 
 /** Drill rules, kept for callers that only deal with Drills. */
-export const checkDrillOutput = (output: DrillOutput, sourceLineCount: number, options: { quick?: boolean } = {}) =>
+export const checkDrillOutput = (output: DrillOutput, sourceLineCount: number, options: { quick?: boolean; lineComment?: string } = {}) =>
   checkWorkoutOutput('drill', output, sourceLineCount, options);

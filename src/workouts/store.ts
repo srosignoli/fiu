@@ -19,6 +19,8 @@ export const OutcomeSchema = z.preprocess(
   runs: z.number().int().nonnegative(),
   hintsUsed: z.number().int().nonnegative(),
   rating: z.enum(['up', 'down']).optional(),
+  /** Whether the source bug the Workout reported is real, by the human's answer. */
+  defectConfirmed: z.boolean().optional(),
   }),
 );
 export type Outcome = z.infer<typeof OutcomeSchema>;

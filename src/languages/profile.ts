@@ -12,6 +12,8 @@ export interface LanguageProfile {
   testFilename: string;
   /** Extra files every Workout in this language needs, e.g. Go's go.mod. */
   supportFiles: Record<string, string>;
+  /** Starts a line comment (`//`, `#`): comments are ignored when a Drill's bug is looked for in the source. */
+  lineComment?: string;
   /** Language-specific generation constraints for the LLM prompt. */
   promptRules: string;
   /** Toolchain check, run before any LLM call (and before training). */
@@ -69,6 +71,7 @@ export const UserProfileSchema = z.strictObject({
   codeFilename: relativePath,
   testFilename: relativePath,
   supportFiles: z.record(relativePath, z.string()).default({}),
+  lineComment: z.string().min(1).optional(),
   promptRules: z.string().default(''),
   preflightCmd: z.string().min(1),
   warmup: z.record(relativePath, z.string()).optional(),

@@ -85,7 +85,7 @@ export async function synthesizeDrill({
     if (!generated.output) {
       feedback = `[schema] The response was not a valid ${kind === 'drill' ? 'Drill' : 'Kata'} object: ${generated.error}`;
     } else {
-      const problems = checkWorkoutOutput(kind, generated.output, sourceLines, { quick });
+      const problems = checkWorkoutOutput(kind, generated.output, sourceLines, { quick, lineComment: profile.lineComment });
       if (problems.length > 0) {
         feedback = problems.map((problem) => `[schema] ${problem}`).join('\n');
       } else {

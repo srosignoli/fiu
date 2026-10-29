@@ -28,9 +28,12 @@ const sandboxWorks = await openSandbox().then(
 );
 
 /** A repo with one committed source file and a saved Drill derived from it. */
-async function repoWithDrill(slug = 'tie-breaker', kind: 'drill' | 'kata' = 'drill') {
+async function repoWithDrill(slug = 'tie-breaker', kind: 'drill' | 'kata' = 'drill', { bugInSource = false } = {}) {
   const repo = await tempGitRepo();
-  await writeFile(join(repo, 'queue.ts'), TS_REFERENCE);
+  const drill = kind === 'drill' ? goodDrill({ slug }) : goodKata({ slug });
+  // With bugInSource, the committed source already has the Drill's bug, and saving looks for it there.
+  const source = bugInSource ? drill.startingCode : TS_REFERENCE;
+  await writeFile(join(repo, 'queue.ts'), source);
   await execa('git', ['add', '.'], { cwd: repo });
   await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], { cwd: repo });
   const paths = workspacePaths(repo);
@@ -38,9 +41,10 @@ async function repoWithDrill(slug = 'tie-breaker', kind: 'drill' | 'kata' = 'dri
   const record = await saveDrill({
     paths,
     profile: TYPESCRIPT,
-    drill: kind === 'drill' ? goodDrill({ slug }) : goodKata({ slug }),
+    drill,
     kind,
     sourcePath: 'queue.ts',
+    ...(bugInSource ? { source } : {}),
     revision: await sourceRevision(repo, 'queue.ts'),
     cost: estimateCost([{ model: 'claude-opus-5-5', inputTokens: 10_000, outputTokens: 20_000, cacheReadTokens: 0, cacheWriteTokens: 0 }]),
     generationAttempts: 1,
@@ -99,6 +103,13 @@ class ScriptedIo implements TrainIo {
     return this.rating;
   }
 
+  defectAnswer: boolean | undefined = true;
+  defectAsked = 0;
+  async confirmDefect() {
+    this.defectAsked++;
+    return this.defectAnswer;
+  }
+
   get transcript() {
     return this.printed.join('\n');
   }
@@ -151,6 +162,33 @@ describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.equal(await readFile(join(dir, 'kata.ts'), 'utf8'), startingCode);
     assert.equal(result.status === 'completed' && result.dir, attempt());
     assert.deepEqual((await listWorkouts(paths)).map((w) => w.status), ['attempted']);
+  });
+
+  it('reports a bug the source already has only after the Attempt, and asks about it once', async () => {
+    const { repo, paths, record, attempt } = await repoWithDrill('tie-breaker', 'drill', { bugInSource: true });
+    assert.equal(record.originalDefect?.evidence, 'source');
+    const io = new ScriptedIo();
+    io.defectAnswer = true;
+    const training = startTraining(repo, record.id, io);
+    await io.waitFor(/^Initial run/);
+    assert.doesNotMatch(io.transcript, /may be real/);
+    await writeFile(join(attempt(), 'kata.ts'), TS_REFERENCE);
+    assert.equal((await training).status, 'completed', io.transcript);
+
+    assert.match(io.transcript, /Completed\. Well mended\.\n⚠ This bug may be real: queue\.ts:\d+ has the same logic as this Workout's bug \(Workout made from commit [0-9a-f]{12}\)\.\n {2}The tie-breaker compares/);
+    assert.equal(io.defectAsked, 1);
+    assert.equal((await readJson(join(attempt(), 'attempt.json'))).defectConfirmed, true);
+    assert.equal((await readJson(paths.stateFile)).outcomes[0].defectConfirmed, true);
+
+    // A second Attempt shows the notice again but doesn't ask again.
+    const again = new ScriptedIo();
+    const second = startTraining(repo, record.id, again);
+    await again.waitFor(/^Initial run/);
+    await writeFile(join(attempt(2), 'kata.ts'), TS_REFERENCE);
+    assert.equal((await second).status, 'completed', again.transcript);
+    assert.match(again.transcript, /may be real/);
+    assert.equal(again.defectAsked, 0);
+    assert.equal((await readJson(join(attempt(2), 'attempt.json'))).defectConfirmed, undefined);
   });
 
   it('heads a Kata with its brief and the file to fill in', async () => {

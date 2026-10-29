@@ -6,7 +6,7 @@ import type { LanguageProfile, TestRun } from '../languages/profile.ts';
 import { runTests } from '../languages/run.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
 import { diffLines } from '../verify/diff.ts';
-import { isAttemptBookkeeping, saveAttempt, type Attempt } from '../workouts/attempts.ts';
+import { isAttemptBookkeeping, listAttemptRecords, saveAttempt, type Attempt } from '../workouts/attempts.ts';
 import type { WorkoutRecord } from '../workouts/save.ts';
 import { recordOutcome, type Outcome } from '../workouts/store.ts';
 import type { WorkspacePaths } from '../workspace.ts';
@@ -120,13 +120,21 @@ export class TrainingSession {
     return diff.exitCode !== 0;
   }
 
+  /** True when no earlier Attempt at this Workout has finished: only then is a reported source bug asked about. */
+  async firstToFinish(): Promise<boolean> {
+    const { paths, attempt } = this.#options;
+    const records = await listAttemptRecords(paths, attempt.record.workoutId);
+    return !records.some((r) => r.outcome && r.number !== attempt.record.number);
+  }
+
   /** Finishes the Attempt: its outcome goes into the Attempt and into state.json. The Workout stays as it is. */
-  async finish(outcome: Outcome['outcome'], rating?: Outcome['rating']): Promise<void> {
+  async finish(outcome: Outcome['outcome'], rating?: Outcome['rating'], defectConfirmed?: boolean): Promise<void> {
     if (this.#finished) throw new Error('This session has already finished.');
     this.#finished = true;
     const { attempt, paths } = this.#options;
     const at = (this.#options.now?.() ?? new Date()).toISOString();
-    Object.assign(attempt.record, { outcome, finishedAt: at, ...(rating ? { rating } : {}) });
+    const answers = { ...(rating ? { rating } : {}), ...(defectConfirmed === undefined ? {} : { defectConfirmed }) };
+    Object.assign(attempt.record, { outcome, finishedAt: at, ...answers });
     await saveAttempt(attempt);
     await recordOutcome(paths, {
       workoutId: attempt.record.workoutId,
@@ -135,7 +143,7 @@ export class TrainingSession {
       at,
       runs: attempt.record.runs,
       hintsUsed: attempt.record.hintsUsed,
-      ...(rating ? { rating } : {}),
+      ...answers,
     });
   }
 }

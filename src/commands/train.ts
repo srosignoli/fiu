@@ -12,6 +12,7 @@ import { openSandbox } from '../sandbox/sandbox.ts';
 import { preflight } from '../languages/run.ts';
 import { openAttempt } from '../workouts/attempts.ts';
 import { nextQuickWorkout } from '../workouts/queue.ts';
+import type { WorkoutRecord } from '../workouts/save.ts';
 import { listWorkouts, loadWorkout, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 
@@ -23,6 +24,8 @@ export interface TrainIo {
   /** Choose among several Workouts (open Attempts first, then the queue); undefined to cancel. */
   pick(workouts: StoredWorkout[]): Promise<StoredWorkout | undefined>;
   rate(): Promise<Outcome['rating']>;
+  /** "Is it a real bug in your code?": true, false, or undefined to skip. */
+  confirmDefect(): Promise<boolean | undefined>;
   /** Open these files for editing, if the user has an editor configured. */
   openEditor?(files: string[]): void;
   /** Show progress (e.g. a spinner with `status()`) until `until` settles. */
@@ -188,9 +191,29 @@ async function runSession(
     return { status: 'left-pending', workoutId: record.id, attempt: number };
   }
   io.print(outcome === 'completed' ? 'Completed. Well mended.' : 'Abandoned.');
+  let defectConfirmed: boolean | undefined;
+  if (record.originalDefect) {
+    io.print(describeDefect(record));
+    if (await session.sourceChanged()) io.print('Source has changed since this Workout was made.');
+    if (await session.firstToFinish()) defectConfirmed = await io.confirmDefect();
+  }
   const rating = await io.rate();
-  await session.finish(outcome, rating);
+  await session.finish(outcome, rating, defectConfirmed);
   return { status: outcome, workoutId: record.id, attempt: number, dir: attempt.dir };
+}
+
+/** The notice that the Workout's bug may be in the source too. Only ever shown after an Attempt: before, it narrows the search. */
+export function describeDefect(record: WorkoutRecord): string {
+  const defect = record.originalDefect!;
+  const lines = defect.startLine === defect.endLine ? `${defect.startLine}` : `${defect.startLine}-${defect.endLine}`;
+  const where = `${record.source.path}:${lines}`;
+  const madeFrom = record.source.commit ? ` (Workout made from commit ${record.source.commit.slice(0, 12)})` : '';
+  const notice =
+    defect.evidence === 'model'
+      ? `⚠ The model that wrote this Workout thinks ${where} has a real bug${madeFrom}.`
+      : `⚠ This bug may be real: ${where} has the same logic as this Workout's bug${madeFrom}.`;
+  return defect.description ? `${notice}
+  ${defect.description}` : notice;
 }
 
 async function readKeys(

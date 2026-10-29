@@ -18,6 +18,8 @@ export interface AttemptRecord {
   finishedAt?: string;
   outcome?: 'completed' | 'abandoned';
   rating?: 'up' | 'down';
+  /** The human's answer to "Is it a real bug in your code?", when the Workout reported one. */
+  defectConfirmed?: boolean;
 }
 
 export interface Attempt {

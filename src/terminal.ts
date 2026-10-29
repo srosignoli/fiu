@@ -72,6 +72,11 @@ export function terminalTrainIo(): TrainIo & { close(): void } {
       const key = await reader().read();
       return key === 'y' ? 'up' : key === 'n' ? 'down' : undefined;
     },
+    async confirmDefect() {
+      console.log('\nIs it a real bug in your code? [y] yes  [n] no  [any other key] skip');
+      const key = await reader().read();
+      return key === 'y' ? true : key === 'n' ? false : undefined;
+    },
     openEditor(files) {
       const editor = process.env.VISUAL;
       if (!editor) return;

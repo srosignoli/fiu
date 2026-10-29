@@ -91,6 +91,7 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
       kind: options.kind,
       sourcePath: target.path,
       symbol: target.symbol,
+      source: target.source,
       revision: options.revision,
       cost,
       generationAttempts: result.attempts,

@@ -23,6 +23,12 @@ describe('prompts', () => {
     assert.match(system, /- Use only erasable TypeScript syntax/);
   });
 
+  it('ask for a report, not a silent fix, when the original looks wrong', () => {
+    for (const system of [drillSystemPrompt(TYPESCRIPT), kataSystemPrompt(TYPESCRIPT)]) {
+      assert.match(system, /If the original itself looks wrong, don't fix it silently: say where and why in originalDefect/);
+    }
+  });
+
   it('keep Hints to nudges in plain words', () => {
     assert.match(drillSystemPrompt(TYPESCRIPT), /Hints name no expression, operator, or value from the fix\./);
     assert.match(kataSystemPrompt(TYPESCRIPT), /Hints name no expression, call sequence, or index arithmetic from the missing code\./);

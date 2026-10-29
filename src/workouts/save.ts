@@ -5,6 +5,7 @@ import { execa } from 'execa';
 import { describeCost, type Cost } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import type { AnyWorkoutOutput, WorkoutKind } from '../synthesis/schema.ts';
+import { findOriginalDefect, type OriginalDefect } from '../verify/defect.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 
 export const SOLUTION_DIRNAME = '.solution';
@@ -76,6 +77,8 @@ export interface WorkoutRecord {
   injectedBugDescription?: string;
   /** Kata only: internal note on what was removed and what a correct fill must do. */
   gapSummary?: string;
+  /** A bug the source file appears to contain already. Shown only after an Attempt. */
+  originalDefect?: OriginalDefect;
   /** What generating this Workout cost, across all its generation attempts. Absent when the user's agent generated it (not measured) and on Workouts made before cost recording. */
   cost?: Cost & { generationAttempts: number };
   /** `solution` is the Reference Solution; `originalTest` the tests the Workout was Verified with. */
@@ -98,6 +101,8 @@ export interface SaveDrillOptions {
   /** The source file, relative to the repository root. */
   sourcePath: string;
   symbol?: string;
+  /** The source file as sent to the generator, where the Workout's bug is looked for. Absent: not looked for. */
+  source?: string;
   revision: SourceRevision;
   /** Absent when the user's agent generated the Workout: its cost isn't measured. */
   cost?: Cost;
@@ -117,6 +122,7 @@ export async function saveDrill({
   kind = 'drill',
   sourcePath,
   symbol,
+  source,
   revision,
   cost,
   generationAttempts,
@@ -130,6 +136,7 @@ export async function saveDrill({
   const dir = join(paths.workoutsDir, id);
   const solution = join(SOLUTION_DIRNAME, profile.codeFilename);
   const originalTest = join(SOLUTION_DIRNAME, profile.testFilename);
+  const originalDefect = source === undefined ? undefined : findOriginalDefect(kind, drill, source, profile.lineComment);
 
   const record: WorkoutRecord = {
     id,
@@ -150,6 +157,7 @@ export async function saveDrill({
     ...(kind === 'drill'
       ? { regressionTestName: drill.regressionTestName, injectedBugDescription: drill.injectedBugDescription }
       : { gapSummary: drill.gapSummary }),
+    ...(originalDefect ? { originalDefect } : {}),
     ...(cost ? { cost: { ...cost, generationAttempts } } : {}),
     files: { code: profile.codeFilename, test: profile.testFilename, solution, originalTest },
   };

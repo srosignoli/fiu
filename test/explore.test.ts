@@ -199,6 +199,7 @@ describe(`kin explore (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
       readKey: () => new Promise((resolve) => setTimeout(() => resolve('q'), 50)),
       pick: async () => undefined,
       rate: async () => undefined,
+      confirmDefect: async () => undefined,
     };
     const opened = await continueTrack(repo, track.id, { sandbox: sandboxWorks }, io, { configEnv: { env: {}, home: await tempDir() }, cacheRoot: await tempDir() });
     assert.deepEqual(opened, { status: 'left-pending', workoutId: track.steps[1]!.workoutId, attempt: 1 });

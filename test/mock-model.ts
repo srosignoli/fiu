@@ -53,6 +53,9 @@ export function pickNext(jobs: Job[]): string | undefined {
 `;
 
 /** A Drill that passes the Verified gate with the TypeScript profile. */
+/** What the model reports when the original looks right. */
+export const NO_DEFECT = { startLine: 0, endLine: 0, description: '' };
+
 export function goodDrill(overrides: Partial<DrillOutput> = {}): DrillOutput {
   return {
     worthPracticing: true,
@@ -69,6 +72,7 @@ export function goodDrill(overrides: Partial<DrillOutput> = {}): DrillOutput {
     testSuiteCode: TS_TESTS,
     regressionTestName: 'serves equal priorities first come, first served',
     injectedBugDescription: 'The tie-breaker compares arrival times the wrong way round.',
+    originalDefect: NO_DEFECT,
     ...overrides,
   };
 }
@@ -98,6 +102,7 @@ export function goodKata(overrides: Partial<KataOutput> = {}): KataOutput {
     referenceSolution: TS_REFERENCE,
     testSuiteCode: TS_TESTS,
     gapSummary: 'The whole body of pickNext: a single pass keeping the best job, ties broken by earliest arrival.',
+    originalDefect: NO_DEFECT,
     ...overrides,
   };
 }

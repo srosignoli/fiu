@@ -32,6 +32,8 @@ interface Generation {
   profile: LanguageProfile;
   sourcePath: string;
   symbol?: string;
+  /** The source as sent to the agent: a saved Drill's bug is looked for in it. */
+  source: string;
   sourceLines: number;
   kind: WorkoutKind;
   quick: boolean;
@@ -207,6 +209,7 @@ export class AgentDrills {
       profile,
       sourcePath,
       symbol,
+      source,
       sourceLines,
       kind,
       quick,
@@ -272,7 +275,7 @@ export class AgentDrills {
       return { status: 'rejected', feedback, submissionsLeft: MAX_ATTEMPTS - generation.submissions };
     };
 
-    const problems = checkWorkoutOutput(generation.kind, workout, generation.sourceLines, { quick: generation.quick });
+    const problems = checkWorkoutOutput(generation.kind, workout, generation.sourceLines, { quick: generation.quick, lineComment: generation.profile.lineComment });
     if (problems.length > 0) return reject(problems.map((p) => `[schema] ${p}`).join('\n'));
 
     const verification = await verify(
@@ -300,6 +303,7 @@ export class AgentDrills {
       kind: generation.kind,
       sourcePath: generation.sourcePath,
       symbol: generation.symbol,
+      source: generation.source,
       revision: await sourceRevision(generation.paths.repoRoot, generation.sourcePath),
       generationAttempts: generation.submissions,
       generator: 'agent',

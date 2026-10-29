@@ -27,6 +27,7 @@ A Drill takes one real unit of code from the developer's repository, makes it se
 How to build the Drill:
 - Extract one unit (a function, class, or small cluster of them) from the source file. If a symbol is named, use it; otherwise pick the unit whose logic is most worth understanding.
 - Make it self-contained in a single code file. Replace infrastructure the original touches (databases, network, filesystem, clocks, queues, loggers) with small inline fakes or parameters. Keep the interesting logic faithful to the original.
+- Keep the referenceSolution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect (that defect may also be the Drill's bug). Otherwise leave originalDefect empty.
 - Inject exactly one realistic, subtle bug into a single region of at most 3 lines, of one of these kinds:
   - algorithmic boundary: off-by-one, inverted tie-breaker, unbounded loop on cyclic input, float drift;
   - concurrency or async: check-then-act race, missing await in a loop, leaked timer or listener;
@@ -62,6 +63,7 @@ A Kata takes one real unit of code from the developer's repository, makes it sel
 How to build the Kata:
 - Extract one unit (a function, class, or small cluster of them) from the source file. If a symbol is named, use it; otherwise pick the unit whose logic is most worth being able to write.
 - Make it self-contained in a single code file. Replace infrastructure the original touches (databases, network, filesystem, clocks, queues, loggers) with small inline fakes or parameters. Keep the interesting logic faithful to the original.
+- Keep the referenceSolution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect. Otherwise leave originalDefect empty.
 - Remove one contiguous region of ${gap} lines: ideally one function body or one cohesive block, the mechanism that makes the unit work. Replace it with at most 3 placeholder lines that compile and return a type-correct but wrong value (e.g. 0, an empty list, None, the zero value), with a TODO comment. Never throw or raise in the placeholder: the tests must fail by assertion, not crash.
 - startingCode and referenceSolution must be identical except for that region.
 - Write 3 to 5 tests. Most pin down the missing unit's contract, edge cases included; at least one exercises code outside the gap, so it passes against startingCode. Against startingCode at least one test fails by assertion; against referenceSolution every test passes.

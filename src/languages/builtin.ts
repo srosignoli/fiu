@@ -16,6 +16,7 @@ export const TYPESCRIPT: LanguageProfile = {
   extensions: ['.ts', '.mts', '.cts', '.tsx'],
   codeFilename: 'kata.ts',
   testFilename: 'kata.test.ts',
+  lineComment: '//',
   promptRules: [
     SHARED_RULES,
     'Tests use `node:test` (`describe`, `it`) and `node:assert/strict`.',
@@ -37,6 +38,7 @@ export const JAVASCRIPT: LanguageProfile = {
   extensions: ['.js', '.mjs', '.cjs', '.jsx'],
   codeFilename: 'kata.mjs',
   testFilename: 'kata.test.mjs',
+  lineComment: '//',
   promptRules: [
     SHARED_RULES,
     'Use ES modules. Tests use `node:test` (`describe`, `it`) and `node:assert/strict`.',
@@ -54,6 +56,7 @@ export const PYTHON: LanguageProfile = {
   extensions: ['.py'],
   codeFilename: 'kata.py',
   testFilename: 'test_kata.py',
+  lineComment: '#',
   promptRules: [
     SHARED_RULES,
     'Tests use `unittest` (`unittest.TestCase` subclasses with `test_*` methods) and `from kata import ...`.',
@@ -70,6 +73,7 @@ export const GO: LanguageProfile = {
   extensions: ['.go'],
   codeFilename: 'kata.go',
   testFilename: 'kata_test.go',
+  lineComment: '//',
   supportFiles: { 'go.mod': 'module kata\n\ngo 1.21\n' },
   promptRules: [
     SHARED_RULES,

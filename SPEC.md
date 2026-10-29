@@ -413,10 +413,34 @@ Practice in time already lost: a slow build or test run.
 - **Nothing to serve** (no Quick Workout ready, no interactive terminal, or no Kintsugi workspace in this repository): the command runs in the foreground with its output passed through and its exit code returned, plus at most one dim note. No generation is offered: Kintsugi never stands between the user and their command, so an alias like `t='kin quick --while "npm test"'` is safe anywhere.
 - Only `kin quick` takes `--while` for now.
 
-### 11.7 Later (not yet designed)
+### 11.7 v3.4: Real bugs (not yet implemented)
+
+Sometimes the bug a Drill "injects" is already in the developer's code. While making the unit self-contained, the model carries the original's faulty logic into the Starting Code and writes a corrected Reference Solution. This came up in dogfooding: a Python `NormalizeContext` joins sorted tags with `if index < len(part)-1:` (the tag's length, not the number of tags), so `["a", "b", "c"]` gives `"abc"`. The Drill rewrote the code around that line (`sorted(set(...))` instead of a dict) but kept the comparison, and its Reference Solution compared with `len(unique)`. Nothing flagged it: the Verified gate compares the Starting Code with the Reference Solution, never with the source.
+
+Kintsugi now **notices such a bug and reports it after the Attempt**. It doesn't go looking for them. Choosing units because they look buggy would turn comprehension practice into an LLM bug-finder, and extraction (fakes for clocks and I/O, renamed variables) makes false positives easy. Whether to aim for them is decided later, on the precision measured below.
+
+- **Two signals.**
+  - *Source match* (Drills only, deterministic). Split the Verified gate's single changed region (§6, check 4) into its Starting Code side (the buggy lines) and its Reference Solution side (the fixed lines), and normalize every line. A line is *significant* when it is at least 8 characters long once normalized, so `}`, `else:`, and `return` never match on their own. The source matches when every significant buggy line equals some normalized line of the source file as sent to the model, the buggy side has at least one significant line, and no significant fixed line appears in the source. A bug that only removes lines (a dropped `await`) has no buggy side, so it never matches here.
+  - *Model report.* A new common output field, `originalDefect: { startLine, endLine, description }`, is empty unless the model judged the original itself wrong. Against the numbered source, like Source Anchors.
+- **Normalizing a line:** drop its trailing comment, then all whitespace. The comment marker comes from a new optional profile field, `lineComment` (`//` for TypeScript, JavaScript, and Go; `#` for Python). The cut is naive: a marker inside a string literal truncates the line, which rarely matters at this length. User-defined profiles without `lineComment` compare whole lines.
+- **Recorded** in `workout.json` as `originalDefect: { startLine, endLine, description, evidence }`, where `evidence` is `source`, `model`, or `both`. The lines come from the source match when there is one (otherwise from the model's report). The description comes from the model's report, or from `injectedBugDescription` when only the source matched. It is absent when neither signal fires. It is never retry feedback and never blocks saving: a Verified Workout is saved either way.
+- **Shown only after the Attempt**, on Completed or Abandoned, before the rating question. It never appears in the README, Hints, Source Anchors, the runner's header, `kin quick`, or `list_workouts`: before solving, "this bug is in your code" narrows the search to the anchored lines.
+  ```text
+  ⚠ This bug may be real: src/context.py:9 has the same logic as the bug you just fixed
+    (Workout made from commit 1a2b3c4d5e6f).
+  ```
+  For a model report alone: *"The model that wrote this Workout thinks src/context.py:7-11 has a real bug: …"*. The runner's existing *"Source has changed since this Workout was made."* check applies. For a fetched Workout, the lines refer to the sharer's commit.
+- **Confirmation.** After the notice: *"Is it a real bug in your code? [y] yes [n] no"* (any other key skips). The answer is recorded as `defectConfirmed` in `attempt.json` and in the outcome in `state.json`. It is asked only on the first finished Attempt of a Workout. It is the measure of how often each signal is right.
+- **Prompt rule** (Drills and Katas): *"Keep the Reference Solution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect."* A Drill may still use that defect as its bug, as the dogfooded one did. A Kata whose removed region fixes the original gets only the model report, since its Starting Code is a placeholder.
+- **No comments in the bug** (Drills, enforced from now on; the prompt already forbade them). Comparing the two sides of the changed region by their trailing comments (via `lineComment`), a comment on a buggy line that the fixed side doesn't have is `[schema]` retry feedback: *"The bug region carries a comment that points at the bug; remove it."*
+- **Agent mode:** `originalDefect` is part of the schema `submit_drill` accepts, and the agent gets the same prompt rule. `list_workouts` doesn't report it.
+- **Not in v3.4:** choosing targets for suspected defects (see §11.8); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
+
+### 11.8 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 
+- **Aiming at real bugs:** preferring units with suspected defects when choosing what to drill, if `defectConfirmed` (§11.7) shows the reports are mostly right.
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.
 - **Spaced repetition:** resurfacing attempted Workouts on a schedule.
 - **A public Workout library** for open-source codebases (a hosted service; a separate decision from team sharing).

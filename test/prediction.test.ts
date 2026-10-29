@@ -126,7 +126,9 @@ describe('Predictions from a commit', () => {
     assert.deepEqual(unanchoredRegions(TS_REFERENCE, TS_BEFORE_COMMIT, TS_BEFORE_COMMIT, TS_REFERENCE, '//'), []);
     // An invented "before": a change the commit never made.
     const invented = TS_REFERENCE.replace('job.priority > best.priority', 'job.priority < best.priority');
-    assert.deepEqual(unanchoredRegions(TS_REFERENCE, invented, TS_BEFORE_COMMIT, TS_REFERENCE, '//'), [6]);
+    assert.deepEqual(unanchoredRegions(TS_REFERENCE, invented, TS_BEFORE_COMMIT, TS_REFERENCE, '//'), [
+      { line: 6, missing: 'if (!best || job.priority < best.priority || (job.priority === best.priority && job.at < best.at)) best = job;' },
+    ]);
   });
 
   const commitCandidate = (prediction: CommitPredictionOutput, extra: Partial<Candidate> = {}): Candidate => ({
@@ -148,7 +150,7 @@ describe('Predictions from a commit', () => {
     // It behaves like the old code, but its last line was never in the old file.
     const invented = TS_BEFORE_COMMIT.replace('return best?.id;', 'return best ? best.id : undefined;');
     const result = await verify(commitCandidate(goodCommitPrediction({ previous: invented })), TYPESCRIPT, sandbox, { cacheRoot });
-    assert.match(result.verified ? '' : result.failures.map((f) => `[${f.check}] ${f.message}`).join('\n'), /\[previous\] Option 2's previous .* not found in the file before the commit/);
+    assert.match(result.verified ? '' : result.failures.map((f) => `[${f.check}] ${f.message}`).join('\n'), /\[previous\] Option 2's previous .* the old file doesn't have: line 8 \("return best \? best\.id : undefined;" is not in the file before the commit\)\. .*copied from the file before the commit as they were/);
 
     const same = await verify(commitCandidate(goodCommitPrediction({ previous: TS_REFERENCE })), TYPESCRIPT, sandbox, { cacheRoot });
     assert.match(same.verified ? '' : same.failures.map((f) => f.message).join('\n'), /identical to the Reference Solution: the commit must change the outcome/);

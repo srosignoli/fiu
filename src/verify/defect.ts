@@ -100,18 +100,26 @@ export function bugComments(workout: BugPair, lineComment?: string): string[] {
  * the Reference Solution must have a significant line found only in the old file (in it, and not in the
  * new one). When the Previous Version has nothing there (the commit added lines), a Reference Solution
  * line found only in the new file anchors it instead. One line, not all: extraction renames things
- * around a change. Returns the 1-based starting lines (in the Reference Solution) of unanchored regions.
+ * around a change. Returns each unanchored region: its 1-based line in the Reference Solution, and a line
+ * of it that the old file doesn't have, for retry feedback that says what to copy.
  */
-export function unanchoredRegions(referenceSolution: string, previous: string, before: string, after: string, lineComment?: string): number[] {
+export function unanchoredRegions(
+  referenceSolution: string,
+  previous: string,
+  before: string,
+  after: string,
+  lineComment?: string,
+): { line: number; missing: string }[] {
   const lines = (text: string) => new Set(text.replace(/\r\n?/g, '\n').split('\n').map((line) => normaliseLine(line, lineComment)));
   const old = lines(before);
   const now = lines(after);
-  const significant = (side: string[]) => side.map((line) => normaliseLine(line, lineComment)).filter((line) => line.length >= SIGNIFICANT_LINE_CHARS);
-  return diffLines(referenceSolution, previous)
-    .filter((hunk) => {
-      const previousSide = significant(hunk.added);
-      if (previousSide.length > 0) return !previousSide.some((line) => old.has(line) && !now.has(line));
-      return !significant(hunk.removed).some((line) => now.has(line) && !old.has(line));
-    })
-    .map((hunk) => hunk.line);
+  const significant = (side: string[]) => side.filter((line) => normaliseLine(line, lineComment).length >= SIGNIFICANT_LINE_CHARS);
+  const onlyIn = (has: Set<string>, lacks: Set<string>) => (line: string) => has.has(normaliseLine(line, lineComment)) && !lacks.has(normaliseLine(line, lineComment));
+  return diffLines(referenceSolution, previous).flatMap((hunk) => {
+    const previousSide = significant(hunk.added);
+    const anchored = previousSide.length > 0 ? previousSide.some(onlyIn(old, now)) : significant(hunk.removed).some(onlyIn(now, old));
+    if (anchored) return [];
+    const missing = previousSide.find((line) => !old.has(normaliseLine(line, lineComment))) ?? previousSide[0] ?? hunk.removed[0] ?? '';
+    return [{ line: hunk.line, missing: missing.trim() }];
+  });
 }

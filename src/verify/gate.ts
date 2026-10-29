@@ -260,9 +260,12 @@ function checkPrevious(candidate: Candidate, index: number, code: string, earlie
   if (candidate.source !== undefined && candidate.sourceBefore !== undefined) {
     const loose = unanchoredRegions(candidate.referenceSolution, code, candidate.sourceBefore, candidate.source, candidate.lineComment);
     if (loose.length > 0) {
+      const regions = loose.map(({ line, missing }) => `line ${line} ("${missing}" is not in the file before the commit)`).join('; ');
       failures.push({
         check: 'previous',
-        message: `${which} differs from the Reference Solution at line(s) ${loose.join(', ')} in ways not found in the file before the commit: it must be the same unit, extracted from the old file, differing only where the commit changed it.`,
+        message:
+          `${which} differs from the Reference Solution in ways the old file doesn't have: ${regions}. ` +
+          'It must be the same unit as the referenceSolution, differing only where the commit changed it, with those changed lines copied from the file before the commit as they were, even where the rest of the unit uses fakes.',
       });
     }
   }

@@ -22,6 +22,10 @@ _Avoid_: Standard kata, skeleton
 A Workout where the human diagnoses and fixes a single realistic bug injected into otherwise working code.
 _Avoid_: Chaos kata, chaos drill, mutant debugging, incident
 
+**Prediction**:
+A Workout where the human reads a Scenario and predicts which of four outcomes the system produces, without reading code. Each outcome is measured by running code, never asserted by the model.
+_Avoid_: Quiz, question, scenario (as the umbrella term)
+
 **Track**:
 An ordered sequence of 3 to 5 Workouts, each from a different file, that together teach one module of the repository, foundations first. A Track is not itself a Workout.
 _Avoid_: Ladder, learning path, exploration
@@ -37,7 +41,15 @@ The code the human receives: the Kata's gapped code or the Drill's bugged code.
 _Avoid_: initialUserCode, skeleton, mutant
 
 **Reference Solution**:
-The complete, correct implementation that the Workout's tests are proven against.
+The complete, correct implementation that the Workout's tests are proven against. For a Prediction, the code whose behaviour is the true outcome.
+
+**Scenario**:
+The plain-English situation a Prediction asks about, with concrete values and no code vocabulary.
+_Avoid_: Question, prompt, story
+
+**Variant**:
+For one wrong option of a Prediction: the Reference Solution with a single small region changed to model a plausible misunderstanding. What it does is that option's outcome.
+_Avoid_: Mutant, distractor, decoy
 
 **Hint**:
 One of a fixed, ordered set of nudges prepared with a Workout and revealed to the human one at a time on request.
@@ -59,7 +71,7 @@ _Avoid_: Provider, mode, backend
 The test in a Drill that specifically exposes the injected bug.
 
 **Verified**:
-A Workout is Verified when its Reference Solution passes every test; its Starting Code runs but fails at least one test by assertion while passing at least one other (for a Drill, the failures include the Regression Test); and its Starting Code differs from the Reference Solution by a single small region (the injected bug, or the gap).
+A Workout is Verified when its Reference Solution passes every test; its Starting Code runs but fails at least one test by assertion while passing at least one other (for a Drill, the failures include the Regression Test); and its Starting Code differs from the Reference Solution by a single small region (the injected bug, or the gap). A Prediction is Verified when, against the Reference Solution, only the true option's test passes; against each Variant, only that option's test passes; every other test fails by assertion; and each Variant differs from the Reference Solution by a single small region.
 _Avoid_: Valid, checked
 
 ### Languages
@@ -71,11 +83,11 @@ _Avoid_: Adapter, language plugin, runtime
 ### Progress
 
 **Completed**:
-An Attempt is Completed when the human's code passes every one of the Workout's original tests (editing the tests to pass doesn't count).
+An Attempt is Completed when the human's code passes every one of the Workout's original tests (editing the tests to pass doesn't count). An Attempt at a Prediction is Completed when its one answer is the true option.
 _Avoid_: Solved, passed, mastered
 
 **Abandoned**:
-An Attempt is Abandoned when the human gives up and reveals the Reference Solution before Completing it.
+An Attempt is Abandoned when the human gives up and reveals the Reference Solution before Completing it. An Attempt at a Prediction is Abandoned when its one answer is wrong: the truth is then revealed.
 _Avoid_: Skipped, failed, given up
 
 **Practised**:

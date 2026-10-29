@@ -1,6 +1,6 @@
 # Kintsugi: Specification (v1)
 
-> Domain terms (Workout, Kata, Drill, Track, Quick, Starting Code, Reference Solution, Hint, Source Anchor, Regression Test, Verified, Language Profile, Completed, Abandoned) are defined in [GLOSSARY.md](./GLOSSARY.md). Decisions with lasting trade-offs live in [docs/adr/](./docs/adr/).
+> Domain terms (Workout, Kata, Drill, Prediction, Scenario, Variant, Track, Quick, Starting Code, Reference Solution, Hint, Source Anchor, Regression Test, Verified, Language Profile, Completed, Abandoned) are defined in [GLOSSARY.md](./GLOSSARY.md). Decisions with lasting trade-offs live in [docs/adr/](./docs/adr/).
 
 ## 1. Vision
 
@@ -19,6 +19,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 - **Secrets never live in the repo.** Code leaves the machine only with per-repo consent.
 - **Generated code is untrusted.** Every Workout test run happens in an OS sandbox with no network ([ADR 0002](./docs/adr/0002-workouts-run-sandboxed-without-network.md)).
 - **No telemetry.** Nothing about Kintsugi's use leaves the machine, not even opt-in ([ADR 0004](./docs/adr/0004-no-telemetry.md)).
+- **Answers are measured, never asserted.** Even a Workout for people who don't read code is decided by running code ([ADR 0007](./docs/adr/0007-answers-are-measured-never-asserted.md)).
 - **Called by agents, never driving them.** Kintsugi never holds AI-subscription credentials or starts an agent itself ([ADR 0005](./docs/adr/0005-called-by-agents-never-driving-them.md)).
 
 ## 3. Packaging & Requirements
@@ -436,9 +437,71 @@ Kintsugi now **notices such a bug and reports it after the Attempt**. It doesn't
 - **Prompt rule** (Drills and Katas): *"Keep the Reference Solution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect."* A Drill may still use that defect as its bug, as the dogfooded one did. A Kata whose removed region fixes the original gets only the model report, since its Starting Code is a placeholder.
 - **No comments in the bug** (Drills, enforced from now on; the prompt already forbade them). Comparing the two sides of the changed region by their trailing comments (via `lineComment`), a comment on a buggy line that the fixed side doesn't have is `[schema]` retry feedback: *"The bug region carries a comment that points at the bug; remove it."*
 - **Agent mode:** `originalDefect` is part of the schema `submit_drill` accepts, and the agent gets the same prompt rule. `list_workouts` doesn't report it.
-- **Not in v3.4:** choosing targets for suspected defects (see §11.8); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
+- **Not in v3.4:** choosing targets for suspected defects (see §11.9); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
 
-### 11.8 Later (not yet designed)
+### 11.8 v4.0: Predictions (not yet implemented)
+
+A **Prediction** trains *knowing what the system does* without reading code: the skill steering agents, triaging incidents, and checking behaviour against a spec all depend on. It is for engineering managers, architects, and developers who never open a source file, and for anyone else as a warm-up. Per [ADR 0007](./docs/adr/0007-answers-are-measured-never-asserted.md), every outcome it offers is measured by running code.
+
+**What the human sees.**
+
+```text
+Scenario: A user has 3 Workouts waiting in the queue, and the cap is 3. They commit a
+40-line change while background generation is on. What happens?
+
+  [1] The oldest waiting Workout is discarded and a new one is generated.
+  [2] The commit waits in the backlog until a slot opens; nothing is generated yet.
+  [3] The commit is skipped for good.
+  [4] A fourth Workout is generated and the cap is exceeded once.
+```
+
+One key answers; `[q]` leaves the Attempt open. No Hints, no editor, no file watching, and no test runs during the Attempt: everything was measured when the Workout was Verified. After answering, the runner shows:
+
+1. right or wrong, and which option is true;
+2. a plain-English explanation of why the system behaves that way;
+3. for a wrong answer, the misunderstanding behind the chosen option (*"You were picturing a system where a full queue evicts its oldest Workout."*);
+4. the Source Anchors as links, and `[d]` for the code difference between the true behaviour and the chosen option, for those who want it.
+
+A right answer **Completes** the Attempt; a wrong one reveals the truth and records it **Abandoned**. Either way the chosen option is saved in `attempt.json`, then the rating question follows as usual. Trying again is a new Attempt, with the options shuffled anew.
+
+**Anatomy.**
+
+- The **Scenario**: plain English with concrete values ("3 Workouts, the cap is 3"), asking what the system does.
+- The **Reference Solution**: one unit extracted from the source and made self-contained, as for a Drill (stdlib only, inline fakes). Its behaviour is the true outcome.
+- Three **Variants**, one per wrong option: the Reference Solution with one region of at most 3 lines changed, modelling a plausible misunderstanding (a boundary, an ordering, what is skipped, deferred, or kept, what is changed in place). Kintsugi builds each one from a snippet replacement `{ original, changed }`, where `original` occurs exactly once in the Reference Solution.
+- Four **options**, each with its outcome text, the name of the one test that pins it down, and for a wrong option its Variant and the misunderstanding it stands for.
+- A test file with **one test per option**, each asserting that option's outcome.
+- An explanation of the true behaviour, Source Anchors, and `originalDefect` (§11.7). No Hints.
+
+**Verified** (§6, extended):
+
+1. Against the Reference Solution, the true option's test passes and every other test fails by assertion.
+2. Against each Variant, that option's test passes and every other test fails by assertion.
+3. No test ever crashes (`error`), and the tests run against every version.
+4. Each Variant differs from the Reference Solution by one region of at most 3 changed lines, and no two Variants are identical.
+5. **No real wrong answer.** If a Variant's changed lines are found in the source file and the Reference Solution's aren't (the §11.7 source match, applied to each Variant), the "wrong" option is what the code actually does, and the extraction quietly changed it: retry feedback (*"Option 2's code is what the source does: the Reference Solution must behave like the source."*).
+
+So the gate runs the tests five times: once against the Reference Solution, once against each Variant. "Exactly one option's test passes against each version" makes the four outcomes distinct, and ties each to exactly one version of the code.
+
+**What the model writes.** `PredictionOutputSchema` shares the common fields (slug, title, pillar, minutes, Source Anchors, README, Reference Solution, tests, `originalDefect`), drops Starting Code and Hints, and adds `scenario`, `explanation`, and `options[]`: `{ text, testName, correct, variant?: { original, changed }, misunderstanding? }`. Checked afterwards as `[schema]` feedback:
+
+- exactly 4 options, exactly one `correct`, the correct one without a Variant, every other with one;
+- each `original` occurs exactly once in the Reference Solution, and each `testName` matches exactly one test;
+- **no code vocabulary:** an identifier defined in the code file (a camelCase or snake_case name of at least 4 characters) appearing in the Scenario or an option's text is retry feedback. Product vocabulary ("the queue", `kin auto`) is fine. The explanation and the misunderstandings, shown after answering, are exempt.
+
+**Prompt rules.** Choose the unit whose *behaviour* matters most to the people relying on it (business rules, policies, state transitions, what happens at limits), not the one with the most interesting logic; answer `worthPracticing: false` for algorithms or plumbing no user would notice. Write the Scenario with concrete values, and the four options as outcomes of similar length and style, so the true one doesn't stand out. Each Variant models one coherent wrong idea of the system, not a random change.
+
+**Entry points.**
+
+- `kin predict [<file>[#symbol] | <dir>] [--yes] [--no-sandbox] [--no-train]`. With a directory (the repository root when no path is given), Kintsugi picks the file itself: the most logic-dense file in that directory's shortlist (§11.3.1) that has never been Practised (§11.4). People who don't read code don't know file names; `kin predict src/sharing` reads as "ask me about sharing".
+- Agent mode: `prepare_drill` takes `kind: 'prediction'` (no new tools); `/kin-drill <target> prediction` asks for one.
+- On request only for now: `kin auto`, commit Workouts, and Tracks stay Drills until Predictions have been dogfooded. A config setting to have `kin auto` and `kin quick` favour Predictions (e.g. `"kinds": ["prediction"]`) is the expected next step.
+
+**Everywhere else** Predictions are Workouts like any other. Every Prediction is Quick (at most 5 minutes; `--quick` doesn't apply), so `kin quick` and `kin quick --while` serve them. Ids start with `prediction_`. `README.md` holds the Scenario and options for browsing and sharing; the answer lives in `workout.json` and `.solution/`, with the Variants. Finishing one counts as Practised in `kin map`, and `kin map --json` records which kinds each file was practised with, so a separate "system fluency" view can come later from real data. Cost, the spend ledger, `kin share`, and re-verification on fetch follow `workout.json`'s `kind`. Every Language Profile works unchanged.
+
+**Not in v4.0:** Predictions from commits, `kin auto`, or Tracks; the `"kinds"` setting; architecture questions answered from the import graph (a likely later kind, also measured); incident-triage and diagram Workouts; Hints for Predictions.
+
+### 11.9 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 

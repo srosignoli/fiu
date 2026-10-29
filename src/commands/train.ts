@@ -101,6 +101,12 @@ export async function train(
   const profile = config.profiles.find((p) => p.id === workout.record.language);
   if (!profile) throw new UnknownProfileError(`No Language Profile "${workout.record.language}" is configured for ${workout.record.id}.`);
 
+  // A Prediction runs nothing during its Attempt: every outcome was measured when it was Verified.
+  if (workout.record.kind === 'prediction') {
+    const { attempt, resumed } = await openAttempt(paths, workout, profile);
+    return runPrediction(new TrainingSession({ paths, workout, attempt, profile, cacheRoot }), io, { resumed, background });
+  }
+
   const sandbox = await openSandbox({ repoRoot, allowUnsandboxed: !options.sandbox });
   try {
     if (!sandbox.isolated) io.print('Running the tests WITHOUT a sandbox (--no-sandbox). Only the environment is scrubbed.');
@@ -191,6 +197,12 @@ async function runSession(
     return { status: 'left-pending', workoutId: record.id, attempt: number };
   }
   io.print(outcome === 'completed' ? 'Completed. Well mended.' : 'Abandoned.');
+  return closeAttempt(session, io, outcome);
+}
+
+/** After any finished Attempt: the source-bug notice and question, the rating, and the outcome recorded. */
+async function closeAttempt(session: TrainingSession, io: TrainIo, outcome: Outcome['outcome']): Promise<TrainResult> {
+  const { record } = session.workout;
   let defectConfirmed: boolean | undefined;
   if (record.originalDefect) {
     io.print(describeDefect(record));
@@ -199,7 +211,62 @@ async function runSession(
   }
   const rating = await io.rate();
   await session.finish(outcome, rating, defectConfirmed);
-  return { status: outcome, workoutId: record.id, attempt: number, dir: attempt.dir };
+  return { status: outcome, workoutId: record.id, attempt: session.attempt.record.number, dir: session.attempt.dir };
+}
+
+/** A Prediction's Attempt: the Scenario and the shuffled options, one answer, then the truth and why. */
+async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, background }: { resumed: boolean; background?: BackgroundCommand }): Promise<TrainResult> {
+  const { record } = session.workout;
+  const { scenario, explanation } = record.prediction!;
+  const shown = session.predictionOptions();
+  const number = session.attempt.record.number;
+  const keys = `[1]-[${shown.length}] answer   [q] quit${background ? `   [s] \`${background.command}\`` : ''}`;
+  io.print(
+    [
+      `${record.title} (${record.id}), attempt ${number}${resumed ? ', resumed' : ''}`,
+      '',
+      scenario.trim(),
+      '',
+      ...shown.map(({ option }, i) => `  [${i + 1}] ${option.text.trim()}`),
+      '',
+      keys,
+    ].join('\n'),
+  );
+
+  let ended = false;
+  void background?.done.then(async (result) => {
+    if (ended || background.reported) return;
+    const report = await reportResult(background, result);
+    if (ended || background.reported) return;
+    background.reported = true;
+    io.print(`\x07${report}`);
+  });
+
+  let picked: number | undefined;
+  while (picked === undefined) {
+    const read = new AbortController();
+    const key = await io.readKey(read.signal);
+    if (key === 'q' || key === undefined) {
+      ended = true;
+      io.print(`Attempt ${number} left open. Resume with: kin train ${record.id}`);
+      return { status: 'left-pending', workoutId: record.id, attempt: number };
+    }
+    if (key === 's' && background) io.print(await backgroundStatus(background));
+    const choice = Number(key);
+    if (Number.isInteger(choice) && choice >= 1 && choice <= shown.length) picked = shown[choice - 1]!.index;
+  }
+  ended = true;
+
+  const { outcome, chosen, truth } = await session.answer(picked);
+  const reveal = outcome === 'completed' ? [`Right: ${truth.text.trim()}`] : [`Not quite. What happens: ${truth.text.trim()}`, chosen.misunderstanding.trim()];
+  const anchors = record.sourceAnchors.map((a) => `  ${a.path}:${a.startLine}-${a.endLine}: ${a.explanation}`);
+  io.print([...reveal, '', explanation.trim(), '', 'Where this lives:', ...anchors].join('\n'));
+  if (outcome === 'abandoned') {
+    io.print('[d] the code difference behind your answer   [any other key] continue');
+    const read = new AbortController();
+    if ((await io.readKey(read.signal)) === 'd') io.print(`For your answer to be what happens, the code would change like this:\n${await session.variantDiff(chosen)}`);
+  }
+  return closeAttempt(session, io, outcome);
 }
 
 /** The notice that the Workout's bug may be in the source too. Only ever shown after an Attempt: before, it narrows the search. */

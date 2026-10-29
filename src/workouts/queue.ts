@@ -9,6 +9,8 @@ import { listWorkouts, type StoredWorkout } from './store.ts';
 /** A Workout fits a short wait: Quick by its own numbers, however it was requested. */
 export async function isQuick(workout: { record: WorkoutRecord; dir: string }): Promise<boolean> {
   if (workout.record.estimatedMinutes > QUICK.maxMinutes) return false;
+  // A Prediction shows no code, so only its minutes count.
+  if (workout.record.kind === 'prediction') return true;
   const code = await readFile(join(workout.dir, workout.record.files.code), 'utf8').catch(() => undefined);
   return code !== undefined && code.replace(/\n$/, '').split('\n').length <= QUICK.maxStartingCodeLines;
 }

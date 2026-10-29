@@ -5,7 +5,9 @@ import { execa } from 'execa';
 import type { LanguageProfile, TestRun } from '../languages/profile.ts';
 import { runTests } from '../languages/run.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
-import { diffLines } from '../verify/diff.ts';
+import { diffLines, type Hunk } from '../verify/diff.ts';
+import { buildVariant } from '../verify/gate.ts';
+import type { PredictionOption } from '../synthesis/schema.ts';
 import { isAttemptBookkeeping, listAttemptRecords, saveAttempt, type Attempt } from '../workouts/attempts.ts';
 import type { WorkoutRecord } from '../workouts/save.ts';
 import { recordOutcome, type Outcome } from '../workouts/store.ts';
@@ -32,7 +34,8 @@ export interface TrainingSessionOptions {
   /** Where the human works. A resumed Attempt keeps its runs and Hints. */
   attempt: Attempt;
   profile: LanguageProfile;
-  sandbox: Sandbox;
+  /** Absent for a Prediction: everything was measured when it was Verified, so nothing runs during its Attempt. */
+  sandbox?: Sandbox;
   cacheRoot?: string;
   now?: () => Date;
 }
@@ -68,6 +71,7 @@ export class TrainingSession {
       attempt.record.runs++;
       await saveAttempt(attempt);
     }
+    if (!sandbox) throw new Error('This session has no sandbox to run tests in.');
     const run = await runTests(sandbox, profile, attempt.dir, cacheRoot);
     return { run, verdict: await this.#verdict(run), runs: attempt.record.runs };
   }
@@ -105,9 +109,33 @@ export class TrainingSession {
     const solution = await readFile(join(workout.dir, workout.record.files.solution), 'utf8');
     const hunks = diffLines(current, solution);
     if (hunks.length === 0) return 'Your code already matches the Reference Solution.';
-    return hunks
-      .map((hunk) => [`@@ line ${hunk.line} @@`, ...hunk.removed.map((l) => `- ${l}`), ...hunk.added.map((l) => `+ ${l}`)].join('\n'))
-      .join('\n');
+    return formatHunks(hunks);
+  }
+
+  /** A Prediction's options in this Attempt's order: `[n]` on screen is `options[n - 1]` here. */
+  predictionOptions(): { index: number; option: PredictionOption }[] {
+    const { prediction } = this.#options.workout.record;
+    if (!prediction) throw new Error('This Workout is not a Prediction.');
+    const order = this.#options.attempt.record.order ?? prediction.options.map((_, i) => i);
+    return order.map((index) => ({ index, option: prediction.options[index]! }));
+  }
+
+  /** Records the one answer this Attempt gets. Right means Completed; wrong means Abandoned, and the truth is shown. */
+  async answer(index: number): Promise<{ outcome: Outcome['outcome']; chosen: PredictionOption; truth: PredictionOption }> {
+    const { options } = this.#options.workout.record.prediction!;
+    const { attempt } = this.#options;
+    attempt.record.answer = index;
+    await saveAttempt(attempt);
+    const truth = options.find((o) => o.correct)!;
+    const chosen = options[index]!;
+    return { outcome: chosen.correct ? 'completed' : 'abandoned', chosen, truth };
+  }
+
+  /** What would have to change in the code for the chosen (wrong) option to be what happens. */
+  async variantDiff(option: PredictionOption): Promise<string> {
+    const { workout } = this.#options;
+    const reference = await readFile(join(workout.dir, workout.record.files.solution), 'utf8');
+    return formatHunks(diffLines(reference, buildVariant(reference, option.variant)));
   }
 
   /** True when the drilled source file has changed since the commit the Source Anchors point into. */
@@ -147,6 +175,9 @@ export class TrainingSession {
     });
   }
 }
+
+const formatHunks = (hunks: Hunk[]) =>
+  hunks.map((hunk) => [`@@ line ${hunk.line} @@`, ...hunk.removed.map((l) => `- ${l}`), ...hunk.added.map((l) => `+ ${l}`)].join('\n')).join('\n');
 
 /** Paths in an Attempt directory whose changes don't trigger a test run. */
 export function ignoredByWatcher(profile: LanguageProfile): (path: string) => boolean {

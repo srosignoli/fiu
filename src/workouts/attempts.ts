@@ -20,6 +20,10 @@ export interface AttemptRecord {
   rating?: 'up' | 'down';
   /** The human's answer to "Is it a real bug in your code?", when the Workout reported one. */
   defectConfirmed?: boolean;
+  /** Prediction only: the order its options are shown in (indices into the Workout's options), shuffled per Attempt. */
+  order?: number[];
+  /** Prediction only: the option chosen (an index into the Workout's options). */
+  answer?: number;
 }
 
 export interface Attempt {
@@ -48,6 +52,7 @@ export async function openAttempt(
   workout: { record: WorkoutRecord; dir: string },
   profile: LanguageProfile,
   now = new Date(),
+  random: () => number = Math.random,
 ): Promise<{ attempt: Attempt; resumed: boolean }> {
   const id = workout.record.id;
   const records = await listAttemptRecords(paths, id);
@@ -56,16 +61,35 @@ export async function openAttempt(
 
   const number = (records.at(-1)?.number ?? 0) + 1;
   const dir = attemptDir(paths, id, number);
-  const files = [...Object.keys(profile.supportFiles), workout.record.files.code, workout.record.files.test];
+  // A Prediction has no code to work on: only its options, in a fresh order so a retry isn't answered by position.
+  const prediction = workout.record.prediction;
+  const files = prediction ? [] : [...Object.keys(profile.supportFiles), workout.record.files.code, workout.record.files.test];
   for (const file of files) {
     const source = join(workout.dir, file);
     if (!existsSync(source)) continue;
     await mkdir(dirname(join(dir, file)), { recursive: true });
     await copyFile(source, join(dir, file));
   }
-  const record: AttemptRecord = { workoutId: id, number, startedAt: now.toISOString(), runs: 0, hintsUsed: 0 };
+  const record: AttemptRecord = {
+    workoutId: id,
+    number,
+    startedAt: now.toISOString(),
+    runs: 0,
+    hintsUsed: 0,
+    ...(prediction ? { order: shuffled(prediction.options.length, random) } : {}),
+  };
   await saveAttempt({ record, dir });
   return { attempt: { record, dir }, resumed: false };
+}
+
+/** 0..n-1 in random order (Fisher–Yates). */
+function shuffled(n: number, random: () => number): number[] {
+  const order = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [order[i], order[j]] = [order[j]!, order[i]!];
+  }
+  return order;
 }
 
 /** Persists the Attempt's progress, so a resumed Attempt keeps its counts. */

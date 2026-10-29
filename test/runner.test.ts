@@ -17,7 +17,7 @@ import { openAttempt } from '../src/workouts/attempts.ts';
 import { discardWorkout, listWorkouts, loadWorkout, readState, restoreWorkout, type Outcome, type StoredWorkout } from '../src/workouts/store.ts';
 import { ensureWorkspace, workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, goodKata, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -28,11 +28,11 @@ const sandboxWorks = await openSandbox().then(
 );
 
 /** A repo with one committed source file and a saved Drill derived from it. */
-async function repoWithDrill(slug = 'tie-breaker', kind: 'drill' | 'kata' = 'drill', { bugInSource = false } = {}) {
+async function repoWithDrill(slug = 'tie-breaker', kind: 'drill' | 'kata' | 'prediction' = 'drill', { bugInSource = false } = {}) {
   const repo = await tempGitRepo();
-  const drill = kind === 'drill' ? goodDrill({ slug }) : goodKata({ slug });
+  const drill = kind === 'drill' ? goodDrill({ slug }) : kind === 'kata' ? goodKata({ slug }) : goodPrediction({ slug });
   // With bugInSource, the committed source already has the Drill's bug, and saving looks for it there.
-  const source = bugInSource ? drill.startingCode : TS_REFERENCE;
+  const source = bugInSource && 'startingCode' in drill ? drill.startingCode : TS_REFERENCE;
   await writeFile(join(repo, 'queue.ts'), source);
   await execa('git', ['add', '.'], { cwd: repo });
   await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], { cwd: repo });
@@ -189,6 +189,66 @@ describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.match(again.transcript, /may be real/);
     assert.equal(again.defectAsked, 0);
     assert.equal((await readJson(join(attempt(2), 'attempt.json'))).defectConfirmed, undefined);
+  });
+
+  describe('a Prediction', () => {
+    /** The key that picks the option with this text, in this Attempt's shuffled order. */
+    const keyFor = (io: ScriptedIo, text: string) => io.printed[0]!.match(new RegExp(`\\[(\\d)\\] ${text.replace(/[."]/g, '\\$&')}`))![1]!;
+
+    it('completes on the right answer, with no tests run and no code to edit', async () => {
+      const { repo, paths, record, attempt } = await repoWithDrill('tied-priorities', 'prediction');
+      // Every Prediction is Quick, whatever the length of the code behind it.
+      assert.equal((await nextQuickWorkout(paths))?.record.id, record.id);
+      const io = new ScriptedIo();
+      const training = startTraining(repo, record.id, io);
+      await io.waitFor(/\[1\]-\[4\] answer/);
+      assert.match(io.printed[0]!, /attempt 1\n\nThree jobs are waiting\./);
+      assert.doesNotMatch(io.transcript, /Initial run|Incident report/);
+      io.press(keyFor(io, 'The "early" job runs next.'));
+
+      const result = await training;
+      assert.equal(result.status, 'completed', io.transcript);
+      assert.match(io.transcript, /Right: The "early" job runs next\.\n\nThe highest priority wins.*\n\nWhere this lives:\n {2}queue\.ts:3-9: The scheduler picks/);
+      const saved = await readJson(join(attempt(), 'attempt.json'));
+      assert.equal(saved.answer, 0);
+      assert.deepEqual([...saved.order].sort(), [0, 1, 2, 3]);
+      assert.equal(existsSync(join(attempt(), 'kata.ts')), false);
+      assert.equal((await readJson(paths.stateFile)).outcomes[0].outcome, 'completed');
+    });
+
+    it('abandons on a wrong answer, explaining the misunderstanding and the code behind it', async () => {
+      const { repo, record, attempt } = await repoWithDrill('tied-priorities', 'prediction');
+      const io = new ScriptedIo();
+      const training = startTraining(repo, record.id, io);
+      await io.waitFor(/\[1\]-\[4\] answer/);
+      io.press(keyFor(io, 'The "late" job runs next.'));
+      await io.waitFor(/^\[d\] the code difference/);
+      io.press('d');
+
+      assert.equal((await training).status, 'abandoned', io.transcript);
+      assert.match(io.transcript, /Not quite\. What happens: The "early" job runs next\.\nYou were picturing a system where the newest job wins a tie\./);
+      assert.match(io.transcript, /the code would change like this:\n@@ line 6 @@\n- .*job\.at < best\.at.*\n\+ .*job\.at > best\.at/);
+      assert.equal((await readJson(join(attempt(), 'attempt.json'))).answer, 1);
+    });
+
+    it('leaves the Attempt open on [q], keeping its order for the resume', async () => {
+      const { repo, record, attempt } = await repoWithDrill('tied-priorities', 'prediction');
+      const io = new ScriptedIo();
+      const training = startTraining(repo, record.id, io);
+      await io.waitFor(/\[1\]-\[4\] answer/);
+      io.press('9');
+      io.press('q');
+      assert.equal((await training).status, 'left-pending');
+      const { order } = await readJson(join(attempt(), 'attempt.json'));
+
+      const again = new ScriptedIo();
+      const resumed = startTraining(repo, record.id, again);
+      await again.waitFor(/\[1\]-\[4\] answer/);
+      assert.match(again.printed[0]!, /attempt 1, resumed/);
+      assert.deepEqual((await readJson(join(attempt(), 'attempt.json'))).order, order);
+      again.press('q');
+      await resumed;
+    });
   });
 
   it('heads a Kata with its brief and the file to fill in', async () => {

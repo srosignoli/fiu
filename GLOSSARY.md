@@ -47,6 +47,10 @@ The complete, correct implementation that the Workout's tests are proven against
 The plain-English situation a Prediction asks about, with concrete values and no code vocabulary.
 _Avoid_: Question, prompt, story
 
+**Previous Version**:
+For a Prediction from a commit: the same unit extracted from the file as it was before the commit. What it does is the old-behaviour option's outcome; its changed lines must be found in the old file.
+_Avoid_: Old code, before-version, baseline
+
 **Variant**:
 For one wrong option of a Prediction: the Reference Solution with a single small region changed to model a plausible misunderstanding. What it does is that option's outcome.
 _Avoid_: Mutant, distractor, decoy
@@ -71,7 +75,7 @@ _Avoid_: Provider, mode, backend
 The test in a Drill that specifically exposes the injected bug.
 
 **Verified**:
-A Workout is Verified when its Reference Solution passes every test; its Starting Code runs but fails at least one test by assertion while passing at least one other (for a Drill, the failures include the Regression Test); and its Starting Code differs from the Reference Solution by a single small region (the injected bug, or the gap). A Prediction is Verified when, against the Reference Solution, only the true option's test passes; against each Variant, only that option's test passes; every other test fails by assertion; and each Variant differs from the Reference Solution by a single small region.
+A Workout is Verified when its Reference Solution passes every test; its Starting Code runs but fails at least one test by assertion while passing at least one other (for a Drill, the failures include the Regression Test); and its Starting Code differs from the Reference Solution by a single small region (the injected bug, or the gap). A Prediction is Verified when, against the Reference Solution, only the true option's test passes; against each Variant, only that option's test passes; every other test fails by assertion; and each Variant differs from the Reference Solution by a single small region. A Prediction from a commit must also pass against its Previous Version in the same way, and that version's changed lines must be found in the file before the commit.
 _Avoid_: Valid, checked
 
 ### Languages

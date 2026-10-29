@@ -437,7 +437,7 @@ Kintsugi now **notices such a bug and reports it after the Attempt**. It doesn't
 - **Prompt rule** (Drills and Katas): *"Keep the Reference Solution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect."* A Drill may still use that defect as its bug, as the dogfooded one did. A Kata whose removed region fixes the original gets only the model report, since its Starting Code is a placeholder.
 - **No comments in the bug** (Drills, enforced from now on; the prompt already forbade them). Comparing the two sides of the changed region by their trailing comments (via `lineComment`), a comment on a buggy line that the fixed side doesn't have is `[schema]` retry feedback: *"The bug region carries a comment that points at the bug; remove it."*
 - **Agent mode:** `originalDefect` is part of the schema `submit_drill` accepts, and the agent gets the same prompt rule. `list_workouts` doesn't report it.
-- **Not in v3.4:** choosing targets for suspected defects (see §11.9); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
+- **Not in v3.4:** choosing targets for suspected defects (see §11.10); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
 
 ### 11.8 v4.0: Predictions (implemented)
 
@@ -503,9 +503,51 @@ So the gate runs the tests four times: once against the Reference Solution, once
 
 **Not in v4.0:** Predictions from commits, `kin auto`, or Tracks; the `"kinds"` setting; architecture questions answered from the import graph (a likely later kind, also measured); incident-triage and diagram Workouts; Hints for Predictions.
 
-### 11.9 Later (not yet designed)
+### 11.9 v4.1: Predictions from commits (not yet implemented)
+
+When an agent changes how the system behaves, the people relying on it keep the old picture until something surprises them. A **Prediction from a commit** asks what the code does *now*, in a situation the commit changed, and offers the old behaviour as one of the wrong answers. That wrong answer isn't invented: it is what the code did before the commit, measured by running it, and anchored to the file as it was. It follows [ADR 0007](./docs/adr/0007-answers-are-measured-never-asserted.md) and reuses commit selection (§11.2.4), the Prediction gate (§11.8), and the v3.4 source match (§11.7).
+
+**The `kinds` setting.** Whether someone reads code is a fact about the person, not the repository, so the setting is personal: `"kinds": ["prediction"]` in the user-level config (`~/.config/kintsugi/`), which a repository's `.kintsugi/config.json` can override. The default is `["drill"]`, so nothing changes for existing users. The list is a preference with fallbacks, never a filter:
+
+- **Commit generation** (`kin refill`, from the hook or by hand) makes the first kind listed, and falls back to the next one when a commit doesn't fit (below).
+- **`kin quick`** serves queued Quick Workouts of the first kind listed first, then the rest in the existing order (from AI-written code first, then newest). With `["prediction"]`, Drills are still served when no Prediction is ready.
+
+**What changes from a Prediction (§11.8).**
+
+- The Scenario is one where the commit changed the outcome, asking what happens *now*.
+- The four options are the true one (the Reference Solution, the unit as of the commit), **the old behaviour**, and two ordinary Variants.
+- The old behaviour comes from **`previous`**: the same unit extracted from the file as it was before the commit, as a complete file. A commit can change up to 300 lines, so `previous` is exempt from the Variant's 3-line rule. In the output, its option is marked `previous: true` and has no snippet Variant; it is saved as `.solution/previous.<ext>`.
+- The model receives the file before and after the commit, plus the diff (today it receives only the file as of the commit). The 3,000-line limit applies to each version. The background-generation consent says "the changed file, before and after the commit".
+- The Scenario, the options, and the README never mention the commit or that anything changed: "after the latest change, …" would turn the question into "spot the new behaviour". The footer every README has ("Derived from commit …") stays.
+
+**Verified, in addition to §11.8:**
+
+1. **Measured:** against `previous`, only the old-behaviour option's test passes and every other test fails by assertion, exactly as for a Variant. So the gate runs the tests five times: the Reference Solution, `previous`, and two Variants.
+2. **Anchored:** the lines where `previous` differs from the Reference Solution must be found in the file before the commit, and the Reference Solution's side of those lines in the file after it (the §11.7 source match, run against both versions; Kintsugi reads the old one with `git show <sha>^:<path>`). This is the only mechanical evidence that the old-behaviour option really is the old behaviour rather than a fourth invented Variant, so a failure is retry feedback.
+3. **Distinct:** `previous` differs from the Reference Solution and from every Variant.
+
+**When a commit doesn't fit.** A commit that changed no behaviour (a refactor, a rename, a restructuring) has no Scenario with a different outcome: the model answers `worthPracticing: false`, and Kintsugi falls back to the next kind in `kinds` (with `["prediction", "drill"]`, a Drill from the same commit). A file the commit added has no "before" and falls back the same way. The fallback is a second model call, counted against the daily limit. With no fallback kind, the commit is skipped and remembered (`refill.processed`), so nobody pays for it twice.
+
+**After answering**, on top of §11.8's reveal, a line written by Kintsugi rather than the model:
+
+```text
+What changed: commit 1a2b3c4d5e6f ("Defer commits when the queue is full"), co-written by an AI assistant.
+Before it: The oldest waiting Workout was discarded and a new one generated.
+```
+
+Picking the old behaviour gets *"That was true until commit 1a2b3c4d5e6f."* in place of a misunderstanding. The model writes the old option's outcome text (checked for code names like every option) but not its misunderstanding: why it is wrong is known for a fact. After a wrong answer, `[d]` on the old option shows what the commit changed (`previous` against the Reference Solution).
+
+**Entry points.** `kin refill` (hook or by hand) follows `kinds`; **`kin predict --commit <sha>`** asks for one explicitly, with `kin drill`'s rules for consent and the caps (it ignores them, like `kin refill` by hand). Agent mode doesn't make them yet.
+
+**Everything else is unchanged:** at most one queued Workout from commits per source file; the queue cap and the daily limit (retries and the fallback included); `--ai-only`, the backlog, and commit selection; expiry when the file changes substantially or after 14 days, which matters more here, since "what it does now" stops being true when the file changes again. A fetched commit Prediction re-verifies all four versions but skips the anchoring check: the sharer's before and after files aren't there (as for §11.8's real-Variant check). Commit Predictions aren't Track steps.
+
+**Not in v4.1:** end-of-task Predictions in agent mode (usually about uncommitted changes: what "before" means with a dirty working tree needs its own design); a Prediction spanning several files of one commit.
+
+### 11.10 Later (not yet designed)
 
 Each item needs its own design round before implementation.
+
+- **End-of-task Predictions in agent mode:** what the agent just changed, before it's committed (§11.9).
 
 - **Aiming at real bugs:** preferring units with suspected defects when choosing what to drill, if `defectConfirmed` (§11.7) shows the reports are mostly right.
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.

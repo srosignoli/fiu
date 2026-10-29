@@ -10,7 +10,7 @@ import { openAttempt, saveAttempt } from '../src/workouts/attempts.ts';
 import { saveDrill, sourceRevision } from '../src/workouts/save.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill } from './mock-model.ts';
+import { goodDrill, goodPrediction } from './mock-model.ts';
 
 /** A source file of 20 lines with `branches` branching lines: its logic density is under our control. */
 const source = (name: string, branches: number) =>
@@ -53,12 +53,14 @@ async function repo() {
   return { dir, paths };
 }
 
-async function practise(dir: string, path: string, outcome: 'completed' | 'abandoned' = 'completed') {
+async function practise(dir: string, path: string, outcome: 'completed' | 'abandoned' = 'completed', kind: 'drill' | 'prediction' = 'drill') {
   const paths = workspacePaths(dir);
+  const slug = path.replace(/\W/g, '-');
   const record = await saveDrill({
     paths,
     profile: TYPESCRIPT,
-    drill: goodDrill({ slug: path.replace(/\W/g, '-') }),
+    drill: kind === 'drill' ? goodDrill({ slug }) : goodPrediction({ slug }),
+    kind,
     sourcePath: path,
     revision: await sourceRevision(dir, path),
     generationAttempts: 1,
@@ -73,6 +75,14 @@ const fileIn = (report: MapReport, path: string): FileEntry | undefined => repor
 const options = async () => ({ configEnv: { env: {}, home: await tempDir() } });
 
 describe('kin map', () => {
+  it('records which kinds of Workout each file was practised with', async () => {
+    const { dir } = await repo();
+    await practise(dir, 'core/practised.ts');
+    await practise(dir, 'core/practised.ts', 'abandoned', 'prediction');
+    const file = fileIn(await buildMap(dir, '', await options()), 'core/practised.ts')!;
+    assert.deepEqual([file.state, file.practisedWith], ['green', ['drill', 'prediction']]);
+  });
+
   it('colours files by practice, staleness, recent AI changes, and logic', async () => {
     const { dir } = await repo();
     await practise(dir, 'core/practised.ts');

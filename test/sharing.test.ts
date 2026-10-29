@@ -14,7 +14,7 @@ import { saveDrill, sourceRevision, type WorkoutRecord } from '../src/workouts/s
 import { listWorkouts } from '../src/workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, workspacePaths } from '../src/workspace.ts';
 import { tempDir } from './helpers.ts';
-import { goodDrill, goodKata, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -106,6 +106,34 @@ describe(`team sharing (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     const fetched = await fetchFor(bob);
     assert.deepEqual(fetched.imported, [{ id: kata.id, as: kata.id }], JSON.stringify(fetched));
     assert.equal((await listWorkouts(workspacePaths(bob)))[0]!.record.kind, 'kata');
+  });
+
+  it('re-verifies a shared Prediction against all its Variants, and turns away a tampered answer', async () => {
+    const { alice, bob } = await team();
+    const prediction = await saveDrill({
+      paths: workspacePaths(alice),
+      profile: TYPESCRIPT,
+      drill: goodPrediction(),
+      kind: 'prediction',
+      sourcePath: 'queue.ts',
+      revision: await sourceRevision(alice, 'queue.ts'),
+      generationAttempts: 1,
+    });
+    await share(alice, [prediction.id]);
+    const fetched = await fetchFor(bob);
+    assert.deepEqual(fetched.imported, [{ id: prediction.id, as: prediction.id }], JSON.stringify(fetched));
+    assert.equal((await listWorkouts(workspacePaths(bob)))[0]!.record.kind, 'prediction');
+
+    // Marking a wrong option as the answer can't survive re-verification.
+    const file = join(workspacePaths(alice).workoutsDir, prediction.id, 'workout.json');
+    const record = JSON.parse(await readFile(file, 'utf8'));
+    record.prediction.options[0].correct = false;
+    record.prediction.options[1].correct = true;
+    record.slug = 'tampered';
+    await writeFile(file, JSON.stringify(record));
+    await share(alice, [prediction.id]);
+    const again = await fetchFor(bob);
+    assert.match(JSON.stringify(again.rejected), /only option 2's test may pass/);
   });
 
   it('combines both sets when a teammate pushed first', async () => {

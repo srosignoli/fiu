@@ -14,7 +14,7 @@ import { saveTrack, trackId, type TrackStep } from '../explore/tracks.ts';
 import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox, type Sandbox } from '../sandbox/sandbox.ts';
 import { drillUserPrompt, MAX_SOURCE_LINES, systemPromptFor } from '../synthesis/prompt.ts';
-import { checkWorkoutOutput, outputSchemaFor, type AnyWorkoutOutput, type WorkoutKind } from '../synthesis/schema.ts';
+import { checkWorkoutOutput, NOUN, outputSchemaFor, type AnyWorkoutOutput, type WorkoutKind } from '../synthesis/schema.ts';
 import { MAX_ATTEMPTS, SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { describeFailures, verify } from '../verify/gate.ts';
 import { saveDrill, sourceRevision, type Origin } from '../workouts/save.ts';
@@ -179,7 +179,7 @@ export class AgentDrills {
     const sourcePath = repoRelative(repoRoot, file);
     let pendingTrack: PendingTrack | undefined;
     if (forTrack) {
-      if (kind !== 'drill') throw new AgentRequestError('Track steps are Drills: leave out `kind`, or prepare the Kata on its own.');
+      if (kind !== 'drill') throw new AgentRequestError(`Track steps are Drills: leave out \`kind\`, or prepare the ${NOUN[kind]} on its own.`);
       pendingTrack = this.#tracks.get(forTrack);
       if (!pendingTrack) throw new AgentRequestError(`Unknown track id "${forTrack}". Call prepare_track to start a Track.`);
       if (!why?.trim()) throw new AgentRequestError('A Track step needs `why`: one line on why this file matters for the module.');
@@ -203,6 +203,8 @@ export class AgentDrills {
     // Check the sandbox and toolchain (and warm its cache) before the agent spends effort on a Drill.
     await preflight(await this.#openSandbox(), profile, this.#options.cacheRoot);
 
+    // Every Prediction is Quick by its own rules; the flag only shapes Drills and Katas.
+    if (kind === 'prediction') quick = false;
     const generationId = randomUUID();
     this.#generations.set(generationId, {
       paths,
@@ -269,7 +271,7 @@ export class AgentDrills {
     const reject = async (feedback: string): Promise<Submitted> => {
       if (finished) {
         this.#generations.delete(generationId);
-        dropFromTrack('no Verified Drill');
+        dropFromTrack(`no Verified ${NOUN[generation.kind]}`);
         await record('not-verified');
       }
       return { status: 'rejected', feedback, submissionsLeft: MAX_ATTEMPTS - generation.submissions };

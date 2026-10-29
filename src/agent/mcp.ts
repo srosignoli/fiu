@@ -39,12 +39,15 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'prepare_drill',
     {
-      title: 'Prepare a Kintsugi Drill or Kata',
+      title: 'Prepare a Kintsugi Drill, Kata, or Prediction',
       description: PREPARE_DESCRIPTION,
       inputSchema: {
         target: z.string().describe('A source file in this repository, relative to its root, optionally followed by #symbol.'),
-        kind: z.enum(['drill', 'kata']).optional().describe('"drill" (find the bug, the default) or "kata" (rebuild a removed piece from a brief).'),
-        quick: z.boolean().optional().describe('A Quick Drill or Kata: small enough for a short wait.'),
+        kind: z
+          .enum(['drill', 'kata', 'prediction'])
+          .optional()
+          .describe('"drill" (find the bug, the default), "kata" (rebuild a removed piece from a brief), or "prediction" (predict what the code does in a plain-English Scenario, for people who don\'t read code).'),
+        quick: z.boolean().optional().describe('A Quick Drill or Kata: small enough for a short wait. Every Prediction is Quick.'),
         afterTask: z.boolean().optional().describe('True only when generating at the end of your own coding task.'),
         trackId: z.string().optional().describe('Makes this Drill the next step of a Track started with prepare_track.'),
         why: z.string().optional().describe('For a Track step: one line on why this file matters for the module.'),
@@ -61,7 +64,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'submit_drill',
     {
-      title: 'Submit a Kintsugi Drill or Kata',
+      title: 'Submit a Kintsugi Drill, Kata, or Prediction',
       description: SUBMIT_DESCRIPTION,
       inputSchema: { generationId: z.string(), workout: AnyWorkoutOutputSchema },
     },

@@ -6,6 +6,7 @@ import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '.
 import { logicScore } from '../explore/shortlist.ts';
 import { isDrillableSourcePath } from '../languages/paths.ts';
 import { profileForFile, UnsupportedLanguageError } from '../languages/registry.ts';
+import type { WorkoutKind } from '../synthesis/schema.ts';
 import { listAttemptRecords } from '../workouts/attempts.ts';
 import { listWorkouts, readState } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
@@ -29,6 +30,8 @@ export interface FileEntry {
   state: FileState;
   /** The latest finished Attempt's outcome on a Workout from this file. */
   practice?: 'completed' | 'abandoned';
+  /** Which kinds of Workout the file was practised with: code fluency (Drills, Katas) or system fluency (Predictions). */
+  practisedWith?: WorkoutKind[];
   /** Lines changed since the practised Workout's commit, when Stale. */
   staleBy?: number;
   aiChangedRecently: boolean;
@@ -118,7 +121,7 @@ export async function buildMap(cwd: string, scopePath = '', { configEnv = { env:
     files.push({
       path,
       state,
-      ...(practised ? { practice: practised.outcome } : {}),
+      ...(practised ? { practice: practised.outcome, practisedWith: [...practised.kinds].sort() } : {}),
       ...(isStale ? { staleBy } : {}),
       aiChangedRecently: ai,
       ...(score !== undefined ? { score } : {}),
@@ -140,22 +143,23 @@ function normaliseScope(repo: string, cwd: string, scopePath: string): string {
 /** For each source file, the latest finished Attempt on a Workout made from it, and that Workout's commit. */
 /** For each source file, the latest finished Attempt at any Workout made from it. */
 export async function practiceByFile(paths: ReturnType<typeof workspacePaths>) {
-  const practice = new Map<string, { outcome: 'completed' | 'abandoned'; at: string; commit?: string }>();
-  const consider = (path: string, outcome: 'completed' | 'abandoned', at: string, commit?: string) => {
+  const practice = new Map<string, { outcome: 'completed' | 'abandoned'; at: string; commit?: string; kinds: Set<WorkoutKind> }>();
+  const consider = (path: string, kind: WorkoutKind, outcome: 'completed' | 'abandoned', at: string, commit?: string) => {
     const current = practice.get(path);
-    if (!current || at > current.at) practice.set(path, { outcome, at, commit });
+    const kinds = new Set([...(current?.kinds ?? []), kind]);
+    practice.set(path, !current || at > current.at ? { outcome, at, commit, kinds } : { ...current, kinds });
   };
   const workouts = await listWorkouts(paths);
   const byId = new Map(workouts.map((w) => [w.record.id, w.record]));
   for (const { record } of workouts) {
     for (const attempt of await listAttemptRecords(paths, record.id)) {
-      if (attempt.outcome && attempt.finishedAt) consider(record.source.path, attempt.outcome, attempt.finishedAt, record.source.commit);
+      if (attempt.outcome && attempt.finishedAt) consider(record.source.path, record.kind ?? 'drill', attempt.outcome, attempt.finishedAt, record.source.commit);
     }
   }
   // Outcomes recorded by v1, before Attempts existed.
   for (const outcome of (await readState(paths)).outcomes) {
     const record = byId.get(outcome.workoutId);
-    if (record && outcome.attempt === undefined) consider(record.source.path, outcome.outcome, outcome.at, record.source.commit);
+    if (record && outcome.attempt === undefined) consider(record.source.path, record.kind ?? 'drill', outcome.outcome, outcome.at, record.source.commit);
   }
   return practice;
 }

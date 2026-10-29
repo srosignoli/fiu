@@ -3,10 +3,10 @@
  * server instructions (every MCP client receives them); the skill carries only the workflow.
  */
 
-export const SERVER_INSTRUCTIONS = `Kintsugi turns code in this repository into Drills (small debugging exercises) and Katas (one piece of the code removed, for the user to rebuild from a brief), which the user solves by hand. Each one is Verified (its tests are run in a sandbox) before it is saved.
+export const SERVER_INSTRUCTIONS = `Kintsugi turns code in this repository into Drills (small debugging exercises), Katas (one piece of the code removed, for the user to rebuild from a brief), and Predictions (a plain-English Scenario about what the code does, with four outcomes to choose from, for people who don't read code), which the user solves by hand. Each one is Verified (its tests are run in a sandbox) before it is saved.
 
 To create a Drill:
-1. Call prepare_drill with a file path, optionally \`path#symbol\` to pin a function or class. Pass quick: true for a Drill that fits a short wait. A Kata is created the same way, with kind: "kata".
+1. Call prepare_drill with a file path, optionally \`path#symbol\` to pin a function or class. Pass quick: true for a Drill that fits a short wait. A Kata is created the same way, with kind: "kata", and a Prediction with kind: "prediction".
 2. Write the Drill by following the returned instructions against the numbered source.
 3. Call submit_drill with the generationId and the Drill. Kintsugi runs the tests itself.
 4. If the result is "rejected", fix every problem in the feedback and submit again. The Drill is done when the result is "saved" or "not-worth-practicing"; when no submissions are left, tell the user it could not be Verified.
@@ -19,10 +19,10 @@ To build a Track (3 to 5 Drills that teach a newcomer one module, foundations fi
 Workouts under .kintsugi/ are the user's practice material: leave their files for the user to solve. When the user asks for help with one, give a hint or a guiding question and let them find the fix or write the missing code.`;
 
 export const PREPARE_DESCRIPTION =
-  'Start a Drill (or, with kind "kata", a Kata) from a source file in this repository. Returns a generationId, the rules for writing it, the numbered source, and the schema submit_drill expects.';
+  'Start a Drill (or, with kind "kata", a Kata; with kind "prediction", a Prediction) from a source file in this repository. Returns a generationId, the rules for writing it, the numbered source, and the schema submit_drill expects.';
 
 export const SUBMIT_DESCRIPTION =
-  'Submit the Drill or Kata written for a generationId. Kintsugi checks it and runs its tests in a sandbox: "saved" returns the Workout id; "rejected" returns feedback to fix before resubmitting; "not-worth-practicing" ends the generation.';
+  'Submit the Drill, Kata, or Prediction written for a generationId. Kintsugi checks it and runs its tests in a sandbox: "saved" returns the Workout id; "rejected" returns feedback to fix before resubmitting; "not-worth-practicing" ends the generation.';
 
 export const PREPARE_TRACK_DESCRIPTION =
   'Start a Track for a module directory: returns a trackId, the candidate files with their outlines, and the rules for choosing and ordering 3 to 5 steps.';
@@ -39,18 +39,18 @@ export const STAMP_PATTERN = /<!-- kintsugi-version: ([^ ]+) -->/;
 export function skillMarkdown(version: string): string {
   return `---
 name: kintsugi
-description: Creates Kintsugi Drills, Katas, and Tracks, practice exercises built from this repository's code, with the kintsugi MCP tools. Use when the user asks for a drill, kata, workout, or practice exercise on some code, wants to learn, explore, or onboard onto a module, or an end-of-task rule asks for a Drill.
+description: Creates Kintsugi Drills, Katas, Predictions, and Tracks, practice exercises built from this repository's code, with the kintsugi MCP tools. Use when the user asks for a drill, kata, prediction, workout, or practice exercise on some code, wants to learn, explore, or onboard onto a module, or an end-of-task rule asks for a Drill.
 ---
 
 ${stamp(version)}
 
 # Creating a Kintsugi Drill
 
-1. **Choose the target.** Use the file or symbol the user named. Otherwise pick the unit with the richest logic among the code you have been reading: algorithms, state transitions, concurrency, tricky boundaries. Glue code, configuration, and CRUD make poor Drills. Use quick: true when the user wants a short one, and for end-of-task Drills. Use kind: "kata" when the user asks for a Kata: rebuilding a missing piece rather than finding a bug.
+1. **Choose the target.** Use the file or symbol the user named. Otherwise pick the unit with the richest logic among the code you have been reading: algorithms, state transitions, concurrency, tricky boundaries. Glue code, configuration, and CRUD make poor Drills. Use quick: true when the user wants a short one, and for end-of-task Drills. Use kind: "kata" when the user asks for a Kata: rebuilding a missing piece rather than finding a bug. Use kind: "prediction" when the user asks for a Prediction, or wants to know what the system does without reading code; pick the unit whose behaviour users rely on (rules, limits, ordering) rather than the one with the richest logic.
 
-2. **Delegate the generation.** Hand it to a subagent so this conversation stays focused on the user's work. Give it the target, whether it is quick, whether it is an end-of-task Drill (afterTask: true), its kind, and this brief: "Create a Kintsugi Drill (or Kata) with the kintsugi MCP tools prepare_drill and submit_drill, following their instructions, until the result is saved, not worth practicing, or out of submissions. Reply with only the outcome: the Workout id and title, or the reason." Without subagents, do the same steps here.
+2. **Delegate the generation.** Hand it to a subagent so this conversation stays focused on the user's work. Give it the target, whether it is quick, whether it is an end-of-task Drill (afterTask: true), its kind, and this brief: "Create a Kintsugi Drill (or Kata, or Prediction) with the kintsugi MCP tools prepare_drill and submit_drill, following their instructions, until the result is saved, not worth practicing, or out of submissions. Reply with only the outcome: the Workout id and title, or the reason." Without subagents, do the same steps here.
 
-3. **Report the outcome.** For a saved Drill, give its title and tell the user to start it with \`kin train <workout-id>\`. The bug is the user's to find, so the report names only the symptom the Drill's title describes; for a Kata, the missing code is the user's to write, so the report names only its title. For any other outcome, give the reason and offer a different target.
+3. **Report the outcome.** For a saved Drill, give its title and tell the user to start it with \`kin train <workout-id>\`. The bug is the user's to find, so the report names only the symptom the Drill's title describes; for a Kata, the missing code is the user's to write, and for a Prediction the answer is the user's to predict, so the report names only its title. For any other outcome, give the reason and offer a different target.
 
 # Building a Kintsugi Track
 
@@ -64,14 +64,14 @@ When the user wants to learn a module rather than practise one file, build a Tra
 
 4. **Report the outcome.** For a saved Track, give its title and steps, and tell the user to start it with \`kin track <track-id>\`. For "not-enough", say how many steps were Verified and that those Drills can still be trained with \`kin train\`.
 
-When the user asks for help with a Drill or Kata they are solving, coach: one hint or guiding question at a time, so they find the fix or write the code themselves.
+When the user asks for help with a Drill or Kata they are solving (a Prediction gets one answer, so don't help with it before they answer), coach: one hint or guiding question at a time, so they find the fix or write the code themselves.
 `;
 }
 
 export function commandMarkdown(version: string): string {
   return `---
-description: Create a Kintsugi Drill (or Kata) from a file or symbol
-argument-hint: "[path[#symbol]] [quick] [kata]"
+description: Create a Kintsugi Drill (or Kata, or Prediction) from a file or symbol
+argument-hint: "[path[#symbol]] [quick] [kata|prediction]"
 ---
 
 ${stamp(version)}

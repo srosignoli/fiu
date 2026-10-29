@@ -15,7 +15,7 @@ import type { AnyWorkoutOutput } from '../src/synthesis/schema.ts';
 import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, goodKata, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -177,6 +177,24 @@ describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     assert.equal(saved.status, 'saved', JSON.stringify(saved));
     assert.match(saved.workoutId, /^kata_\d{8}_pick-next$/);
     assert.equal((await readJson(join(saved.workoutDir, 'workout.json'))).kind, 'kata');
+  });
+
+  it('verifies and saves a Prediction when asked for one', async () => {
+    const { call } = await connect(await repoWithSources('queue.ts'));
+    const { json: prepared } = await call('prepare_drill', { target: 'src/queue.ts', kind: 'prediction', quick: true });
+    assert.equal(prepared.kind, 'prediction');
+    assert.equal(prepared.quick, false, 'Predictions are Quick by their own rules');
+    assert.match(prepared.instructions, /You create Predictions/);
+    assert.ok(prepared.workoutSchema.properties.options, 'the schema asks for options');
+    assert.equal(prepared.workoutSchema.properties.startingCode, undefined);
+
+    const leaky = goodPrediction({ scenario: 'What does pickNext return for three jobs?' });
+    const { json: rejected } = await call('submit_drill', { generationId: prepared.generationId, workout: leaky });
+    assert.match(rejected.feedback, /\[schema\] the scenario uses names from the code \(pickNext\)/);
+    const { json: saved } = await call('submit_drill', { generationId: prepared.generationId, workout: goodPrediction() });
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    assert.match(saved.workoutId, /^prediction_\d{8}_tied-priorities$/);
+    assert.equal((await readJson(join(saved.workoutDir, 'workout.json'))).prediction.options.length, 4);
   });
 
   it('ends a generation the agent judges not worth practicing', async () => {

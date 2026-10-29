@@ -502,6 +502,25 @@ describe(`kin quick (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.equal((await nextQuickWorkout(paths))?.record.id, record.id, 'attempted Workouts leave the queue');
   });
 
+  it('serves the preferred kinds first, falling back to the others rather than to nothing', async () => {
+    const { paths, record: drill } = await repoWithDrill('a-drill');
+    const prediction = await saveDrill({
+      paths,
+      profile: TYPESCRIPT,
+      drill: goodPrediction(),
+      kind: 'prediction',
+      sourcePath: 'queue.ts',
+      revision: { dirty: false },
+      generationAttempts: 1,
+      now: new Date(Date.now() - 60_000),
+    });
+    // The Drill is newer, so it wins by default; preferring Predictions puts the older one first.
+    assert.equal((await nextQuickWorkout(paths))?.record.id, drill.id);
+    assert.equal((await nextQuickWorkout(paths, ['prediction']))?.record.id, prediction.id);
+    await openAttempt(paths, await loadWorkout(paths, prediction.id), TYPESCRIPT);
+    assert.equal((await nextQuickWorkout(paths, ['prediction']))?.record.id, drill.id, 'a preference, not a filter');
+  });
+
   it('skips Workouts whose source file is gone', async () => {
     const { repo, paths } = await repoWithDrill();
     await rm(join(repo, 'queue.ts'));

@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { AUTO_DEFAULTS, loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
+import { AUTO_DEFAULTS, loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv, type RepoConfig } from '../config.ts';
 import { expireStaleWorkouts } from '../background/refill.ts';
 import { describeCost } from '../cost/usage.ts';
 import { BackgroundCommand, describeDuration, reportResult, type CommandResult } from '../runner/background.ts';
@@ -65,9 +65,14 @@ export async function quick(
   // A stale commit Workout shouldn't be served; expiring it also frees its queue slot.
   const repoConfig = await loadRepoConfig(paths.configFile);
   await expireStaleWorkouts(paths, { ...AUTO_DEFAULTS, ...repoConfig.auto }.expiryDays, new Date());
-  const next = await nextQuickWorkout(paths);
+  const next = await nextQuickWorkout(paths, await preferredKinds(repoConfig, dependencies.configEnv));
   if (!next) return { status: 'nothing-ready' };
   return train(cwd, next.record.id, options, io, dependencies);
+}
+
+/** The kinds `kin quick` serves first: the repository's `kinds`, else yours. */
+async function preferredKinds(repoConfig: RepoConfig, configEnv: ConfigEnv = { env: process.env, home: homedir() }) {
+  return resolveConfig(repoConfig, await loadUserConfig(configEnv)).kinds;
 }
 
 export const KEYS_HELP = '[h] hint   [g] give up   [q] quit';
@@ -332,7 +337,8 @@ export async function quickWhile(
   const paths = workspacePaths(await findRepoRoot(cwd));
   const repoConfig = await loadRepoConfig(paths.configFile);
   await expireStaleWorkouts(paths, { ...AUTO_DEFAULTS, ...repoConfig.auto }.expiryDays, new Date());
-  let next = await nextQuickWorkout(paths);
+  const kinds = await preferredKinds(repoConfig, dependencies.configEnv);
+  let next = await nextQuickWorkout(paths, kinds);
   if (!next) return { status: 'nothing-ready' };
 
   const background = await BackgroundCommand.start(command, { cwd, logFile: join(paths.root, 'while', 'last.log'), shell: dependencies.shell });
@@ -341,7 +347,7 @@ export async function quickWhile(
     for (;;) {
       await train(cwd, next.record.id, options, io, { ...dependencies, background });
       if (background.result) break;
-      next = await nextQuickWorkout(paths);
+      next = await nextQuickWorkout(paths, kinds);
       if (!next) break;
       io.print(`Another Quick Workout while \`${command}\` runs? [y] yes   [any other key] wait for it`);
       const answer = new AbortController();

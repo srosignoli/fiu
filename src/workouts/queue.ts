@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { QUICK } from '../synthesis/schema.ts';
+import { QUICK, type WorkoutKind } from '../synthesis/schema.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 import type { WorkoutRecord } from './save.ts';
 import { listWorkouts, type StoredWorkout } from './store.ts';
@@ -20,9 +20,10 @@ const fromAiCode = (record: WorkoutRecord) => record.origin === 'agent-task' || 
 
 /**
  * The queue's best Quick Workout: never attempted, not Discarded, Quick, with its source file still
- * in the repository; Workouts from AI-written code first, then the newest.
+ * in the repository; the preferred kinds first (in order, any other kind after), then Workouts from
+ * AI-written code, then the newest.
  */
-export async function nextQuickWorkout(paths: WorkspacePaths): Promise<StoredWorkout | undefined> {
+export async function nextQuickWorkout(paths: WorkspacePaths, kinds: readonly WorkoutKind[] = ['drill']): Promise<StoredWorkout | undefined> {
   const candidates: StoredWorkout[] = [];
   for (const workout of await listWorkouts(paths)) {
     // Track steps are a curriculum, worked through with `kin track`, not a snack for a short wait.
@@ -30,6 +31,10 @@ export async function nextQuickWorkout(paths: WorkspacePaths): Promise<StoredWor
     if (!existsSync(join(paths.repoRoot, workout.record.source.path))) continue;
     if (await isQuick(workout)) candidates.push(workout);
   }
+  const rank = (record: WorkoutRecord) => {
+    const at = kinds.indexOf(record.kind ?? 'drill');
+    return at === -1 ? kinds.length : at;
+  };
   // listWorkouts is newest first, and the sort is stable.
-  return candidates.sort((a, b) => Number(fromAiCode(b.record)) - Number(fromAiCode(a.record)))[0];
+  return candidates.sort((a, b) => rank(a.record) - rank(b.record) || Number(fromAiCode(b.record)) - Number(fromAiCode(a.record)))[0];
 }

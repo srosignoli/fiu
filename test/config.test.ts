@@ -61,6 +61,17 @@ describe('resolveConfig', () => {
     assert.deepEqual(profiles.map((p) => p.id), ['typescript', 'javascript', 'python', 'go']);
   });
 
+  it('takes the preferred kinds from the user, unless the repository overrides them', async () => {
+    assert.deepEqual(resolveConfig({}, {}).kinds, ['drill']);
+    assert.deepEqual(resolveConfig({}, { kinds: ['prediction', 'drill'] }).kinds, ['prediction', 'drill']);
+    assert.deepEqual(resolveConfig({ kinds: ['drill'] }, { kinds: ['prediction'] }).kinds, ['drill']);
+    const file = join(await tempDir(), 'config.json');
+    for (const kinds of [[], ['kata']]) {
+      await writeJson(file, { kinds });
+      await assert.rejects(loadRepoConfig(file), ConfigError, JSON.stringify(kinds));
+    }
+  });
+
   it('prefers repo over user settings', () => {
     const { provider, model } = resolveConfig({ model: 'repo-model' }, { provider: 'openai', model: 'user-model' });
     assert.deepEqual({ provider, model }, { provider: 'openai', model: 'repo-model' });

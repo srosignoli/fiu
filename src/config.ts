@@ -19,6 +19,10 @@ export const DEFAULTS = {
   model: 'claude-opus-5-5',
 } as const satisfies Partial<ResolvedConfig>;
 
+/** The kinds commits can become and `kin quick` can favour (Katas are made on request only). */
+export const KindsSchema = z.array(z.enum(['drill', 'prediction'])).min(1);
+export type PreferredKind = z.infer<typeof KindsSchema>[number];
+
 /** `.kintsugi/config.json`: lives inside the repo, so it must never hold secrets. */
 export const RepoConfigSchema = z.strictObject({
   provider: ProviderSchema.optional(),
@@ -31,6 +35,8 @@ export const RepoConfigSchema = z.strictObject({
     .optional(),
   profiles: z.array(UserProfileSchema).optional(),
   prices: z.record(z.string(), ModelPriceSchema).optional(),
+  /** Overrides the user's `kinds` for this repository. */
+  kinds: KindsSchema.optional(),
   /** Team sharing: the remote the `kintsugi/workouts` branch lives on (default `origin`). */
   share: z.strictObject({ remote: z.string().min(1).optional() }).optional(),
   /** Background generation from commits (`kin auto on`): its consent and caps. */
@@ -55,6 +61,8 @@ export const UserConfigSchema = z.strictObject({
   apiKeys: z.partialRecord(ProviderSchema, z.string().min(1)).optional(),
   profiles: z.array(UserProfileSchema).optional(),
   prices: z.record(z.string(), ModelPriceSchema).optional(),
+  /** What you'd rather practise, first choice first: commits become the first kind that fits, and `kin quick` serves it first. */
+  kinds: KindsSchema.optional(),
 });
 export type UserConfig = z.infer<typeof UserConfigSchema>;
 
@@ -65,6 +73,8 @@ export interface ResolvedConfig {
   profiles: LanguageProfile[];
   /** Per-model price overrides (US dollars per million tokens), repo over user. */
   prices: Record<string, ModelPrice>;
+  /** Preferred kinds, first choice first: a preference with fallbacks, never a filter. Repo over user. */
+  kinds: PreferredKind[];
 }
 
 export class ConfigError extends Error {}
@@ -111,6 +121,7 @@ export function resolveConfig(repo: RepoConfig, user: UserConfig): ResolvedConfi
     model: repo.model ?? user.model ?? DEFAULTS.model,
     profiles: profiles(repo.profiles, user.profiles),
     prices: { ...user.prices, ...repo.prices },
+    kinds: repo.kinds ?? user.kinds ?? ['drill'],
   };
 }
 

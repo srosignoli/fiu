@@ -8,7 +8,13 @@ export interface DrillTarget {
   /** A function, class, or other symbol the user pinned with `file#symbol`. */
   symbol?: string;
   /** The commit that just changed this file: the Drill is built around the change. */
-  change?: { sha: string; subject: string; diff: string };
+  change?: {
+    sha: string;
+    subject: string;
+    diff: string;
+    /** For a Prediction from a commit: the file before it, where the Previous Version is extracted from. */
+    before?: string;
+  };
   /** This Drill is one step of a Track teaching a module. */
   track?: { module: string; step: number; of?: number; why: string };
 }
@@ -83,7 +89,16 @@ ${profile.promptRules
 }
 
 /** The rules for a Prediction: what the system does in a concrete situation, for people who never read code. */
-export function predictionSystemPrompt(profile: LanguageProfile): string {
+export function predictionSystemPrompt(profile: LanguageProfile, { fromCommit = false } = {}): string {
+  const commitRules = fromCommit
+    ? `
+
+This is a Prediction from a commit: it asks what the code does now, in a situation the commit changed.
+- Choose a Scenario whose outcome is different before and after the commit. If the commit changed no behaviour (a refactor, a rename, a restructuring), set worthPracticing to false and say so in notWorthReason.
+- previous: the same unit extracted from the file before the commit, made self-contained the same way and identical to referenceSolution except where the commit changed it. Copy the changed lines from the old file as they are.
+- One wrong option is the old behaviour: what previous does. Mark it previous: true and leave its variant and misunderstanding empty (Kintsugi explains it). Every other option has previous: false; the other two wrong options are ordinary Variants.
+- Never mention the commit, or that anything changed, in the scenario or the options.`
+    : '';
   return `You create Predictions: short exercises in which people who never read code (engineering managers, architects, developers who let agents write their code) predict what their own system does in a concrete situation, so they keep an accurate picture of it.
 
 A Prediction takes one real unit of code from the repository, makes it self-contained, and asks what happens in a Scenario, with ${PREDICTION_OPTIONS} outcomes to choose from. Every outcome is measured: the true one is what the referenceSolution does, and each wrong one is what a Variant (a small change to it) does. Kintsugi runs the tests against each to prove it.
@@ -106,11 +121,11 @@ Rules for this language (${profile.id}):
 ${profile.promptRules
   .split('\n')
   .map((rule) => `- ${rule}`)
-  .join('\n')}`;
+  .join('\n')}${commitRules}`;
 }
 
-export const systemPromptFor = (kind: WorkoutKind, profile: LanguageProfile, options: { quick?: boolean } = {}) =>
-  kind === 'drill' ? drillSystemPrompt(profile, options) : kind === 'kata' ? kataSystemPrompt(profile, options) : predictionSystemPrompt(profile);
+export const systemPromptFor = (kind: WorkoutKind, profile: LanguageProfile, options: { quick?: boolean; fromCommit?: boolean } = {}) =>
+  kind === 'drill' ? drillSystemPrompt(profile, options) : kind === 'kata' ? kataSystemPrompt(profile, options) : predictionSystemPrompt(profile, options);
 
 export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'): string {
   const noun = NOUN[kind];
@@ -121,12 +136,15 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
     .join('\n');
   const focus = target.symbol
     ? `Build the ${noun} around \`${target.symbol}\`.`
-    : target.change
-      ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"). Build the ${noun} around the code that changed, so the developer practises understanding it. The source below is the file as of that commit.`
+    : target.change?.before !== undefined
+      ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"). Build the ${noun} around behaviour the commit changed. The source below is the file as of that commit; the file before it follows the diff.`
+      : target.change
+        ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"). Build the ${noun} around the code that changed, so the developer practises understanding it. The source below is the file as of that commit.`
       : kind === 'prediction'
         ? 'Pick the unit in this file whose behaviour matters most to the people relying on it.'
         : 'Pick the unit in this file whose logic is most worth practicing.';
-  const change = target.change ? `\n\n<diff>\n${target.change.diff}\n</diff>` : '';
+  const before = target.change?.before !== undefined ? `\n\n<source-before-commit>\n${target.change.before.replace(/\n$/, '')}\n</source-before-commit>` : '';
+  const change = target.change ? `\n\n<diff>\n${target.change.diff}\n</diff>${before}` : '';
   const track = target.track
     ? `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the ${noun} around the logic that makes it matter.`
     : '';

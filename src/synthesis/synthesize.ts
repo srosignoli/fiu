@@ -66,6 +66,11 @@ export async function synthesizeDrill({
 }: SynthesizeDrillOptions): Promise<SynthesisResult> {
   const sourceLines = target.source.replace(/\n$/, '').split('\n').length;
   if (sourceLines > MAX_SOURCE_LINES) throw new SourceTooLargeError(target.path, sourceLines);
+  // A Prediction from a commit also sees the file before it, and offers its behaviour as a wrong option.
+  const before = kind === 'prediction' ? target.change?.before : undefined;
+  const fromCommit = before !== undefined;
+  const beforeLines = before?.replace(/\n$/, '').split('\n').length ?? 0;
+  if (beforeLines > MAX_SOURCE_LINES) throw new SourceTooLargeError(`${target.path} (before the commit)`, beforeLines);
 
   // The conversation only ever grows, so each retry sees its own earlier attempts and their feedback.
   const messages: ModelMessage[] = [{ role: 'user', content: drillUserPrompt(target, kind) }];
@@ -74,7 +79,7 @@ export async function synthesizeDrill({
   const attempts = Math.min(maxAttempts, MAX_ATTEMPTS);
   for (let attempt = 1; attempt <= attempts; attempt++) {
     onEvent({ type: 'generating', attempt });
-    const generated = await generate(model, modelId, profile, messages, providerOptions, quick, kind);
+    const generated = await generate(model, modelId, profile, messages, providerOptions, quick, kind, fromCommit);
     onEvent({ type: 'usage', attempt, usage: generated.usage });
     messages.push(...generated.responseMessages);
 
@@ -85,7 +90,7 @@ export async function synthesizeDrill({
     if (!generated.output) {
       feedback = `[schema] The response was not a valid ${NOUN[kind]} object: ${generated.error}`;
     } else {
-      const problems = checkWorkoutOutput(kind, generated.output, sourceLines, { quick, lineComment: profile.lineComment });
+      const problems = checkWorkoutOutput(kind, generated.output, sourceLines, { quick, lineComment: profile.lineComment, fromCommit });
       if (problems.length > 0) {
         feedback = problems.map((problem) => `[schema] ${problem}`).join('\n');
       } else {
@@ -101,6 +106,8 @@ export async function synthesizeDrill({
             options: generated.output.options,
             source: target.source,
             lineComment: profile.lineComment,
+            previous: generated.output.previous,
+            sourceBefore: before,
           },
           profile,
           sandbox,
@@ -132,14 +139,15 @@ async function generate(
   providerOptions: ProviderOptions | undefined,
   quick: boolean,
   kind: WorkoutKind,
+  fromCommit: boolean,
 ): Promise<Generated> {
   try {
     const result = await generateText({
       model,
-      system: systemPromptFor(kind, profile, { quick }),
+      system: systemPromptFor(kind, profile, { quick, fromCommit }),
       messages,
       // Each kind's schema is a subset of AnyWorkoutOutputSchema's shape, so its output is one too.
-      output: Output.object({ schema: outputSchemaFor(kind) as unknown as typeof AnyWorkoutOutputSchema }),
+      output: Output.object({ schema: outputSchemaFor(kind, { fromCommit }) as unknown as typeof AnyWorkoutOutputSchema }),
       providerOptions,
       maxOutputTokens: 32_000,
     });

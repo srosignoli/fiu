@@ -16,7 +16,7 @@ import { terminalTrainIo } from './terminal.ts';
 import { VERSION } from './version.ts';
 import { discardWorkout, legacyDoneNotice, restoreWorkout } from './workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from './workspace.ts';
-import { loadRepoConfig, loadUserConfig, resolveConfig } from './config.ts';
+import { loadRepoConfig, loadUserConfig, resolveConfig, type PreferredKind } from './config.ts';
 
 const program = new Command()
   .name('kintsugi')
@@ -104,10 +104,15 @@ program
   .command('predict')
   .description('Generate a Prediction: a plain-English Scenario about what your code does, with four outcomes to choose from. No code to read.')
   .argument('[target]', 'a source file (optionally #symbol), or a directory to pick a file from (default: the whole repository)')
+  .option('--commit <sha>', 'ask what a commit changed: the code before it becomes one of the wrong answers')
   .option('--no-train', 'only save the Prediction, without opening the runner')
   .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
-  .action(generationCommand('prediction'));
+  .action(async (target: string | undefined, options: { commit?: string; train: boolean; yes: boolean; sandbox: boolean }) => {
+    if (!options.commit) return generationCommand('prediction')(target, options);
+    if (target) throw new Error('Give either a target or --commit, not both: a commit chooses its own file.');
+    await runRefill({ ...options, background: false, kinds: ['prediction'] });
+  });
 
 program
   .command('mcp')
@@ -373,7 +378,7 @@ program
 
 program
   .command('refill')
-  .description('Generate a Quick Drill from a commit (the latest by default). The git hook runs this in the background.')
+  .description('Generate a Quick Workout from a commit (the latest by default), of the kind your "kinds" setting prefers. The git hook runs this in the background.')
   .option('--commit <sha>', 'the commit to generate from (default: HEAD)')
   .option('--background', 'run unattended, as the hook does: never prompts, needs `kin auto on`, obeys the caps')
   .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
@@ -475,7 +480,7 @@ program
     }
   });
 
-async function runRefill(options: { commit?: string; background: boolean; yes?: boolean; sandbox: boolean; train: boolean }): Promise<void> {
+async function runRefill(options: { commit?: string; background: boolean; yes?: boolean; sandbox: boolean; train: boolean; kinds?: PreferredKind[] }): Promise<void> {
   const { refill } = await import('./background/refill.ts');
   if (options.background) {
     // Unattended: say nothing, decide nothing; everything goes to .kintsugi/log.
@@ -491,7 +496,8 @@ async function runRefill(options: { commit?: string; background: boolean; yes?: 
       const commit = outcome.commit?.slice(0, 12) ?? '';
       if (outcome.outcome === 'generated') {
         saved = outcome.workoutId;
-        log.success(`Saved a Quick Drill from ${commit} (${outcome.source}): ${outcome.workoutId}`);
+        const kind = outcome.generation?.status === 'saved' ? outcome.generation.record.kind : 'drill';
+        log.success(`Saved a Quick ${NOUN[kind]} from ${commit} (${outcome.source}): ${outcome.workoutId}`);
       } else {
         log.warn(`${commit}: ${outcome.outcome}${outcome.reason ? ` (${outcome.reason})` : ''}`);
       }

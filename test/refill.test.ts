@@ -8,12 +8,12 @@ import { readLog, unseenFailureSummary } from '../src/background/log.ts';
 import { expireStaleWorkouts, refill, RefillBusyError, type RefillOptions } from '../src/background/refill.ts';
 import { profiles } from '../src/languages/registry.ts';
 import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
-import type { DrillOutput } from '../src/synthesis/schema.ts';
+import type { AnyWorkoutOutput } from '../src/synthesis/schema.ts';
 import { listWorkouts, readState } from '../src/workouts/store.ts';
 import { nextQuickWorkout } from '../src/workouts/queue.ts';
 import { workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, scriptedModel, TS_REFERENCE } from './mock-model.ts';
+import { goodCommitPrediction, goodDrill, scriptedModel, TS_BEFORE_COMMIT, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -55,7 +55,7 @@ async function configure(repo: string, config: Record<string, unknown>) {
 }
 const backgroundReady = { consent: { provider: 'anthropic', grantedAt: new Date().toISOString() }, auto: { enabled: true } };
 
-async function run(repo: string, options: Partial<RefillOptions>, replies: (Partial<DrillOutput> | string)[] = [goodDrill()], env: NodeJS.ProcessEnv = { ANTHROPIC_API_KEY: 'k' }) {
+async function run(repo: string, options: Partial<RefillOptions>, replies: (Partial<AnyWorkoutOutput> | string)[] = [goodDrill()], env: NodeJS.ProcessEnv = { ANTHROPIC_API_KEY: 'k' }) {
   const scripted = scriptedModel(...replies);
   const result = await refill(
     repo,
@@ -206,7 +206,7 @@ describe(`kin refill (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     const { repo } = await repoWithChange();
     await run(repo, {});
     await commit(repo, { 'src/queue.ts': `${TS_REFERENCE}\n// more\n// changes\n// to\n// the\n// file\n` });
-    assert.deepEqual(outcomes(await run(repo, {})), [['skipped', 'src/queue.ts already has a queued Drill from a commit']]);
+    assert.deepEqual(outcomes(await run(repo, {})), [['skipped', 'src/queue.ts already has a queued Workout from a commit']]);
   });
 
   it('expires stale commit Workouts, freeing the queue', async () => {
@@ -236,5 +236,62 @@ describe(`kin refill (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.equal(await unseenFailureSummary(paths), '1 background Drill failed: see `kin log`.');
     assert.equal(await unseenFailureSummary(paths), undefined);
     assert.match(await readFile(join(paths.root, 'log'), 'utf8'), /"outcome":"failed"/);
+  });
+});
+
+describe(`Predictions from commits (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
+  /** A commit that made ties first come, first served (the newest job used to win), with notes long enough to count. */
+  async function repoWithBehaviourChange(kinds: string[]): Promise<{ repo: string; sha: string }> {
+    const repo = await tempGitRepo();
+    await git(repo, 'config', 'user.email', ME);
+    const notes = (rule: string) => [1, 2, 3, 4].map((n) => `// Rule ${n}: ${rule}.`).join('\n') + '\n';
+    await commit(repo, { 'src/queue.ts': `${TS_BEFORE_COMMIT}${notes('the newest job wins a tie')}` });
+    const sha = await commit(repo, { 'src/queue.ts': `${TS_REFERENCE}${notes('ties go to the first job')}` }, { message: 'Serve ties first come, first served' });
+    await configure(repo, { kinds });
+    return { repo, sha };
+  }
+
+  it('asks what the code does now, with the code before the commit as a measured wrong option', async () => {
+    const { repo, sha } = await repoWithBehaviourChange(['prediction', 'drill']);
+    const result = await run(repo, {}, [goodCommitPrediction()]);
+    assert.deepEqual(outcomes(result).map(([o]) => o), ['generated'], JSON.stringify(result.outcomes));
+    assert.match(result.prompts[0]!, /This is a Prediction from a commit/);
+    assert.match(result.prompts[0]!, /<source-before-commit>[\s\S]*job\.at > best\.at[\s\S]*<\/source-before-commit>/);
+
+    const [workout] = await listWorkouts(workspacePaths(repo));
+    assert.equal(workout!.record.kind, 'prediction');
+    assert.deepEqual(workout!.record.commit, { sha, aiAuthored: false });
+    assert.equal(workout!.record.files.previous, '.solution/previous.ts');
+    assert.equal(await readFile(join(workout!.dir, '.solution', 'previous.ts'), 'utf8'), TS_BEFORE_COMMIT);
+  });
+
+  it('falls back to the next kind when the commit changed no behaviour', async () => {
+    const { repo } = await repoWithBehaviourChange(['prediction', 'drill']);
+    const result = await run(repo, {}, [{ ...goodCommitPrediction(), worthPracticing: false, notWorthReason: 'Only comments changed.' }, goodDrill()]);
+    assert.deepEqual(outcomes(result).map(([o]) => o), ['generated']);
+    assert.equal(result.prompts.length, 2);
+    assert.equal((await listWorkouts(workspacePaths(repo)))[0]!.record.kind, 'drill');
+    assert.equal((await readState(workspacePaths(repo))).spend.length, 2, 'both generations are paid for');
+  });
+
+  it('with no kind to fall back to, skips the commit for good', async () => {
+    const { repo, sha } = await repoWithBehaviourChange(['prediction']);
+    const result = await run(repo, {}, [{ ...goodCommitPrediction(), worthPracticing: false, notWorthReason: 'Only comments changed.' }]);
+    assert.deepEqual(outcomes(result), [['not-worth-practicing', 'Only comments changed.']]);
+    assert.ok((await readState(workspacePaths(repo))).refill.processed.includes(sha));
+  });
+
+  it('makes no Prediction from a file the commit added', async () => {
+    const repo = await tempGitRepo();
+    await git(repo, 'config', 'user.email', ME);
+    await commit(repo, { 'README.md': 'x\n' });
+    await commit(repo, { 'src/queue.ts': TS_REFERENCE });
+    await configure(repo, { kinds: ['prediction', 'drill'] });
+    const result = await run(repo, {}, [goodDrill()]);
+    assert.equal(result.prompts.length, 1, 'no model call for the Prediction');
+    assert.doesNotMatch(result.prompts[0]!, /source-before-commit/);
+    assert.equal((await listWorkouts(workspacePaths(repo)))[0]!.record.kind, 'drill');
+    const only = await run(repo, { kinds: ['prediction'], commit: 'HEAD' }, []);
+    assert.deepEqual(outcomes(only), [['skipped', 'already processed']]);
   });
 });

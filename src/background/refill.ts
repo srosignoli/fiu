@@ -3,7 +3,7 @@ import { open, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execa } from 'execa';
 import type { DrillUi } from '../commands/drill.ts';
-import { AUTO_DEFAULTS, loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv, type RepoConfig } from '../config.ts';
+import { AUTO_DEFAULTS, loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv, type PreferredKind, type RepoConfig } from '../config.ts';
 import { ConsentDeclinedError, ConsentRequiredError, hasConsent, recordConsent } from '../consent.ts';
 import { MissingApiKeyError, resolveApiKey } from '../credentials.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
@@ -13,6 +13,7 @@ import { openSandbox, type Sandbox } from '../sandbox/sandbox.ts';
 import { generateWorkout, type GenerationResult } from '../synthesis/generate.ts';
 import { createModel as createModelDefault } from '../synthesis/model.ts';
 import { MAX_ATTEMPTS } from '../synthesis/synthesize.ts';
+import { NOUN } from '../synthesis/schema.ts';
 import { discardWorkout, listWorkouts, readState, writeState, type StoredWorkout } from '../workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths, type WorkspacePaths } from '../workspace.ts';
 import { chooseTarget, operationInProgress, readCommit } from './commits.ts';
@@ -34,6 +35,8 @@ export interface RefillOptions {
   yes?: boolean;
   /** Foreground only: false with --no-sandbox. Background generation is always sandboxed. */
   sandbox?: boolean;
+  /** Overrides the configured kinds: `kin predict --commit` asks for a Prediction and nothing else. */
+  kinds?: PreferredKind[];
 }
 
 export interface RefillDependencies {
@@ -153,21 +156,25 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
     const { target } = choice;
     const workouts = await listWorkouts(paths);
     if (workouts.some((w) => w.status === 'queued' && w.record.origin === 'commit' && w.record.source.path === target.path)) {
-      return permanently(`${target.path} already has a queued Drill from a commit`);
+      return permanently(`${target.path} already has a queued Workout from a commit`);
     }
 
-    let maxAttempts = MAX_ATTEMPTS;
+    const kinds = options.kinds ?? config.kinds;
+    // A Prediction offers the old behaviour as a wrong option, so it needs the file as it was.
+    const before = kinds.includes('prediction') ? await fileBefore(repoRoot, commitSha, target.path) : undefined;
+    /** Background runs stay within the daily limit, a fallback's attempts included. */
+    const attemptsLeft = async (): Promise<number> =>
+      options.background ? Math.min(MAX_ATTEMPTS, auto.dailyLimit - generationsToday((await readState(paths)).spend, now())) : MAX_ATTEMPTS;
     if (options.background) {
       const queued = countsTowardQueueCap(workouts);
       if (queued >= auto.queueCap) return { commit: commitSha, outcome: 'deferred', reason: `the queue already holds ${queued} Workouts (cap ${auto.queueCap})` };
-      const used = generationsToday(state.spend, now());
-      if (used >= auto.dailyLimit) return { commit: commitSha, outcome: 'deferred', reason: `today's limit of ${auto.dailyLimit} generations is used up` };
-      maxAttempts = Math.min(MAX_ATTEMPTS, auto.dailyLimit - used);
+      if ((await attemptsLeft()) <= 0) return { commit: commitSha, outcome: 'deferred', reason: `today's limit of ${auto.dailyLimit} generations is used up` };
     } else if (!hasConsent(repoConfig, config.provider)) {
       if (!options.yes) {
         if (!ui.confirm) throw new ConsentRequiredError(config.provider);
+        const what = before === undefined ? `${target.path} (as of ${commitSha.slice(0, 12)})` : `${target.path} (before and after ${commitSha.slice(0, 12)})`;
         const granted = await ui.confirm(
-          `Kintsugi will send ${target.path} (as of ${commitSha.slice(0, 12)}) to ${config.provider} (${config.model}) to generate a Drill. Send code from this repository to ${config.provider}?`,
+          `Kintsugi will send ${what} to ${config.provider} (${config.model}) to generate a ${NOUN[kinds[0]!]}. Send code from this repository to ${config.provider}?`,
         );
         if (!granted) throw new ConsentDeclinedError();
       }
@@ -176,27 +183,51 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
 
     try {
       ui.step(`Checking the sandbox and the ${target.profile.id} toolchain`);
-      const generation = await generateWorkout({
-        paths,
-        config,
-        profile: target.profile,
-        sandbox: await sandboxFor(target.profile),
-        apiKey,
-        createModel: deps.createModel ?? createModelDefault,
-        target: { path: target.path, source: target.source, change: { sha: commitSha, subject: info.subject, diff: target.diff } },
-        revision: { commit: commitSha, dirty: false },
-        quick: true,
-        origin: 'commit',
-        commit: { sha: commitSha, aiAuthored: info.aiAuthored },
-        maxAttempts,
-        cacheRoot: deps.cacheRoot,
-        step: (message) => ui.step(message),
-      });
+      const base = { commit: commitSha, source: target.path };
+      let unfit: CommitOutcome | undefined;
+      // The first kind that fits the commit; each one that doesn't falls back to the next.
+      for (const kind of kinds) {
+        if (kind === 'prediction' && before === undefined) {
+          unfit = { ...base, outcome: 'not-worth-practicing', reason: 'the commit added this file, so there is no old behaviour to predict against' };
+          continue;
+        }
+        const maxAttempts = await attemptsLeft();
+        // Out of budget before the fallback: deferred, not remembered, like any cap.
+        if (maxAttempts <= 0) return { ...base, outcome: 'deferred', reason: `today's limit of ${auto.dailyLimit} generations is used up` };
+        if (unfit) ui.step(`${unfit.reason}: making a ${NOUN[kind]} instead`);
+        const generation = await generateWorkout({
+          paths,
+          config,
+          profile: target.profile,
+          sandbox: await sandboxFor(target.profile),
+          apiKey,
+          createModel: deps.createModel ?? createModelDefault,
+          target: {
+            path: target.path,
+            source: target.source,
+            change: { sha: commitSha, subject: info.subject, diff: target.diff, ...(kind === 'prediction' ? { before } : {}) },
+          },
+          revision: { commit: commitSha, dirty: false },
+          quick: true,
+          kind,
+          origin: 'commit',
+          commit: { sha: commitSha, aiAuthored: info.aiAuthored },
+          maxAttempts,
+          cacheRoot: deps.cacheRoot,
+          step: (message) => ui.step(message),
+        });
+        if (generation.status === 'saved') {
+          await markProcessed(paths, commitSha);
+          return { ...base, generation, outcome: 'generated', workoutId: generation.record.id };
+        }
+        if (generation.status === 'failed') {
+          await markProcessed(paths, commitSha);
+          return { ...base, generation, outcome: 'failed', reason: `no Verified ${NOUN[kind]} after the allowed attempts` };
+        }
+        unfit = { ...base, generation, outcome: 'not-worth-practicing', reason: generation.reason };
+      }
       await markProcessed(paths, commitSha);
-      const base = { commit: commitSha, source: target.path, generation };
-      if (generation.status === 'saved') return { ...base, outcome: 'generated', workoutId: generation.record.id };
-      if (generation.status === 'not-worth-practicing') return { ...base, outcome: 'not-worth-practicing', reason: generation.reason };
-      return { ...base, outcome: 'failed', reason: 'no Verified Drill after the allowed attempts' };
+      return unfit!;
     } catch (error) {
       // Unattended runs log and move on; a person at the terminal sees the error.
       if (!options.background) throw error;
@@ -210,6 +241,12 @@ function backgroundRefusal(repoConfig: RepoConfig, provider: string): string | u
   if (!repoConfig.auto?.enabled) return 'background generation is off (turn it on with `kin auto on`)';
   if (repoConfig.consent?.provider !== provider) return `no consent to send code to ${provider}`;
   return undefined;
+}
+
+/** The file as it was before the commit; undefined when the commit added it (or has no parent). */
+async function fileBefore(repoRoot: string, sha: string, path: string): Promise<string | undefined> {
+  const shown = await execa('git', ['show', `${sha}^:${path}`], { cwd: repoRoot, reject: false, stripFinalNewline: false });
+  return shown.exitCode === 0 ? shown.stdout : undefined;
 }
 
 async function resolveCommit(repoRoot: string, rev: string): Promise<string> {

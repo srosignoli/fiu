@@ -4,10 +4,11 @@ import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import type { TestRun } from '../src/languages/profile.ts';
 import { preflight } from '../src/languages/run.ts';
 import { openSandbox } from '../src/sandbox/sandbox.ts';
-import { checkWorkoutOutput, codeVocabulary, type PredictionOutput } from '../src/synthesis/schema.ts';
+import { checkWorkoutOutput, codeVocabulary, type CommitPredictionOutput, type PredictionOutput } from '../src/synthesis/schema.ts';
+import { unanchoredRegions } from '../src/verify/defect.ts';
 import { buildVariant, checkOptionTests, checkOutcomes, verify, type Candidate } from '../src/verify/gate.ts';
 import { tempDir } from './helpers.ts';
-import { goodPrediction, TS_REFERENCE } from './mock-model.ts';
+import { goodCommitPrediction, goodPrediction, TS_BEFORE_COMMIT, TS_REFERENCE } from './mock-model.ts';
 
 const run = (...tests: [string, TestRun['tests'][number]['outcome']][]): TestRun => ({
   ran: true,
@@ -105,5 +106,51 @@ describe(`verify for Predictions (${sandbox.isolated ? 'sandboxed' : 'UNSANDBOXE
     assert.equal(result.verified, false);
     assert.deepEqual(result.verified ? [] : result.failures.map((f) => f.check), ['real-variant']);
     assert.match(result.verified ? '' : result.failures[0]!.message, /Option 2's code is what the source does/);
+  });
+});
+
+describe('Predictions from a commit', () => {
+  const commitOptions = goodCommitPrediction().options;
+  const withCommitOption = (i: number, change: Partial<(typeof commitOptions)[number]>) =>
+    goodCommitPrediction({ options: commitOptions.map((o, j) => (j === i ? { ...o, ...change } : o)) });
+
+  it('need exactly one old-behaviour option, with the unit as it was before', () => {
+    assert.deepEqual(checkWorkoutOutput('prediction', goodCommitPrediction(), 10, { fromCommit: true }), []);
+    assert.match(checkWorkoutOutput('prediction', goodCommitPrediction({ previous: ' ' }), 10, { fromCommit: true }).join(), /previous is empty/);
+    assert.match(checkWorkoutOutput('prediction', withCommitOption(2, { previous: true }), 10, { fromCommit: true }).join(), /exactly one option must be the old behaviour \(previous: true\), not 2/);
+    assert.match(checkWorkoutOutput('prediction', withCommitOption(0, { previous: true }), 10, { fromCommit: true }).join(), /cannot also be correct/);
+    assert.match(checkWorkoutOutput('prediction', goodCommitPrediction(), 10).join(), /only a Prediction from a commit has an old-behaviour option/);
+  });
+
+  it('anchor the Previous Version to the file before the commit', () => {
+    assert.deepEqual(unanchoredRegions(TS_REFERENCE, TS_BEFORE_COMMIT, TS_BEFORE_COMMIT, TS_REFERENCE, '//'), []);
+    // An invented "before": a change the commit never made.
+    const invented = TS_REFERENCE.replace('job.priority > best.priority', 'job.priority < best.priority');
+    assert.deepEqual(unanchoredRegions(TS_REFERENCE, invented, TS_BEFORE_COMMIT, TS_REFERENCE, '//'), [6]);
+  });
+
+  const commitCandidate = (prediction: CommitPredictionOutput, extra: Partial<Candidate> = {}): Candidate => ({
+    ...candidate(prediction),
+    previous: prediction.previous,
+    source: TS_REFERENCE,
+    sourceBefore: TS_BEFORE_COMMIT,
+    lineComment: '//',
+    ...extra,
+  });
+
+  it(`verify against the Previous Version too (${sandbox.isolated ? 'sandboxed' : 'UNSANDBOXED'})`, async () => {
+    const result = await verify(commitCandidate(goodCommitPrediction()), TYPESCRIPT, sandbox, { cacheRoot });
+    assert.ok(result.verified, JSON.stringify(result));
+    assert.equal(result.variantRuns?.length, 3);
+  });
+
+  it('reject a Previous Version the commit never had, or one that changes nothing', async () => {
+    // It behaves like the old code, but its last line was never in the old file.
+    const invented = TS_BEFORE_COMMIT.replace('return best?.id;', 'return best ? best.id : undefined;');
+    const result = await verify(commitCandidate(goodCommitPrediction({ previous: invented })), TYPESCRIPT, sandbox, { cacheRoot });
+    assert.match(result.verified ? '' : result.failures.map((f) => `[${f.check}] ${f.message}`).join('\n'), /\[previous\] Option 2's previous .* not found in the file before the commit/);
+
+    const same = await verify(commitCandidate(goodCommitPrediction({ previous: TS_REFERENCE })), TYPESCRIPT, sandbox, { cacheRoot });
+    assert.match(same.verified ? '' : same.failures.map((f) => f.message).join('\n'), /identical to the Reference Solution: the commit must change the outcome/);
   });
 });

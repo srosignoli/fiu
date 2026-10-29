@@ -94,3 +94,24 @@ export function bugComments(workout: BugPair, lineComment?: string): string[] {
   const fixed = new Set(region.fixed.map(comment));
   return region.buggy.map(comment).filter((c): c is string => c !== undefined && !fixed.has(c));
 }
+
+/**
+ * Whether a Previous Version really is the code before the commit. Every region where it differs from
+ * the Reference Solution must have a significant line found only in the old file (in it, and not in the
+ * new one). When the Previous Version has nothing there (the commit added lines), a Reference Solution
+ * line found only in the new file anchors it instead. One line, not all: extraction renames things
+ * around a change. Returns the 1-based starting lines (in the Reference Solution) of unanchored regions.
+ */
+export function unanchoredRegions(referenceSolution: string, previous: string, before: string, after: string, lineComment?: string): number[] {
+  const lines = (text: string) => new Set(text.replace(/\r\n?/g, '\n').split('\n').map((line) => normaliseLine(line, lineComment)));
+  const old = lines(before);
+  const now = lines(after);
+  const significant = (side: string[]) => side.map((line) => normaliseLine(line, lineComment)).filter((line) => line.length >= SIGNIFICANT_LINE_CHARS);
+  return diffLines(referenceSolution, previous)
+    .filter((hunk) => {
+      const previousSide = significant(hunk.added);
+      if (previousSide.length > 0) return !previousSide.some((line) => old.has(line) && !now.has(line));
+      return !significant(hunk.removed).some((line) => now.has(line) && !old.has(line));
+    })
+    .map((hunk) => hunk.line);
+}

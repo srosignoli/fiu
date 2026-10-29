@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, extname, join, relative } from 'node:path';
 import { execa } from 'execa';
 import { describeCost, type Cost } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
@@ -83,8 +83,8 @@ export interface WorkoutRecord {
   originalDefect?: OriginalDefect;
   /** What generating this Workout cost, across all its generation attempts. Absent when the user's agent generated it (not measured) and on Workouts made before cost recording. */
   cost?: Cost & { generationAttempts: number };
-  /** `solution` is the Reference Solution; `originalTest` the tests the Workout was Verified with. */
-  files: { code: string; test: string; solution: string; originalTest: string };
+  /** `solution` is the Reference Solution; `originalTest` the tests the Workout was Verified with; `previous`, for a Prediction from a commit, the Previous Version. */
+  files: { code: string; test: string; solution: string; originalTest: string; previous?: string };
 }
 
 export async function sourceRevision(repoRoot: string, path: string): Promise<SourceRevision> {
@@ -138,6 +138,7 @@ export async function saveDrill({
   const dir = join(paths.workoutsDir, id);
   const solution = join(SOLUTION_DIRNAME, profile.codeFilename);
   const originalTest = join(SOLUTION_DIRNAME, profile.testFilename);
+  const previous = drill.previous ? join(SOLUTION_DIRNAME, `previous${extname(profile.codeFilename)}`) : undefined;
   const originalDefect = source === undefined ? undefined : findOriginalDefect(kind, drill, source, profile.lineComment);
 
   const record: WorkoutRecord = {
@@ -165,7 +166,7 @@ export async function saveDrill({
     ...(cost ? { cost: { ...cost, generationAttempts } } : {}),
     // A Prediction has no code to work on: its code and tests are the ones it was Verified with.
     files: kind === 'prediction'
-      ? { code: solution, test: originalTest, solution, originalTest }
+      ? { code: solution, test: originalTest, solution, originalTest, ...(previous ? { previous } : {}) }
       : { code: profile.codeFilename, test: profile.testFilename, solution, originalTest },
   };
 
@@ -176,6 +177,7 @@ export async function saveDrill({
     'README.md': kind === 'prediction' ? predictionReadme(record) : readme(drill, record, dir, paths.repoRoot),
     [solution]: drill.referenceSolution,
     [originalTest]: drill.testSuiteCode,
+    ...(previous ? { [previous]: drill.previous! } : {}),
     'workout.json': JSON.stringify(record, null, 2) + '\n',
   };
   for (const [name, content] of Object.entries(files)) {

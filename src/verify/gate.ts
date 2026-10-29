@@ -5,7 +5,7 @@ import type { LanguageProfile, TestResult, TestRun } from '../languages/profile.
 import { runTests } from '../languages/run.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
 import type { PredictionOption, WorkoutKind } from '../synthesis/schema.ts';
-import { matchSource } from './defect.ts';
+import { matchSource, unanchoredRegions } from './defect.ts';
 import { diffLines, type Hunk } from './diff.ts';
 
 /** The parts of a generated Workout the gate checks. */
@@ -24,9 +24,13 @@ export interface Candidate {
   /** Prediction only: the source file, where a Variant must not be found (it would be what the code really does). */
   source?: string;
   lineComment?: string;
+  /** Prediction from a commit only: the unit before the commit, the old-behaviour option's code. */
+  previous?: string;
+  /** Prediction from a commit only: the source file before the commit, where the Previous Version is anchored. */
+  sourceBefore?: string;
 }
 
-export type Check = 'reference-passes' | 'starting-code-fails' | 'regression-test' | 'minimal-diff' | 'option-tests' | 'outcomes' | 'real-variant';
+export type Check = 'reference-passes' | 'starting-code-fails' | 'regression-test' | 'minimal-diff' | 'option-tests' | 'outcomes' | 'real-variant' | 'previous';
 
 export interface CheckFailure {
   check: Check;
@@ -192,15 +196,21 @@ async function verifyPrediction(candidate: Candidate, profile: LanguageProfile, 
   const options = candidate.options ?? [];
   const run = (code: string) => runInTempWorkout(code, candidate.testSuiteCode, profile, sandbox, cacheRoot);
   const referenceRun = await run(candidate.referenceSolution);
-  const wrong = options.flatMap((option, index) => (option.correct ? [] : [{ option, index, code: buildVariant(candidate.referenceSolution, option.variant) }]));
+  // The old-behaviour option's code is the Previous Version itself, not a snippet Variant.
+  const codeFor = (option: PredictionOption) => (option.previous ? (candidate.previous ?? '') : buildVariant(candidate.referenceSolution, option.variant));
+  const wrong = options.flatMap((option, index) => (option.correct ? [] : [{ option, index, code: codeFor(option) }]));
   const variantRuns: TestRun[] = [];
   for (const { code } of wrong) variantRuns.push(await run(code));
 
   const failures = [
     ...checkOptionTests(options, referenceRun),
     ...checkOutcomes(options, options.findIndex((o) => o.correct), 'the Reference Solution', referenceRun),
-    ...wrong.flatMap(({ index }, i) => checkOutcomes(options, index, `option ${index + 1}'s Variant`, variantRuns[i]!)),
-    ...wrong.flatMap(({ index, code }, i) => checkVariantDiff(candidate, index, code, wrong.slice(0, i))),
+    ...wrong.flatMap(({ option, index }, i) =>
+      checkOutcomes(options, index, option.previous ? `option ${index + 1}'s previous (the code before the commit)` : `option ${index + 1}'s Variant`, variantRuns[i]!),
+    ),
+    ...wrong.flatMap(({ option, index, code }, i) =>
+      option.previous ? checkPrevious(candidate, index, code, wrong.slice(0, i)) : checkVariantDiff(candidate, index, code, wrong.slice(0, i)),
+    ),
   ];
   return failures.length === 0 ? { verified: true, referenceRun, variantRuns } : { verified: false, failures };
 }
@@ -237,6 +247,26 @@ export function checkOutcomes(options: PredictionOption[], expected: number, lab
   });
   if (problems.length === 0) return [];
   return fail(`Against ${label}, only option ${expected + 1}'s test may pass and the others must fail by assertion: ${problems.join('; ')}.`);
+}
+
+/** The Previous Version: any size, but different from the others, and anchored to the file before and after the commit. */
+function checkPrevious(candidate: Candidate, index: number, code: string, earlier: { index: number; code: string }[]): CheckFailure[] {
+  const which = `Option ${index + 1}'s previous (the code before the commit)`;
+  if (diffLines(candidate.referenceSolution, code).length === 0) return [{ check: 'previous', message: `${which} is identical to the Reference Solution: the commit must change the outcome.` }];
+  const failures: CheckFailure[] = [];
+  const twin = earlier.find((e) => diffLines(e.code, code).length === 0);
+  if (twin) failures.push({ check: 'previous', message: `${which} is identical to option ${twin.index + 1}'s Variant.` });
+  // A fetched Prediction has no sharer's source to compare with: that check ran when it was made.
+  if (candidate.source !== undefined && candidate.sourceBefore !== undefined) {
+    const loose = unanchoredRegions(candidate.referenceSolution, code, candidate.sourceBefore, candidate.source, candidate.lineComment);
+    if (loose.length > 0) {
+      failures.push({
+        check: 'previous',
+        message: `${which} differs from the Reference Solution at line(s) ${loose.join(', ')} in ways not found in the file before the commit: it must be the same unit, extracted from the old file, differing only where the commit changed it.`,
+      });
+    }
+  }
+  return failures;
 }
 
 /** One small region per Variant, no two alike, and none of them what the source file itself does. */

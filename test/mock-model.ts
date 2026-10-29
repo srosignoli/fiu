@@ -1,5 +1,5 @@
 import { MockLanguageModelV4 } from 'ai/test';
-import type { AnyWorkoutOutput, DrillOutput, KataOutput, PredictionOutput } from '../src/synthesis/schema.ts';
+import type { AnyWorkoutOutput, CommitPredictionOutput, DrillOutput, KataOutput, PredictionOutput } from '../src/synthesis/schema.ts';
 
 export interface ScriptedModel {
   model: MockLanguageModelV4;
@@ -163,6 +163,25 @@ export function goodPrediction(overrides: Partial<PredictionOutput> = {}): Predi
     referenceSolution: TS_REFERENCE,
     testSuiteCode: TS_PREDICTION_TESTS,
     originalDefect: NO_DEFECT,
+    ...overrides,
+  };
+}
+
+/** pickNext before a commit that made ties first come, first served: the newest job used to win. */
+export const TS_BEFORE_COMMIT = TS_REFERENCE.replace('job.at < best.at', 'job.at > best.at');
+
+/** A Prediction from that commit: the old behaviour ("late" wins) is the Previous Version, not a Variant. */
+export function goodCommitPrediction(overrides: Partial<CommitPredictionOutput> = {}): CommitPredictionOutput {
+  const base = goodPrediction();
+  return {
+    ...base,
+    slug: 'tie-goes-to-first',
+    options: base.options.map((option, i) =>
+      i === 1
+        ? { ...option, variant: { original: '', changed: '' }, misunderstanding: '', previous: true }
+        : { ...option, previous: false },
+    ),
+    previous: TS_BEFORE_COMMIT,
     ...overrides,
   };
 }

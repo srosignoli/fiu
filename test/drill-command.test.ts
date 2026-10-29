@@ -16,7 +16,8 @@ import { MissingApiKeyError } from '../src/credentials.ts';
 import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
 import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, goodKata, scriptedModel, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, goodPrediction, scriptedModel, TS_REFERENCE } from './mock-model.ts';
+import { saveAttempt } from '../src/workouts/attempts.ts';
 
 // Use the real sandbox where it is installed.
 const sandboxWorks = await openSandbox().then(
@@ -42,7 +43,8 @@ interface Run {
   confirm?: DrillUi['confirm'];
   env?: NodeJS.ProcessEnv;
   replies?: Parameters<typeof scriptedModel>;
-  target?: string;
+  /** null: no target at all, as `kin predict` with no path. */
+  target?: string | null;
 }
 
 async function run({ repo, options = {}, confirm, env = { ANTHROPIC_API_KEY: 'test-key' }, replies = [goodDrill()], target = 'src/queue.ts' }: Run) {
@@ -51,7 +53,7 @@ async function run({ repo, options = {}, confirm, env = { ANTHROPIC_API_KEY: 'te
   const created: string[] = [];
   const result = await drill(
     repo,
-    target,
+    target ?? undefined,
     { yes: false, sandbox: sandboxWorks, ...options },
     { step: (m) => steps.push(m), warn: (m) => steps.push(`warn: ${m}`), confirm },
     {
@@ -193,6 +195,59 @@ describe('kin kata', () => {
     const asked: string[] = [];
     await run({ repo, options: { kind: 'kata' }, replies: [goodKata()], confirm: async (m) => (asked.push(m), true) });
     assert.match(asked[0]!, /to generate the Kata\./);
+  });
+});
+
+describe('kin predict', () => {
+  /** Long enough (15+ lines) for the shortlist to consider it. */
+  const LONG_QUEUE = `${TS_REFERENCE}${'\n// The scheduler serves the queue in this order.'.repeat(8)}\n`;
+  async function repoWithLongSource(): Promise<string> {
+    const repo = await tempGitRepo();
+    await mkdir(join(repo, 'src'));
+    await writeFile(join(repo, 'src', 'queue.ts'), LONG_QUEUE);
+    await execa('git', ['add', '.'], { cwd: repo });
+    await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], { cwd: repo });
+    return repo;
+  }
+
+  it('generates, verifies, and saves a Prediction whose README holds no answer', async () => {
+    const repo = await repoWithSource();
+    const { result, prompts } = await run({ repo, options: { yes: true, kind: 'prediction' }, replies: [goodPrediction()] });
+    const { record, workoutDir } = result.status === 'saved' ? result : assert.fail(JSON.stringify(result));
+    assert.match(record.id, /^prediction_\d{8}_tied-priorities$/);
+    assert.match(prompts[0]!, /You create Predictions/);
+
+    const saved: WorkoutRecord = await readJson(join(workoutDir, 'workout.json'));
+    assert.equal(saved.kind, 'prediction');
+    assert.equal(saved.prediction?.options.length, 4);
+    assert.deepEqual(saved.hints, []);
+    assert.deepEqual(saved.files, { code: '.solution/kata.ts', test: '.solution/kata.test.ts', solution: '.solution/kata.ts', originalTest: '.solution/kata.test.ts' });
+    assert.ok(!existsSync(join(workoutDir, 'kata.ts')), 'there is no code to work on');
+
+    const readme = await readFile(join(workoutDir, 'README.md'), 'utf8');
+    assert.match(readme, /^# Who goes first on a tie\n\n## Scenario\n\nThree jobs are waiting\./);
+    // Sorted, so the order the model wrote them in (correct first) gives nothing away.
+    assert.match(readme, /## What happens\?\n\n- No job runs until the tie is resolved\.\n- The "early" job runs next\.\n- The "late" job runs next\.\n- The "low" job runs next\./);
+    assert.doesNotMatch(readme, /first come, first served|You were picturing|scheduler picks/, 'explanation, misunderstandings, and anchors stay out');
+  });
+
+  it('picks a never-practised file when given a directory or nothing at all', async () => {
+    const repo = await repoWithLongSource();
+    const { result, steps } = await run({ repo, target: null, options: { yes: true, kind: 'prediction' }, replies: [goodPrediction()] });
+    assert.ok(steps.includes('Asking about src/queue.ts'), steps.join('\n'));
+    const { record } = result.status === 'saved' ? result : assert.fail(JSON.stringify(result));
+    assert.equal(record.source.path, 'src/queue.ts');
+
+    const paths = workspacePaths(repo);
+    const { attempt } = await openAttempt(paths, await loadWorkout(paths, record.id), TYPESCRIPT);
+    Object.assign(attempt.record, { outcome: 'completed', finishedAt: new Date().toISOString() });
+    await saveAttempt(attempt);
+    await assert.rejects(run({ repo, target: 'src', options: { yes: true, kind: 'prediction' }, replies: [goodPrediction()] }), /practised every file Kintsugi would pick in src/);
+  });
+
+  it('still takes a file for the other kinds only', async () => {
+    const repo = await repoWithSource();
+    await assert.rejects(run({ repo, target: 'src', options: { yes: true } }), /src is not a file/);
   });
 });
 

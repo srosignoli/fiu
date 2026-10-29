@@ -138,7 +138,8 @@ function normaliseScope(repo: string, cwd: string, scopePath: string): string {
 }
 
 /** For each source file, the latest finished Attempt on a Workout made from it, and that Workout's commit. */
-async function practiceByFile(paths: ReturnType<typeof workspacePaths>) {
+/** For each source file, the latest finished Attempt at any Workout made from it. */
+export async function practiceByFile(paths: ReturnType<typeof workspacePaths>) {
   const practice = new Map<string, { outcome: 'completed' | 'abandoned'; at: string; commit?: string }>();
   const consider = (path: string, outcome: 'completed' | 'abandoned', at: string, commit?: string) => {
     const current = practice.get(path);

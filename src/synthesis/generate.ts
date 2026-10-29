@@ -8,7 +8,7 @@ import { averageSpend, readState, recordSpend, type Spend } from '../workouts/st
 import type { WorkspacePaths } from '../workspace.ts';
 import type { createModel } from './model.ts';
 import type { DrillTarget } from './prompt.ts';
-import type { WorkoutKind } from './schema.ts';
+import { NOUN, type WorkoutKind } from './schema.ts';
 import { MAX_ATTEMPTS, synthesizeDrill, type SynthesisEvent } from './synthesize.ts';
 
 export type GenerationResult =
@@ -69,7 +69,7 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
           usage.push(...event.usage);
           spend.generationAttempts = event.attempt;
         } else {
-          step(describeEvent(event, maxAttempts));
+          step(describeEvent(event, maxAttempts, options.kind ?? 'drill'));
         }
       },
     });
@@ -117,11 +117,11 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
   }
 }
 
-function describeEvent(event: Exclude<SynthesisEvent, { type: 'usage' }>, maxAttempts: number): string {
+function describeEvent(event: Exclude<SynthesisEvent, { type: 'usage' }>, maxAttempts: number, kind: WorkoutKind): string {
   const of = `(attempt ${event.attempt} of ${maxAttempts})`;
   switch (event.type) {
     case 'generating':
-      return `Generating the Drill ${of}`;
+      return `Generating the ${NOUN[kind]} ${of}`;
     case 'verifying':
       return `Verifying it in the sandbox ${of}`;
     case 'rejected':

@@ -11,7 +11,9 @@ import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox } from '../sandbox/sandbox.ts';
 import { createModel as createModelDefault } from '../synthesis/model.ts';
 import { generateWorkout, type GenerationResult } from '../synthesis/generate.ts';
-import type { WorkoutKind } from '../synthesis/schema.ts';
+import { shortlist } from '../explore/shortlist.ts';
+import { practiceByFile } from '../map/map.ts';
+import { NOUN, type WorkoutKind } from '../synthesis/schema.ts';
 import { sourceRevision } from '../workouts/save.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from '../workspace.ts';
 
@@ -22,7 +24,7 @@ export interface DrillCommandOptions {
   sandbox: boolean;
   /** --quick: a Drill that fits a short wait. */
   quick?: boolean;
-  /** `kin kata`: a Kata instead of a Drill. */
+  /** `kin kata` and `kin predict`: a Kata or a Prediction instead of a Drill. */
   kind?: WorkoutKind;
 }
 
@@ -45,19 +47,18 @@ export type DrillCommandResult = GenerationResult;
 
 export class DrillTargetError extends Error {}
 
-/** `kin drill <file>[#symbol]` (and `kin kata`): generate a Drill or Kata, verify it, and save it. */
+/** `kin drill <file>[#symbol]` (and `kin kata`, `kin predict`): generate a Workout, verify it, and save it. */
 export async function drill(
   cwd: string,
-  target: string,
+  /** A file, optionally `#symbol`. For a Prediction also a directory, or undefined for the repository root. */
+  target: string | undefined,
   options: DrillCommandOptions,
   ui: DrillUi,
   { createModel = createModelDefault, configEnv = { env: process.env, home: homedir() }, cacheRoot }: DrillDependencies = {},
 ): Promise<DrillCommandResult> {
   const repoRoot = await findRepoRoot(cwd);
-  const { file, symbol } = parseTarget(cwd, target);
-  const sourcePath = repoRelative(repoRoot, file);
   const kind = options.kind ?? 'drill';
-  const noun = kind === 'drill' ? 'Drill' : 'Kata';
+  const noun = NOUN[kind];
 
   const paths = workspacePaths(repoRoot);
   await ensureWorkspace(paths);
@@ -65,6 +66,14 @@ export async function drill(
   const repoConfig = await loadRepoConfig(paths.configFile);
   const userConfig = await loadUserConfig(configEnv);
   const config = resolveConfig(repoConfig, userConfig);
+  const directory = kind === 'prediction' ? directoryTarget(cwd, repoRoot, target) : undefined;
+  if (directory !== undefined) {
+    target = await pickUnpractised(repoRoot, directory, config.profiles, paths);
+    ui.step(`Asking about ${target}`);
+  }
+  if (target === undefined) throw new DrillTargetError(`Name the file to make the ${noun} from.`);
+  const { file, symbol } = parseTarget(directory === undefined ? cwd : repoRoot, target);
+  const sourcePath = repoRelative(repoRoot, file);
   const profile = profileForFile(file, config.profiles);
   // Fail on a missing key before doing anything slow.
   let apiKey: string;
@@ -72,7 +81,7 @@ export async function drill(
     apiKey = resolveApiKey(config.provider, userConfig, configEnv);
   } catch (error) {
     if (!(error instanceof MissingApiKeyError)) throw error;
-    error.message += `\nOr generate it with your coding agent instead: run \`kin agent install claude\`, then ask it to \`/kin-drill ${sourcePath}${kind === 'kata' ? ' kata' : ''}\`.`;
+    error.message += `\nOr generate it with your coding agent instead: run \`kin agent install claude\`, then ask it to \`/kin-drill ${sourcePath}${kind === 'drill' ? '' : ` ${kind}`}\`.`;
     throw error;
   }
 
@@ -103,7 +112,8 @@ export async function drill(
       createModel,
       target: { path: sourcePath, source: await readFile(file, 'utf8'), symbol },
       revision: await sourceRevision(repoRoot, sourcePath),
-      quick: options.quick ?? false,
+      // Every Prediction is Quick by its own rules; the flag only shapes Drills and Katas.
+      quick: kind !== 'prediction' && (options.quick ?? false),
       kind,
       origin: 'manual',
       cacheRoot,
@@ -112,6 +122,28 @@ export async function drill(
   } finally {
     await sandbox.dispose();
   }
+}
+
+/** For `kin predict`: the directory to choose a file from (repository-relative), or undefined when the target is a file. */
+function directoryTarget(cwd: string, repoRoot: string, target: string | undefined): string | undefined {
+  if (target === undefined) return '';
+  const path = resolve(cwd, target);
+  if (!existsSync(path) || !statSync(path).isDirectory()) return undefined;
+  const dir = relative(repoRoot, path);
+  if (dir.startsWith('..')) throw new DrillTargetError(`${target} is outside the repository at ${repoRoot}.`);
+  if (dir.split(sep)[0] === '.kintsugi') throw new DrillTargetError('Ask about your own code, not a Workout.');
+  return dir.split(sep).join('/');
+}
+
+/** The densest file in the directory's shortlist that you have never Practised: people who don't read code don't know file names. */
+export async function pickUnpractised(repoRoot: string, directory: string, profiles: Parameters<typeof shortlist>[2], paths: ReturnType<typeof workspacePaths>): Promise<string> {
+  const candidates = await shortlist(repoRoot, directory, profiles);
+  const practised = await practiceByFile(paths);
+  const pick = candidates.find((c) => !practised.has(c.path));
+  const where = directory || 'the repository';
+  if (candidates.length === 0) throw new DrillTargetError(`${where} has no source files worth asking about.`);
+  if (!pick) throw new DrillTargetError(`You have practised every file Kintsugi would pick in ${where}. Name a file, or a smaller directory.`);
+  return pick.path;
 }
 
 /** `path/to/file.ts#symbol`; a path that itself contains `#` is taken literally when it exists. */

@@ -7,7 +7,7 @@ import { confirm, log, spinner } from '@clack/prompts';
 import { Command } from 'commander';
 import { costReport, startOfMonth, type SpendBucket } from './commands/cost.ts';
 import { drill, type DrillUi } from './commands/drill.ts';
-import type { WorkoutKind } from './synthesis/schema.ts';
+import { NOUN, type WorkoutKind } from './synthesis/schema.ts';
 import { describeCost, formatUsd, totalTokens } from './cost/usage.ts';
 import { EDITOR_TIP, init } from './commands/init.ts';
 import { quick, quickWhile, train, type TrainResult } from './commands/train.ts';
@@ -40,19 +40,19 @@ program
     console.log('To get a Quick Drill from each of your commits in the background, run: kin auto on');
   });
 
-/** `kin drill` and `kin kata`: the same flow, differing only in what is generated and how it is described. */
+/** `kin drill`, `kin kata`, and `kin predict`: the same flow, differing only in what is generated and how it is described. */
 function generationCommand(kind: WorkoutKind) {
-  const noun = kind === 'drill' ? 'Drill' : 'Kata';
-  return async (target: string, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean }) => {
+  const noun = NOUN[kind];
+  return async (target: string | undefined, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean }) => {
     const ui = terminalUi();
     try {
       const result = await drill(process.cwd(), target, { ...options, kind }, ui);
       ui.settle();
       if (result.status === 'not-worth-practicing') {
-        log.warn(`Nothing worth practising in ${target} (${describeCost(result.cost)} spent): ${result.reason}`);
+        log.warn(`Nothing worth practising in ${target ?? 'that file'} (${describeCost(result.cost)} spent): ${result.reason}`);
       } else if (result.status === 'failed') {
         log.error(
-          `Couldn't produce a Verified Workout from ${target} (${describeCost(result.cost)} spent). The last attempt failed with:\n${result.feedback}`,
+          `Couldn't produce a Verified Workout from ${target ?? 'that file'} (${describeCost(result.cost)} spent). The last attempt failed with:\n${result.feedback}`,
         );
         process.exitCode = 1;
       } else {
@@ -65,7 +65,9 @@ function generationCommand(kind: WorkoutKind) {
           log.message(
             (kind === 'drill'
               ? [`Read the incident report: ${join(workoutDir, 'README.md')}`, `Fix the bug in:           ${join(workoutDir, record.files.code)}`]
-              : [`Read the brief:           ${join(workoutDir, 'README.md')}`, `Fill in the gap in:       ${join(workoutDir, record.files.code)}`]
+              : kind === 'kata'
+                ? [`Read the brief:           ${join(workoutDir, 'README.md')}`, `Fill in the gap in:       ${join(workoutDir, record.files.code)}`]
+                : [`Read the Scenario:        ${join(workoutDir, 'README.md')}`]
             )
               .concat(`Then train with:          kin train ${record.id}`)
               .join('\n'),
@@ -97,6 +99,15 @@ program
   .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
   .action(generationCommand('kata'));
+
+program
+  .command('predict')
+  .description('Generate a Prediction: a plain-English Scenario about what your code does, with four outcomes to choose from. No code to read.')
+  .argument('[target]', 'a source file (optionally #symbol), or a directory to pick a file from (default: the whole repository)')
+  .option('--no-train', 'only save the Prediction, without opening the runner')
+  .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
+  .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
+  .action(generationCommand('prediction'));
 
 program
   .command('mcp')

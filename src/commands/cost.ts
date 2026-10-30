@@ -20,6 +20,8 @@ export interface CostReport {
   producedNothing: SpendBucket;
   /** Spend on choosing and ordering Tracks' steps. */
   trackPlanning: SpendBucket;
+  /** Spend on describing folders and files for the Atlas. */
+  atlas: SpendBucket;
   byOrigin: Record<string, SpendBucket>;
   /** Requests your coding agent generated: counted, but their cost isn't measured. */
   byAgent: { requests: number; workouts: number };
@@ -51,6 +53,7 @@ export async function costReport(cwd: string, since: Date = startOfMonth()): Pro
     neverAttempted: empty(),
     producedNothing: empty(),
     trackPlanning: empty(),
+    atlas: empty(),
     byOrigin: {},
     byAgent: { requests: 0, workouts: 0 },
     unpriced: [],
@@ -64,7 +67,8 @@ export async function costReport(cwd: string, since: Date = startOfMonth()): Pro
       continue;
     }
     const cost = entry.cost;
-    const buckets = [report.total, bucketFor(report, entry, attemptedIds), (report.byOrigin[entry.origin] ??= empty())];
+    // The Atlas isn't a Workout, so it has no Origin.
+    const buckets = [report.total, bucketFor(report, entry, attemptedIds), ...(entry.result === 'atlas' ? [] : [(report.byOrigin[entry.origin] ??= empty())])];
     for (const bucket of buckets) {
       bucket.usd += cost.usd;
       bucket.count++;
@@ -77,6 +81,7 @@ export async function costReport(cwd: string, since: Date = startOfMonth()): Pro
 
 function bucketFor(report: CostReport, entry: Spend, attemptedIds: Set<string>): SpendBucket {
   if (entry.result === 'track-plan') return report.trackPlanning;
+  if (entry.result === 'atlas') return report.atlas;
   if (entry.result !== 'verified' || !entry.workoutId) return report.producedNothing;
   return attemptedIds.has(entry.workoutId) ? report.attempted : report.neverAttempted;
 }

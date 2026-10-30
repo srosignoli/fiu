@@ -51,8 +51,11 @@ export const SpendSchema = z.object({
   generator: z.enum(['kintsugi', 'agent']).default('kintsugi'),
   /** The source file, relative to the repository root. */
   source: z.string(),
-  /** `track-plan`: the call that chose and ordered a Track's steps (no Workout of its own). */
-  result: z.enum(['verified', 'not-verified', 'not-worth-practicing', 'error', 'track-plan']),
+  /**
+   * `track-plan`: the call that chose and ordered a Track's steps (no Workout of its own). `atlas`: a call
+   * describing a folder for the Atlas (`source` is the folder).
+   */
+  result: z.enum(['verified', 'not-verified', 'not-worth-practicing', 'error', 'track-plan', 'atlas']),
   workoutId: z.string().optional(),
   generationAttempts: z.number().int().nonnegative(),
   /** Null when the user's agent generated it: Kintsugi can't see its usage. */
@@ -95,9 +98,10 @@ export async function recordSpend(paths: WorkspacePaths, spend: Spend): Promise<
   await writeState(paths, state);
 }
 
-/** The mean cost of recent generation requests, counting only fully priced ones. */
+/** The mean cost of recent requests for a Workout, counting only fully priced ones. */
 export function averageSpend(spend: Spend[], last = 10): { usd: number; count: number } | undefined {
-  const priced = spend.filter((s) => s.cost !== null && s.cost.unpricedModels.length === 0).slice(-last);
+  const forWorkouts = (s: Spend) => s.result !== 'track-plan' && s.result !== 'atlas';
+  const priced = spend.filter((s) => forWorkouts(s) && s.cost !== null && s.cost.unpricedModels.length === 0).slice(-last);
   if (priced.length === 0) return undefined;
   return { usd: priced.reduce((sum, s) => sum + s.cost!.usd, 0) / priced.length, count: priced.length };
 }

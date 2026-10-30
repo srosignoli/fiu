@@ -203,6 +203,7 @@ program
       row('Never attempted', report.neverAttempted, report.neverAttempted.count > 0 ? '   paid for, not used yet' : ''),
       row('Produced nothing', report.producedNothing),
       ...(report.trackPlanning.count > 0 ? [row('Planning Tracks', report.trackPlanning)] : []),
+      ...(report.atlas.count > 0 ? [row('Atlas', report.atlas)] : []),
     ];
     if (Object.keys(report.byOrigin).length > 1) {
       for (const [origin, bucket] of Object.entries(report.byOrigin)) lines.push(row(`From ${origin}`, bucket));
@@ -347,6 +348,29 @@ program
     }
     const { renderMap } = await import('./map/render.ts');
     console.log(renderMap(report, { color: process.stdout.isTTY === true && !process.env.NO_COLOR }));
+  });
+
+const atlas = program.command('atlas').description('What each folder, file, and key function is for: so you can choose what to practise.');
+
+atlas
+  .command('build')
+  .description('Describe what is missing or stale in the Atlas, deepest folders first (the whole repository, or one folder).')
+  .argument('[dir]', 'a folder to describe (default: the repository)')
+  .option('-y, --yes', 'consent to sending code and to the estimated cost without prompting', false)
+  .action(async (dir: string | undefined, options: { yes: boolean }) => {
+    const { buildAtlas } = await import('./commands/atlas.ts');
+    const ui = terminalUi();
+    let result;
+    try {
+      result = await buildAtlas(process.cwd(), dir, options, ui);
+    } finally {
+      ui.settle();
+    }
+    if (result.status === 'up-to-date') return log.success('The Atlas is up to date: nothing is missing or stale.');
+    if (result.status === 'declined') return log.info('Nothing described.');
+    for (const failure of result.failed) log.warn(`Couldn't describe ${failure.folder || 'the repository overview'}:\n${failure.problems.map((p) => `- ${p}`).join('\n')}`);
+    log.success(`Described ${result.folders} folder(s) and ${result.files} file(s), ${describeCost(result.cost)}. See them with \`kin map\`, or search with \`kin atlas search "<goal>"\`.`);
+    if (result.failed.length > 0) process.exitCode = 1;
   });
 
 program

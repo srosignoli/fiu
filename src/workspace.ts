@@ -13,6 +13,8 @@ export interface WorkspacePaths {
   stateFile: string;
   workoutsDir: string;
   attemptsDir: string;
+  /** The Atlas: what each folder, file, and key function is for. */
+  atlasFile: string;
   /** Where v1 moved finished Workouts; no longer written. */
   doneDir: string;
 }
@@ -38,6 +40,7 @@ export function workspacePaths(repoRoot: string): WorkspacePaths {
     stateFile: join(root, 'state.json'),
     workoutsDir: join(root, 'workouts'),
     attemptsDir: join(root, 'attempts'),
+    atlasFile: join(root, 'atlas.json'),
     doneDir: join(root, 'done'),
   };
 }

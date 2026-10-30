@@ -14,6 +14,11 @@ export interface LanguageProfile {
   supportFiles: Record<string, string>;
   /** Starts a line comment (`//`, `#`): comments are ignored when a Drill's bug is looked for in the source. */
   lineComment?: string;
+  /**
+   * For the Atlas: a regular expression matching a line that declares a symbol, with the symbol's name
+   * in a group called `name`. Replaces the built-in, language-neutral patterns for this language.
+   */
+  declarationPattern?: string;
   /** Language-specific generation constraints for the LLM prompt. */
   promptRules: string;
   /** Toolchain check, run before any LLM call (and before training). */
@@ -72,6 +77,16 @@ export const UserProfileSchema = z.strictObject({
   testFilename: relativePath,
   supportFiles: z.record(relativePath, z.string()).default({}),
   lineComment: z.string().min(1).optional(),
+  declarationPattern: z
+    .string()
+    .refine((pattern) => {
+      try {
+        return new RegExp(pattern).source.includes('(?<name>');
+      } catch {
+        return false;
+      }
+    }, 'must be a valid regular expression with a group called "name"')
+    .optional(),
   promptRules: z.string().default(''),
   preflightCmd: z.string().min(1),
   warmup: z.record(relativePath, z.string()).optional(),

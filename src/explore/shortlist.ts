@@ -24,6 +24,9 @@ const OUTLINE_LINES = 12;
 
 /** Branching and error-handling constructs common to the supported languages. */
 const BRANCHING = /\b(if|else|for|while|switch|case|catch|except|elif|match|select|defer|go|await|try|throw|raise|return)\b|&&|\|\||\?\?|=>/g;
+/** Branching constructs in a piece of source. */
+export const branchCount = (source: string) => source.match(BRANCHING)?.length ?? 0;
+
 /** Lines that declare something: functions, types, classes, exported values. */
 const DECLARATION = /^\s*(export\s|pub\s|public\s|def\s|async\s+def\s|class\s|func\s|function\s|interface\s|type\s|struct\s|enum\s|const\s+\w+\s*=\s*(async\s*)?\(|impl\s)/;
 
@@ -70,7 +73,7 @@ export async function shortlist(repoRoot: string, modulePath: string, profiles: 
 export function logicScore(source: string): { lines: number; score: number } | undefined {
   const lines = source.split('\n').length;
   if (lines < MIN_LINES || lines > MAX_SOURCE_LINES) return undefined;
-  const branches = source.match(BRANCHING)?.length ?? 0;
+  const branches = branchCount(source);
   return { lines, score: (branches / lines) * Math.log10(lines) };
 }
 

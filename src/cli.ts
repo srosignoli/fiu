@@ -225,16 +225,18 @@ program
 program
   .command('explore')
   .description('Build a Track for a module: 3 to 5 Drills, each from a different file, foundations first.')
-  .argument('<path>', 'the module directory')
+  .argument('[path]', 'the module directory')
+  .option('--about <goal>', 'choose the module by what you want to learn, through the Atlas, instead of a path')
   .option('-y, --yes', 'consent to sending code and to the estimated cost without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
   .option('--no-train', 'only build the Track, without opening its first step')
-  .action(async (path: string, options: { yes: boolean; sandbox: boolean; train: boolean }) => {
+  .action(async (path: string | undefined, options: { yes: boolean; sandbox: boolean; train: boolean; about?: string }) => {
+    if ((path === undefined) === (options.about === undefined)) throw new Error('Name the module directory, or say what you want to learn with --about "<goal>" (not both).');
     const { explore } = await import('./commands/explore.ts');
     const ui = terminalUi();
     let result;
     try {
-      result = await explore(process.cwd(), path, options, ui);
+      result = await explore(process.cwd(), path ?? '', options, ui);
     } finally {
       ui.settle();
     }

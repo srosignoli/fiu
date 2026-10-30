@@ -41,9 +41,9 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin init` | Creates `.kintsugi/`, appends `.kintsugi/` to `.git/info/exclude`, runs the sandbox canary (§7), prints a tip on disabling AI completions inside `.kintsugi/` in your editor. |
 | `kin drill <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill (Quick with `--quick`) from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
 | `kin kata <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Like `kin drill`, but generates a Kata: one piece of the unit removed, rebuilt from a brief (§11.5). |
-| `kin explore <path> [--yes] [--no-sandbox] [--no-train]` | Build a Track for a module directory (§11.3.1). |
+| `kin explore <path> [--yes] [--no-sandbox] [--no-train]` / `kin explore --about "<goal>"` | Build a Track for a module directory (§11.3.1), or for the module a goal is about, found through the Atlas (§11.10). |
 | `kin track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
-| `kin share <id>... [--remote <name>]` / `kin fetch [--remote <name>] [--no-sandbox]` | Share Workouts or Tracks with the team on the `kintsugi/workouts` branch, or bring in theirs, re-verified (§11.3.2). |
+| `kin share [<id>...] [--atlas] [--remote <name>]` / `kin fetch [--remote <name>] [--no-sandbox]` | Share Workouts, Tracks, or the Atlas with the team on the `kintsugi/workouts` branch, or bring in theirs, Workouts re-verified (§11.3.2, §11.10). |
 | `kin map [<path>] [--json]` | Your comprehension debt by directory, or one directory's files: local and free (§11.4). |
 | `kin atlas [<path>] [--markdown]` / `kin atlas build [<dir>] [--yes]` / `kin atlas search "<goal>" [--all]` | Show, build, or search the Atlas: what each folder, file, and key function is for (§11.10). |
 | `kin quick [--while "<cmd>"] [--no-sandbox]` | Start the queue's best Quick Workout right away (§11.2.3); with `--while`, during a slow command (§11.6). |

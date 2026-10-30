@@ -12,7 +12,8 @@ import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '.
 import { profileForFile } from '../languages/registry.ts';
 import { preflight } from '../languages/run.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
-import { MAX_STEPS, MIN_STEPS, TRACK_RULES } from '../explore/plan.ts';
+import { MAX_STEPS, MIN_STEPS, TRACK_RULES, withAtlas } from '../explore/plan.ts';
+import { readAtlas } from '../atlas/store.ts';
 import { repoRelativeDir, shortlist } from '../explore/shortlist.ts';
 import { saveTrack, trackId, type TrackStep } from '../explore/tracks.ts';
 import { verifySandbox } from '../sandbox/canary.ts';
@@ -65,7 +66,8 @@ export interface PreparedTrack {
   maxSteps: number;
   /** How to choose and order the steps: the same rules Kintsugi's own planning uses. */
   rules: string;
-  candidates: { path: string; lines: number; outline: string[] }[];
+  /** Each with what the Atlas says it is for, or its declaration lines when the Atlas has no entry. */
+  candidates: ({ path: string; lines: number; outline: string[] } | { path: string; lines: number; atlas: string })[];
 }
 
 export type FinishedTrack =
@@ -142,7 +144,7 @@ export class AgentDrills {
     await ensureWorkspace(paths);
     await excludeWorkspaceFromGit(repoRoot);
     const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(this.#configEnv()));
-    const candidates = await shortlist(repoRoot, module, config.profiles);
+    const candidates = withAtlas(await shortlist(repoRoot, module, config.profiles), await readAtlas(paths));
     if (candidates.length < MIN_STEPS) {
       throw new AgentRequestError(`${module || 'The repository'} has ${candidates.length} source file(s) worth drilling; a Track needs at least ${MIN_STEPS}.`);
     }
@@ -155,7 +157,7 @@ export class AgentDrills {
       minSteps: MIN_STEPS,
       maxSteps: MAX_STEPS,
       rules: TRACK_RULES,
-      candidates: candidates.map(({ path, lines, outline }) => ({ path, lines, outline })),
+      candidates: candidates.map(({ path, lines, outline, atlas }) => (atlas ? { path, lines, atlas } : { path, lines, outline })),
     };
   }
 

@@ -15,6 +15,8 @@ export interface Candidate {
   score: number;
   /** Declaration lines, so the ordering call can see what the file is about without reading it all. */
   outline: string[];
+  /** What the Atlas says the file and its key functions are for, when it has an entry: shown in place of the outline. */
+  atlas?: string;
 }
 
 export const SHORTLIST_SIZE = 10;

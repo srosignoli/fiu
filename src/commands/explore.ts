@@ -1,11 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { SEARCH_RESULTS } from '../atlas/search.ts';
+import { searchAtlasCommand } from './atlas.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { ConsentDeclinedError, ConsentRequiredError, hasConsent, recordConsent } from '../consent.ts';
 import { estimateCost, formatUsd, type ModelUsage } from '../cost/usage.ts';
 import { MissingApiKeyError, resolveApiKey } from '../credentials.ts';
-import { MIN_STEPS, planTrack, type PlannedStep, type TrackPlan } from '../explore/plan.ts';
+import { MIN_STEPS, planTrack, withAtlas, type PlannedStep, type TrackPlan } from '../explore/plan.ts';
+import { readAtlas } from '../atlas/store.ts';
 import { ExploreTargetError, repoRelativeDir, shortlist } from '../explore/shortlist.ts';
 import { saveTrack, trackId, type TrackRecord, type TrackStep } from '../explore/tracks.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
@@ -22,6 +25,8 @@ import type { DrillDependencies, DrillUi } from './drill.ts';
 export interface ExploreOptions {
   /** --yes: consent to sending code, and to the estimated cost, without prompting. */
   yes: boolean;
+  /** --about: choose the module by what the human wants to learn, through the Atlas search, instead of a path. */
+  about?: string;
   /** False with --no-sandbox. */
   sandbox: boolean;
 }
@@ -32,6 +37,28 @@ export type ExploreResult =
   | { status: 'not-enough'; workoutIds: string[]; dropped: string[] }
   | { status: 'plan-failed'; problems: string[] }
   | { status: 'declined'; plan: TrackPlan };
+
+/**
+ * The module a goal is about: the folder holding most of the best search matches (by score), or the
+ * nearest folder above it with enough files for a Track.
+ */
+export async function moduleAbout(repoRoot: string, goal: string, configEnv: ConfigEnv): Promise<string> {
+  const { results, described } = await searchAtlasCommand(repoRoot, goal, { configEnv });
+  const byFolder = new Map<string, number>();
+  for (const result of results.slice(0, SEARCH_RESULTS)) {
+    const folder = dirname(result.path) === '.' ? '' : dirname(result.path);
+    byFolder.set(folder, (byFolder.get(folder) ?? 0) + result.score);
+  }
+  const config = resolveConfig(await loadRepoConfig(workspacePaths(repoRoot).configFile), await loadUserConfig(configEnv));
+  for (const [folder] of [...byFolder].sort((a, b) => b[1] - a[1])) {
+    for (let candidate = folder; ; candidate = dirname(candidate) === '.' ? '' : dirname(candidate)) {
+      if ((await shortlist(repoRoot, candidate, config.profiles)).length >= MIN_STEPS) return candidate;
+      if (candidate === '') break;
+    }
+  }
+  const hint = described ? 'Try other words, or name the module.' : 'Only names are searched until the Atlas is built (`kin atlas build`); or name the module.';
+  throw new ExploreTargetError(`Nothing matches "${goal}" well enough to choose a module. ${hint}`);
+}
 
 /**
  * `kin explore <path>`: a Track for a module. A static shortlist, one call to choose and order the
@@ -46,7 +73,11 @@ export async function explore(
   { createModel = createModelDefault, configEnv = { env: process.env, home: homedir() }, cacheRoot }: DrillDependencies = {},
 ): Promise<ExploreResult> {
   const repoRoot = await findRepoRoot(cwd);
-  const module = repoRelativeDir(repoRoot, resolve(cwd, modulePath));
+  if (options.about !== undefined) {
+    modulePath = await moduleAbout(repoRoot, options.about, configEnv);
+    ui.step(`Exploring ${modulePath || 'the repository'}: the module closest to "${options.about}"`);
+  }
+  const module = repoRelativeDir(repoRoot, resolve(cwd, options.about !== undefined ? join(repoRoot, modulePath) : modulePath));
   if (module.startsWith('..')) throw new ExploreTargetError(`${modulePath} is outside the repository at ${repoRoot}.`);
   if (module.split('/')[0] === '.kintsugi') throw new ExploreTargetError('Explore your own code, not the Kintsugi workspace.');
 
@@ -65,7 +96,7 @@ export async function explore(
     throw error;
   }
 
-  const candidates = await shortlist(repoRoot, module, config.profiles);
+  const candidates = withAtlas(await shortlist(repoRoot, module, config.profiles), await readAtlas(paths));
   if (candidates.length < MIN_STEPS) {
     throw new ExploreTargetError(
       `${module || 'The repository'} has ${candidates.length} source file(s) worth drilling; a Track needs at least ${MIN_STEPS}. Try a larger module, or \`kin drill <file>\`.`,

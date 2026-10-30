@@ -5,10 +5,11 @@ import { describe, it } from 'node:test';
 import { execa } from 'execa';
 import { countsTowardQueueCap } from '../src/background/refill.ts';
 import { costReport } from '../src/commands/cost.ts';
-import { explore, type ExploreOptions } from '../src/commands/explore.ts';
+import { explore, moduleAbout, type ExploreOptions } from '../src/commands/explore.ts';
 import { continueTrack, formatProgress } from '../src/commands/track.ts';
 import type { TrainIo } from '../src/commands/train.ts';
-import { checkPlan, type TrackPlan } from '../src/explore/plan.ts';
+import { emptyAtlas } from '../src/atlas/store.ts';
+import { candidatesPrompt, checkPlan, withAtlas, type TrackPlan } from '../src/explore/plan.ts';
 import { ExploreTargetError, shortlist } from '../src/explore/shortlist.ts';
 import { listTracks, loadTrack, trackProgress } from '../src/explore/tracks.ts';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
@@ -95,6 +96,26 @@ describe('the shortlist', () => {
     const repo = await repoWithModule(MODULE);
     await assert.rejects(shortlist(repo, 'src/core/store.ts', profiles()), /is a file: explore a module directory/);
     await assert.rejects(shortlist(repo, 'nope', profiles()), ExploreTargetError);
+  });
+});
+
+describe('Tracks and the Atlas', () => {
+  it('shows what the Atlas says a candidate is for in place of its declarations', async () => {
+    const repo = await repoWithModule(MODULE);
+    const atlas = emptyAtlas();
+    atlas.files['src/core/store.ts'] = { hash: 'h', text: 'Keeps the jobs.', writtenAt: '2026-10-30T00:00:00.000Z', functions: { pickNext: 'Chooses the next job.' } };
+    const candidates = withAtlas(await shortlist(repo, 'src/core', profiles()), atlas);
+    const prompt = candidatesPrompt('src/core', candidates);
+    assert.match(prompt, /with what each is for \(from the Atlas\) or its declarations:/);
+    assert.match(prompt, /- src\/core\/store\.ts \(\d+ lines\)\n {4}Keeps the jobs\.\n {4}pickNext: Chooses the next job\.\n- src\/core\/queue\.ts \(\d+ lines\)\n {4}export interface Job/);
+  });
+
+  it('chooses the module a goal is about, walking up to a folder with enough files', async () => {
+    const repo = await repoWithModule({ ...MODULE, 'src/core/deep/lonely.ts': source('lonely'), 'src/web/page.ts': source('page') });
+    const configEnv = { env: {}, home: await tempDir() };
+    assert.equal(await moduleAbout(repo, 'how the worker queue works', configEnv), 'src/core');
+    assert.equal(await moduleAbout(repo, 'lonely', configEnv), 'src/core');
+    await assert.rejects(moduleAbout(repo, 'payments', configEnv), /Nothing matches "payments" well enough to choose a module\. Only names are searched/);
   });
 });
 

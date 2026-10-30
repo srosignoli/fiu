@@ -71,7 +71,7 @@ ${stamp(version)}
 
 When the user wants to learn a module rather than practise one file, build a Track: 3 to 5 Drills, each from a different file, foundations first.
 
-1. **Start it.** Call prepare_track with the module directory the user named, or the one their question is about.
+1. **Start it.** Call prepare_track with the module directory the user named, or the one their question is about. When they name a topic rather than a directory, call search_atlas with it and use the folder holding most of the best results. Candidates the Atlas describes come with what they are for instead of their declarations.
 
 2. **Choose and order the steps** from its candidates by its rules: the files the others build on come first. Write one line per step saying why it matters for the module.
 

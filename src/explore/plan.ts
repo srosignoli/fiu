@@ -2,6 +2,7 @@ import { generateText, NoObjectGeneratedError, Output, type LanguageModel, type 
 import { z } from 'zod';
 import { usageOf, type ModelUsage } from '../cost/usage.ts';
 import type { ProviderOptions } from '../synthesis/model.ts';
+import type { Atlas } from '../atlas/store.ts';
 import type { Candidate } from './shortlist.ts';
 
 export const MIN_STEPS = 3;
@@ -33,9 +34,20 @@ Also list up to ${MAX_ALTERNATES} alternates, best first, in case a step can't b
 
 export function candidatesPrompt(modulePath: string, candidates: Candidate[]): string {
   const listed = candidates
-    .map((c) => [`- ${c.path} (${c.lines} lines)`, ...c.outline.map((line) => `    ${line}`)].join('\n'))
+    .map((c) => [`- ${c.path} (${c.lines} lines)`, ...(c.atlas ? c.atlas.split('\n') : c.outline).map((line) => `    ${line}`)].join('\n'))
     .join('\n');
-  return `Module: ${modulePath || '(repository root)'}\n\nCandidate files, with their declarations:\n${listed}`;
+  const what = candidates.some((c) => c.atlas) ? 'what each is for (from the Atlas) or its declarations' : 'their declarations';
+  return `Module: ${modulePath || '(repository root)'}\n\nCandidate files, with ${what}:\n${listed}`;
+}
+
+/** Candidates with what the Atlas says each file and its key functions are for, where it says anything. */
+export function withAtlas(candidates: Candidate[], atlas: Atlas): Candidate[] {
+  return candidates.map((c) => {
+    const entry = atlas.files[c.path];
+    if (!entry) return c;
+    const functions = Object.entries(entry.functions).map(([name, text]) => `${name}: ${text}`);
+    return { ...c, atlas: [entry.text.replace(/\n/g, ' '), ...functions].join('\n') };
+  });
 }
 
 /** The plan's problems against the shortlist; empty when it can be used. */

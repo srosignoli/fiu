@@ -1,9 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { applyAtlasOutput, ATLAS_RULES, describeFolder, FILES_PER_CALL, folderPrompt } from '../atlas/describe.ts';
 import { atlasScope, buildSkeleton, foldersBottomUp, type Skeleton, type SkeletonFolder } from '../atlas/skeleton.ts';
+import type { AtlasView } from '../atlas/render.ts';
+import { searchAtlas } from '../atlas/search.ts';
 import { folderWork, readAtlas, writeAtlas, type Atlas } from '../atlas/store.ts';
+import { buildMap } from '../map/map.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { ConsentDeclinedError, ConsentRequiredError, hasConsent, recordConsent } from '../consent.ts';
 import { describeCost, estimateCost, mergeByModel, type Cost, type ModelUsage } from '../cost/usage.ts';
@@ -166,4 +169,25 @@ export async function buildAtlas(
     if (call.wantFolder) described.folders++;
   }
   return { status: 'built', ...described, failed, cost: estimateCost(mergeByModel(usage), config.prices) };
+}
+
+/** `kin atlas search "<goal>"`: files and symbols for a goal, local and free, with the map state of each. */
+export async function searchAtlasCommand(cwd: string, goal: string, { configEnv = { env: process.env, home: homedir() } }: Pick<AtlasDependencies, 'configEnv'> = {}) {
+  const repoRoot = await findRepoRoot(cwd);
+  const paths = workspacePaths(repoRoot);
+  const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(configEnv));
+  const skeleton = await buildSkeleton(repoRoot, config.profiles);
+  const atlas = await readAtlas(paths);
+  const map = await buildMap(repoRoot, '', { configEnv });
+  const states = new Map(map.dirs.flatMap((d) => d.files.map((f) => [f.path, f.state] as const)));
+  return { results: searchAtlas(goal, skeleton, atlas, states), described: Object.keys(atlas.files).length > 0 };
+}
+
+/** `kin atlas [<path>]`: what the Atlas holds for the repository or one folder. */
+export async function atlasView(cwd: string, path: string | undefined, { configEnv = { env: process.env, home: homedir() } }: Pick<AtlasDependencies, 'configEnv'> = {}): Promise<AtlasView> {
+  const repoRoot = await findRepoRoot(cwd);
+  const paths = workspacePaths(repoRoot);
+  const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(configEnv));
+  const skeleton = await buildSkeleton(repoRoot, config.profiles);
+  return { name: basename(repoRoot), scope: atlasScope(repoRoot, cwd, path, skeleton), skeleton, atlas: await readAtlas(paths) };
 }

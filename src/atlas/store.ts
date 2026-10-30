@@ -41,7 +41,7 @@ export async function writeAtlas(paths: Pick<WorkspacePaths, 'atlasFile'>, atlas
 
 /** Missing, current, or stale (the content changed since it was described). */
 export type EntryState = 'missing' | 'current' | 'stale';
-export const entryState = (entry: AtlasEntry | undefined, hash: string): EntryState => (!entry ? 'missing' : entry.hash === hash ? 'current' : 'stale');
+export const entryState = (entry: Pick<AtlasEntry, 'hash'> | undefined, hash: string): EntryState => (!entry ? 'missing' : entry.hash === hash ? 'current' : 'stale');
 
 /** What a build of this folder has to write: the files needing a description, and whether the folder's own entry does. */
 export function folderWork(atlas: Atlas, skeleton: Skeleton, folder: SkeletonFolder): { files: string[]; folder: boolean } {

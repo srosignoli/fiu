@@ -6,7 +6,7 @@
 export const SERVER_INSTRUCTIONS = `Kintsugi turns code in this repository into Drills (small debugging exercises), Katas (one piece of the code removed, for the user to rebuild from a brief), and Predictions (a plain-English Scenario about what the code does, with four outcomes to choose from, for people who don't read code), which the user solves by hand. Each one is Verified (its tests are run in a sandbox) before it is saved.
 
 To create a Drill:
-1. Call prepare_drill with a file path, optionally \`path#symbol\` to pin a function or class. Pass quick: true for a Drill that fits a short wait. A Kata is created the same way, with kind: "kata", and a Prediction with kind: "prediction".
+1. Call prepare_drill with a file path, optionally \`path#symbol\` to pin a function or class. When the user says what they want to learn rather than naming code, call search_atlas with their words first, and let them choose among its targets. Pass quick: true for a Drill that fits a short wait. A Kata is created the same way, with kind: "kata", and a Prediction with kind: "prediction".
 2. Write the Drill by following the returned instructions against the numbered source.
 3. Call submit_drill with the generationId and the Drill. Kintsugi runs the tests itself.
 4. If the result is "rejected", fix every problem in the feedback and submit again. The Drill is done when the result is "saved" or "not-worth-practicing"; when no submissions are left, tell the user it could not be Verified.
@@ -42,6 +42,9 @@ export const PREPARE_ATLAS_DESCRIPTION =
 export const SUBMIT_ATLAS_DESCRIPTION =
   'Submit the Atlas entries for one folder: the folder line (for the repository root, the overview), and every listed file with each of its key functions. "saved" returns the folders still pending; "rejected" returns feedback to fix before resubmitting.';
 
+export const SEARCH_ATLAS_DESCRIPTION =
+  'Find files and functions to practise for what the user wants to learn: returns up to 10 targets (path#symbol) best first, each with its Atlas entry and how much the user has practised it. Matches words, so try the domain\'s own terms when the first search finds little.';
+
 export const LIST_DESCRIPTION = "List the Drills waiting to be solved in this repository's Kintsugi queue.";
 
 const stamp = (version: string) => `<!-- kintsugi-version: ${version} -->`;
@@ -58,7 +61,7 @@ ${stamp(version)}
 
 # Creating a Kintsugi Drill
 
-1. **Choose the target.** Use the file or symbol the user named. Otherwise pick the unit with the richest logic among the code you have been reading: algorithms, state transitions, concurrency, tricky boundaries. Glue code, configuration, and CRUD make poor Drills. Use quick: true when the user wants a short one, and for end-of-task Drills. Use kind: "kata" when the user asks for a Kata: rebuilding a missing piece rather than finding a bug. Use kind: "prediction" when the user asks for a Prediction, or wants to know what the system does without reading code; pick the unit whose behaviour users rely on (rules, limits, ordering) rather than the one with the richest logic.
+1. **Choose the target.** Use the file or symbol the user named. When the user says what they want to learn instead (\"how retries work\"), call search_atlas with their words (and again with the codebase's own terms if it finds little), propose 2 or 3 of the targets with their Atlas entries, and ask which one before generating. Otherwise pick the unit with the richest logic among the code you have been reading: algorithms, state transitions, concurrency, tricky boundaries. Glue code, configuration, and CRUD make poor Drills. Use quick: true when the user wants a short one, and for end-of-task Drills. Use kind: "kata" when the user asks for a Kata: rebuilding a missing piece rather than finding a bug. Use kind: "prediction" when the user asks for a Prediction, or wants to know what the system does without reading code; pick the unit whose behaviour users rely on (rules, limits, ordering) rather than the one with the richest logic.
 
 2. **Delegate the generation.** Hand it to a subagent so this conversation stays focused on the user's work. Give it the target, whether it is quick, whether it is an end-of-task Drill (afterTask: true), its kind, and this brief: "Create a Kintsugi Drill (or Kata, or Prediction) with the kintsugi MCP tools prepare_drill and submit_drill, following their instructions, until the result is saved, not worth practicing, or out of submissions. Reply with only the outcome: the Workout id and title, or the reason." Without subagents, do the same steps here.
 
@@ -91,7 +94,7 @@ When the user asks for help with a Drill or Kata they are solving (a Prediction 
 export function commandMarkdown(version: string): string {
   return `---
 description: Create a Kintsugi Drill (or Kata, or Prediction) from a file or symbol
-argument-hint: "[path[#symbol]] [quick] [kata|prediction]"
+argument-hint: "[path[#symbol] | what you want to learn] [quick] [kata|prediction]"
 ---
 
 ${stamp(version)}

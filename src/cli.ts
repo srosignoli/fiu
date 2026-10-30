@@ -353,6 +353,47 @@ program
 const atlas = program.command('atlas').description('What each folder, file, and key function is for: so you can choose what to practise.');
 
 atlas
+  .command('show', { isDefault: true })
+  .description('Show the Atlas: the overview, each folder and file, and their key functions.')
+  .argument('[path]', 'a folder to show (default: the repository)')
+  .option('--markdown', 'print it as a Markdown document')
+  .action(async (path: string | undefined, options: { markdown?: boolean }) => {
+    const { atlasView } = await import('./commands/atlas.ts');
+    const { renderAtlasMarkdown, renderAtlasText } = await import('./atlas/render.ts');
+    const view = await atlasView(process.cwd(), path);
+    console.log(options.markdown ? renderAtlasMarkdown(view, new Date()) : renderAtlasText(view, { color: process.stdout.isTTY === true && !process.env.NO_COLOR }));
+  });
+
+atlas
+  .command('search')
+  .description('Find the files and functions to practise for what you want to learn: local and free.')
+  .argument('<goal...>', 'what you want to learn, in your own words')
+  .option('--all', 'show every match, not just the best 10')
+  .action(async (goal: string[], options: { all?: boolean }) => {
+    const { searchAtlasCommand } = await import('./commands/atlas.ts');
+    const { SEARCH_RESULTS, targetOf } = await import('./atlas/search.ts');
+    const { results, described } = await searchAtlasCommand(process.cwd(), goal.join(' '));
+    const color = process.stdout.isTTY === true && !process.env.NO_COLOR;
+    const dim = (text: string) => (color ? `\x1b[2m${text}\x1b[0m` : text);
+    const marks = { red: '●', amber: '◐', green: '✓', grey: '·' } as const;
+    if (results.length === 0) {
+      log.info(`Nothing matches "${goal.join(' ')}".${described ? '' : ' Only names are searched until the Atlas is built: `kin atlas build`, or ask your agent: /kin-atlas'}`);
+      return;
+    }
+    const shown = options.all ? results : results.slice(0, SEARCH_RESULTS);
+    const lines: string[] = [];
+    for (const result of shown) {
+      lines.push(`${marks[result.state]} ${targetOf(result)}`);
+      if (result.text) lines.push(dim(`    ${result.stale ? '≈ ' : ''}${result.text.replace(/\n/g, ' ')}`));
+      lines.push(result.tooLong ? dim('    too long to drill: its file is over 3,000 lines') : `    kin drill ${targetOf(result)}`);
+    }
+    if (shown.length < results.length) lines.push(dim(`… and ${results.length - shown.length} more: --all`));
+    lines.push('', dim('● complex, never practised   ◐ out of date or AI-changed   ✓ practised. Swap drill for kata (rebuild it) or predict (say what it does, no code reading).'));
+    if (!described) lines.push(dim('Matched on names only: `kin atlas build` (or /kin-atlas) adds what each file and function is for.'));
+    console.log(lines.join('\n'));
+  });
+
+atlas
   .command('build')
   .description('Describe what is missing or stale in the Atlas, deepest folders first (the whole repository, or one folder).')
   .argument('[dir]', 'a folder to describe (default: the repository)')

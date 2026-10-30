@@ -91,6 +91,15 @@ describe('the Atlas in agent mode', () => {
     assert.equal(atlas.files['src/queue.ts'].functions.pickNext, 'Chooses the next job.');
   });
 
+  it('searches the Atlas for what the user wants to learn', async () => {
+    const repo = await repoWithSources('queue.ts');
+    const { call } = await connect(repo);
+    await call('submit_atlas', { folder: 'src', entries: entries('The job queue.', [{ path: 'src/queue.ts', text: 'Picks jobs.', functions: [{ name: 'pickNext', text: 'Chooses which waiting job runs next.' }] }]) });
+    const { json } = await call('search_atlas', { goal: 'which job runs next' });
+    assert.equal(json.described, true);
+    assert.deepEqual(json.results[0], { target: 'src/queue.ts#pickNext', atlas: 'Chooses which waiting job runs next.', practice: 'never practised' });
+  });
+
   it('refuses a folder outside the repository, or a file', async () => {
     const { call } = await connect(await repoWithSources('queue.ts'));
     assert.match((await call('prepare_atlas', { dir: 'src/queue.ts' })).text, /is a file/);
@@ -102,7 +111,7 @@ describe('kin mcp', () => {
   it('offers its tools and the rules for using them', async () => {
     const { client } = await connect(await repoWithSources('queue.ts'));
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((t) => t.name).sort(), ['finish_track', 'list_workouts', 'prepare_atlas', 'prepare_drill', 'prepare_track', 'submit_atlas', 'submit_drill']);
+    assert.deepEqual(tools.map((t) => t.name).sort(), ['finish_track', 'list_workouts', 'prepare_atlas', 'prepare_drill', 'prepare_track', 'search_atlas', 'submit_atlas', 'submit_drill']);
     assert.match(client.getInstructions() ?? '', /^Kintsugi turns code in this repository into Drills/);
     // The submit schema is the Drill schema itself, so the client checks the shape.
     const submit = tools.find((t) => t.name === 'submit_drill')!;

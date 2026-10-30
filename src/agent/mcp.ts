@@ -11,7 +11,7 @@ import { SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { NotAGitRepositoryError } from '../workspace.ts';
 import { AgentDrills, AgentRequestError } from './drills.ts';
 import { compareVersions, installedVersion } from './install.ts';
-import { FINISH_TRACK_DESCRIPTION, LIST_DESCRIPTION, PREPARE_ATLAS_DESCRIPTION, SUBMIT_ATLAS_DESCRIPTION, PREPARE_DESCRIPTION, PREPARE_TRACK_DESCRIPTION, SERVER_INSTRUCTIONS, SUBMIT_DESCRIPTION } from './texts.ts';
+import { FINISH_TRACK_DESCRIPTION, LIST_DESCRIPTION, PREPARE_ATLAS_DESCRIPTION, SEARCH_ATLAS_DESCRIPTION, SUBMIT_ATLAS_DESCRIPTION, PREPARE_DESCRIPTION, PREPARE_TRACK_DESCRIPTION, SERVER_INSTRUCTIONS, SUBMIT_DESCRIPTION } from './texts.ts';
 import { ExploreTargetError } from '../explore/shortlist.ts';
 import { AtlasOutputSchema } from '../atlas/describe.ts';
 import { AtlasTargetError } from '../atlas/skeleton.ts';
@@ -120,6 +120,16 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
       },
     },
     ({ folder, entries, scope }) => respond(() => drills.submitAtlas(folder, entries, scope)),
+  );
+
+  server.registerTool(
+    'search_atlas',
+    {
+      title: 'Search the Kintsugi Atlas',
+      description: SEARCH_ATLAS_DESCRIPTION,
+      inputSchema: { goal: z.string().describe('What the user wants to learn, in their words.') },
+    },
+    ({ goal }) => respond(() => drills.searchAtlas(goal)),
   );
 
   server.registerTool('list_workouts', { title: 'List Kintsugi Workouts', description: LIST_DESCRIPTION }, () =>

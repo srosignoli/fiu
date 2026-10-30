@@ -13,20 +13,36 @@ export function renderMap(report: MapReport, { color }: RenderOptions): string {
   const lines: string[] = [];
   const legend = `${paint('red', '●')} complex, never practised   ${paint('amber', '◐')} out of date or AI-changed   ${paint('green', '✓')} practised`;
 
+  // An Atlas entry, dimmed, on the line under what it describes; ≈ when the code changed since.
+  const note = (indent: string, atlas: { text: string; stale: boolean } | undefined) =>
+    atlas ? atlas.text.split('\n').map((line, i) => paint('grey', `${indent}${i === 0 && atlas.stale ? '≈ ' : ''}${line}`)) : [];
+
   // Drilling into one directory: its files. Otherwise: every directory with something to say.
   const single = report.scope && report.dirs.length === 1 && report.dirs[0]!.path === report.scope;
   if (single) {
     const dir = report.dirs[0]!;
-    lines.push(`${dir.path}  ${counts(dir, paint)}`, legend, '');
-    for (const file of dir.files) lines.push(`  ${paint(file.state, MARKS[file.state])} ${basename(file.path).padEnd(32)} ${paint(file.state === 'grey' ? 'grey' : file.state, describe(file))}`);
+    lines.push(`${dir.path}  ${counts(dir, paint)}`, ...note('', dir.atlas), legend, '');
+    for (const file of dir.files) {
+      lines.push(`  ${paint(file.state, MARKS[file.state])} ${basename(file.path).padEnd(32)} ${paint(file.state === 'grey' ? 'grey' : file.state, describe(file))}`.trimEnd());
+      lines.push(...note('      ', file.atlas));
+    }
   } else {
-    const shown = report.dirs.filter((d) => d.state !== 'grey');
-    lines.push(`Comprehension map${report.scope ? ` of ${report.scope}` : ''}`, legend, '');
-    if (shown.length === 0) lines.push('  Nothing complex left unpractised here.');
+    // With an Atlas the map is also for orientation: every directory, each with what it is for.
+    const shown = report.atlas ? report.dirs : report.dirs.filter((d) => d.state !== 'grey');
+    lines.push(`Comprehension map${report.scope ? ` of ${report.scope}` : ''}`, ...(report.scope ? [] : note('', report.atlas?.overview)), legend, '');
+    if (shown.every((d) => d.state === 'grey')) lines.push('  Nothing complex left unpractised here.');
     const width = Math.min(48, Math.max(...shown.map((d) => (d.path || '.').length), 10));
-    for (const dir of shown) lines.push(`  ${paint(dir.state, MARKS[dir.state])} ${(dir.path || '.').padEnd(width)}  ${counts(dir, paint)}`);
+    for (const dir of shown) {
+      lines.push(`  ${paint(dir.state, MARKS[dir.state])} ${(dir.path || '.').padEnd(width)}  ${counts(dir, paint)}`.trimEnd());
+      lines.push(...note('      ', dir.atlas));
+    }
     const quiet = report.dirs.length - shown.length;
     if (quiet > 0) lines.push(paint('grey', `  … and ${quiet} director${quiet === 1 ? 'y' : 'ies'} with nothing to worry about`));
+  }
+
+  if (report.atlas && report.atlas.staleFiles + report.atlas.staleFolders > 0) {
+    const changed = [report.atlas.staleFiles > 0 ? `${report.atlas.staleFiles} file(s)` : '', report.atlas.staleFolders > 0 ? `${report.atlas.staleFolders} folder(s)` : ''].filter(Boolean).join(' and ');
+    lines.push('', paint('grey', `Atlas: ${changed} changed since described (≈): \`kin atlas build\` to refresh.`));
   }
 
   if (report.suggestions.length > 0) {

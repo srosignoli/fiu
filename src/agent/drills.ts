@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { prepareAtlas, submitAtlas, type PreparedAtlas, type SubmittedAtlas } from '../atlas/agent.ts';
 import type { AtlasOutput } from '../atlas/describe.ts';
+import { SEARCH_RESULTS, targetOf } from '../atlas/search.ts';
+import { searchAtlasCommand } from '../commands/atlas.ts';
 import { parseTarget, repoRelative } from '../commands/drill.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { profileForFile } from '../languages/registry.ts';
@@ -167,6 +169,21 @@ export class AgentDrills {
   async submitAtlas(folder: string, entries: AtlasOutput, scope?: string): Promise<SubmittedAtlas> {
     const { repoRoot, paths, config } = await this.#workspace();
     return submitAtlas(repoRoot, paths, config.profiles, folder, entries, scope, this.#now());
+  }
+
+  /** Files and symbols for what the user wants to learn, best first, from the Atlas (or names alone before it is built). */
+  async searchAtlas(goal: string) {
+    const { repoRoot } = await this.#workspace();
+    const { results, described } = await searchAtlasCommand(repoRoot, goal, { configEnv: this.#configEnv() });
+    return {
+      described,
+      results: results.slice(0, SEARCH_RESULTS).map(({ path, symbol, text, stale, state, tooLong }) => ({
+        target: targetOf({ path, symbol }),
+        ...(text ? { atlas: stale ? `${text} (written before the code last changed)` : text } : {}),
+        practice: state === 'green' ? 'practised' : state === 'amber' ? 'out of date or AI-changed' : state === 'red' ? 'complex, never practised' : 'never practised',
+        ...(tooLong ? { tooLong: 'in a file over 3,000 lines: Kintsugi can\'t make a Workout from it' } : {}),
+      })),
+    };
   }
 
   async #workspace() {

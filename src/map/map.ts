@@ -1,6 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { execa } from 'execa';
+import { existsSync } from 'node:fs';
+import { buildSkeleton } from '../atlas/skeleton.ts';
+import { entryState, readAtlas, staleCounts } from '../atlas/store.ts';
 import { isAiAuthored } from '../background/commits.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { logicScore } from '../explore/shortlist.ts';
@@ -38,6 +41,14 @@ export interface FileEntry {
   score?: number;
   /** A queued or in-progress Workout already made from this file. */
   waitingWorkout?: string;
+  /** What the Atlas says the file is for. */
+  atlas?: AtlasNote;
+}
+
+/** An Atlas entry as the map shows it; stale once the content changed since it was written. */
+export interface AtlasNote {
+  text: string;
+  stale: boolean;
 }
 
 export interface DirEntry {
@@ -45,6 +56,7 @@ export interface DirEntry {
   state: FileState;
   counts: { red: number; amber: number; green: number };
   files: FileEntry[];
+  atlas?: AtlasNote;
 }
 
 export type Suggestion =
@@ -58,6 +70,8 @@ export interface MapReport {
   scope: string;
   dirs: DirEntry[];
   suggestions: Suggestion[];
+  /** Present once an Atlas exists: its overview, and how much of it is stale. */
+  atlas?: { overview?: AtlasNote; staleFiles: number; staleFolders: number };
 }
 
 export interface MapOptions {
@@ -130,7 +144,25 @@ export async function buildMap(cwd: string, scopePath = '', { configEnv = { env:
   }
 
   const dirs = groupByDirectory(files);
-  return { repository: repo, scope, dirs, suggestions: suggest(dirs) };
+  const report: MapReport = { repository: repo, scope, dirs, suggestions: suggest(dirs) };
+  if (existsSync(paths.atlasFile)) {
+    const atlas = await readAtlas(paths);
+    const skeleton = await buildSkeleton(repo, config.profiles);
+    const note = (entry: { text: string; hash: string } | undefined, hash: string | undefined): AtlasNote | undefined =>
+      entry && hash !== undefined ? { text: entry.text, stale: entryState(entry, hash) === 'stale' } : undefined;
+    for (const dir of dirs) {
+      const folder = note(atlas.folders[dir.path], skeleton.folders.get(dir.path)?.hash);
+      if (folder) dir.atlas = folder;
+      for (const file of dir.files) {
+        const described = note(atlas.files[file.path], skeleton.files.get(file.path)?.hash);
+        if (described) file.atlas = described;
+      }
+    }
+    const stale = staleCounts(atlas, skeleton);
+    const overview = note(atlas.folders[''], skeleton.folders.get('')?.hash);
+    report.atlas = { ...(overview ? { overview } : {}), staleFiles: stale.files, staleFolders: stale.folders };
+  }
+  return report;
 }
 
 function normaliseScope(repo: string, cwd: string, scopePath: string): string {

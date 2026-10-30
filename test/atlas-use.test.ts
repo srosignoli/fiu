@@ -55,6 +55,7 @@ async function describe_(dir: string): Promise<Atlas> {
 describe('searchAtlas', () => {
   it('stems words and splits names', () => {
     assert.deepEqual(words('How do retries work in retryWithBackoff?'), ['retry', 'retry', 'backoff']);
+    assert.deepEqual(words('verified, retried'), ['verify', 'retry']);
   });
 
   it('ranks names over entries, functions over types, then never-practised code first', async () => {
@@ -67,13 +68,20 @@ describe('searchAtlas', () => {
 
     const atlas = await describe_(dir);
     const results = searchAtlas('retrying failed jobs', skeleton, atlas, states);
-    // retry.ts: its name (2) and "failed job" in its entry (2); runJob ties it, and was never practised.
+    // retry.ts: its name (2), and "failed job" in its entry (1 each). runJob: its name (2) and "failed" (1);
+    // retryWithBackoff ties it, but runJob was never practised.
     assert.deepEqual(results.slice(0, 3).map((r) => [targetOf(r), r.score]), [
-      ['src/queue/worker.ts#runJob', 4],
       ['src/queue/retry.ts', 4],
+      ['src/queue/worker.ts#runJob', 3],
       ['src/queue/retry.ts#retryWithBackoff', 3],
     ]);
     assert.equal(results[2]!.text, 'Waits longer after each failure before trying again.');
+  });
+
+  it('matches a word to its longer forms', async () => {
+    const { dir } = await repo();
+    const skeleton = await buildSkeleton(dir, profiles());
+    assert.deepEqual(searchAtlas('jobs', skeleton, emptyAtlas(), new Map()).map(targetOf), ['src/queue/worker.ts#runJob']);
   });
 
   it('finds nothing in stopwords alone', async () => {

@@ -99,6 +99,8 @@ func New() *Store { return &Store{} }
       `function ${name}(x) {\n${Array.from({ length: 5 }, (_, i) => (i < branches ? `  if (x > ${i}) return ${i};` : '  x++;')).join('\n')}\n}\n`;
     const source = [dense('a', 1), dense('b', 5), dense('c', 3), 'function tiny(x) {\n  if (x) return 1;\n}\n', dense('d', 2), dense('e', 4), dense('f', 0)].join('');
     assert.deepEqual(keyFunctions(extractSymbols(source)).map((s) => s.name), ['b', 'e', 'c', 'd', 'a']);
+    const withConstructor = `class Q {\n  constructor(x) {\n${'    if (x) this.x = x;\n'.repeat(5)}  }\n}\n${source}`;
+    assert.ok(!keyFunctions(extractSymbols(withConstructor)).some((s) => s.name === 'Q.constructor'));
   });
 });
 

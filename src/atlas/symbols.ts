@@ -103,10 +103,13 @@ export function extractSymbols(source: string, declarationPattern?: string): Atl
   return symbols;
 }
 
-/** The densest callables of at least KEY_FUNCTION_MIN_LINES lines, at most KEY_FUNCTIONS_PER_FILE. */
+/** Constructors set fields up: rarely what a file is for. */
+const CONSTRUCTOR = /(^|\.)(constructor|__init__|new)$/;
+
+/** The densest callables of at least KEY_FUNCTION_MIN_LINES lines, at most KEY_FUNCTIONS_PER_FILE, constructors left out. */
 export function keyFunctions(symbols: AtlasSymbol[]): AtlasSymbol[] {
   return symbols
-    .filter((s) => s.callable && s.endLine - s.startLine + 1 >= KEY_FUNCTION_MIN_LINES)
+    .filter((s) => s.callable && !CONSTRUCTOR.test(s.name) && s.endLine - s.startLine + 1 >= KEY_FUNCTION_MIN_LINES)
     .sort((a, b) => b.score - a.score || b.endLine - b.startLine - (a.endLine - a.startLine) || a.startLine - b.startLine)
     .slice(0, KEY_FUNCTIONS_PER_FILE);
 }

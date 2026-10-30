@@ -25,7 +25,7 @@ const STOPWORDS = new Set(
 
 /** A word reduced to its stem, so "retries", "retrying", and "retry" meet. */
 function stem(word: string): string {
-  for (const [suffix, replacement] of [['ies', 'y'], ['ing', ''], ['ed', ''], ['es', ''], ['s', '']] as const) {
+  for (const [suffix, replacement] of [['ies', 'y'], ['ied', 'y'], ['ing', ''], ['ed', ''], ['es', ''], ['s', '']] as const) {
     if (word.length > suffix.length + 2 && word.endsWith(suffix)) return word.slice(0, -suffix.length) + replacement;
   }
   return word;
@@ -41,16 +41,29 @@ export function words(text: string): string[] {
     .map(stem);
 }
 
-/** How many of the goal's words appear among these words; a word of four letters or more also matches as a prefix. */
-function matches(goal: string[], found: string[]): number {
-  return goal.filter((g) => found.some((w) => w === g || (g.length >= 4 && w.startsWith(g)) || (w.length >= 4 && g.startsWith(w)))).length;
+/**
+ * Whether two stems name the same thing: equal, one a prefix of the other (four letters or more:
+ * "verify" and "verification"), or differing only in the last letter of the shorter ("verify", "verifi").
+ */
+function sameWord(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return (short.length >= 4 && long.startsWith(short)) || (short.length >= 5 && long.startsWith(short.slice(0, -1)));
+}
+
+/**
+ * A goal's score against named fields: each goal word scores its best field's weight (a name 2, an
+ * entry or a method's class 1), so a word found twice counts once.
+ */
+function score(goal: string[], fields: [weight: number, words: string[]][]): number {
+  return goal.reduce((sum, g) => sum + Math.max(0, ...fields.filter(([, found]) => found.some((w) => sameWord(g, w))).map(([weight]) => weight)), 0);
 }
 
 const RANK: Record<FileState, number> = { red: 0, amber: 1, grey: 2, green: 3 };
 
 /**
  * Files and symbols for a goal, best first: local and free. A match in a name (file path or symbol)
- * counts double over a match in an Atlas entry; among equals, functions before types, then the human's
+ * counts double over a match in an Atlas entry or in a method's class; among equals, functions before types, then the human's
  * map state, never-practised code first. Works on names alone before any entry is written.
  */
 export function searchAtlas(goal: string, skeleton: Skeleton, atlas: Atlas, states: Map<string, FileState>): SearchResult[] {
@@ -62,12 +75,13 @@ export function searchAtlas(goal: string, skeleton: Skeleton, atlas: Atlas, stat
     const entry = atlas.files[file.path];
     const stale = entryState(entry, file.hash) === 'stale';
     const state = states.get(file.path) ?? 'grey';
-    const fileScore = 2 * matches(wanted, words(file.path)) + (entry ? matches(wanted, words(entry.text)) : 0);
+    const fileScore = score(wanted, [[2, words(file.path)], [1, entry ? words(entry.text) : []]]);
     if (fileScore > 0) results.push({ path: file.path, ...(entry ? { text: entry.text } : {}), stale, state, tooLong: file.tooLong, callable: true, score: fileScore });
     for (const symbol of file.symbols) {
       const text = entry?.functions[symbol.name];
-      const score = 2 * matches(wanted, words(symbol.name)) + (text ? matches(wanted, words(text)) : 0);
-      if (score > 0) results.push({ path: file.path, symbol: symbol.name, ...(text ? { text } : {}), stale, state, tooLong: file.tooLong, callable: symbol.callable, score });
+      const dot = symbol.name.lastIndexOf('.');
+      const symbolScore = score(wanted, [[2, words(symbol.name.slice(dot + 1))], [1, words(symbol.name.slice(0, Math.max(dot, 0)))], [1, text ? words(text) : []]]);
+      if (symbolScore > 0) results.push({ path: file.path, symbol: symbol.name, ...(text ? { text } : {}), stale, state, tooLong: file.tooLong, callable: symbol.callable, score: symbolScore });
     }
   }
   return results.sort((a, b) => b.score - a.score || Number(b.callable) - Number(a.callable) || RANK[a.state] - RANK[b.state] || Number(!!b.text) - Number(!!a.text) || a.path.localeCompare(b.path) || (a.symbol ?? '').localeCompare(b.symbol ?? ''));

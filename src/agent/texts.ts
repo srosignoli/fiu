@@ -16,6 +16,12 @@ To build a Track (3 to 5 Drills that teach a newcomer one module, foundations fi
 2. For each step, in order, create the Drill as above, passing trackId and a one-line why to prepare_drill. If a step can't be Verified, use another candidate in its place.
 3. Call finish_track with the trackId and a short title. The Track is done when the result is "saved", or "not-enough" when fewer than 3 steps were Verified.
 
+To build the Atlas (what each folder, file, and key function is for, so the user can choose what to practise):
+1. Call prepare_atlas with the folder to describe (or none, for the whole repository). It returns the next folder to describe, deepest first, with what to read and the rules.
+2. Write the entries from the returned prompt only, and call submit_atlas with the folder, the entries, and the scope you started from. If the result is "rejected", fix every problem and submit again.
+3. Repeat with the next pending folder until nothing is pending. The repository root comes last: its entry is the overview.
+The Atlas is orientation written by you, not Verified: describe only what the code you were shown does.
+
 Workouts under .kintsugi/ are the user's practice material: leave their files for the user to solve. When the user asks for help with one, give a hint or a guiding question and let them find the fix or write the missing code.`;
 
 export const PREPARE_DESCRIPTION =
@@ -30,6 +36,12 @@ export const PREPARE_TRACK_DESCRIPTION =
 export const FINISH_TRACK_DESCRIPTION =
   'Save a Track once its steps are created: "saved" returns the trackId to start it with; "not-enough" means fewer than 3 steps were Verified (those Drills stay as ordinary Workouts).';
 
+export const PREPARE_ATLAS_DESCRIPTION =
+  'Start describing the next folder of the Atlas within a folder (or the whole repository): returns "up-to-date", or the folder to describe, the folders still pending after it, the rules, and a prompt with its subfolders\' entries, declarations, and key functions\' code.';
+
+export const SUBMIT_ATLAS_DESCRIPTION =
+  'Submit the Atlas entries for one folder: the folder line (for the repository root, the overview), and every listed file with each of its key functions. "saved" returns the folders still pending; "rejected" returns feedback to fix before resubmitting.';
+
 export const LIST_DESCRIPTION = "List the Drills waiting to be solved in this repository's Kintsugi queue.";
 
 const stamp = (version: string) => `<!-- kintsugi-version: ${version} -->`;
@@ -39,7 +51,7 @@ export const STAMP_PATTERN = /<!-- kintsugi-version: ([^ ]+) -->/;
 export function skillMarkdown(version: string): string {
   return `---
 name: kintsugi
-description: Creates Kintsugi Drills, Katas, Predictions, and Tracks, practice exercises built from this repository's code, with the kintsugi MCP tools. Use when the user asks for a drill, kata, prediction, workout, or practice exercise on some code, wants to learn, explore, or onboard onto a module, or an end-of-task rule asks for a Drill.
+description: Creates Kintsugi Drills, Katas, Predictions, and Tracks, practice exercises built from this repository's code, and builds the Atlas that says what each part of the code is for, with the kintsugi MCP tools. Use when the user asks for a drill, kata, prediction, workout, or practice exercise on some code, wants to learn, explore, or onboard onto a module, asks for the Kintsugi Atlas or an overview of how the codebase is organised, or an end-of-task rule asks for a Drill.
 ---
 
 ${stamp(version)}
@@ -64,6 +76,14 @@ When the user wants to learn a module rather than practise one file, build a Tra
 
 4. **Report the outcome.** For a saved Track, give its title and steps, and tell the user to start it with \`kin track <track-id>\`. For "not-enough", say how many steps were Verified and that those Drills can still be trained with \`kin train\`.
 
+# Building the Kintsugi Atlas
+
+When the user asks for the Atlas, or for an overview of how the codebase is organised to choose what to practise, build or refresh the Atlas.
+
+1. **Delegate it.** Hand it to a subagent with the folder the user named (or none, for the whole repository) and this brief: "Build the Kintsugi Atlas with the kintsugi MCP tools prepare_atlas and submit_atlas, following their instructions: prepare the next folder, write its entries from the prompt alone, submit them with the scope, and repeat until nothing is pending. Reply with only the outcome: how many folders were described, and any that failed." Without subagents, do the same steps here.
+
+2. **Report the outcome.** Tell the user they can see it with \`kin map\`, and search it with \`kin atlas search "<what you want to learn>"\`. Don't summarise the code yourself.
+
 When the user asks for help with a Drill or Kata they are solving (a Prediction gets one answer, so don't help with it before they answer), coach: one hint or guiding question at a time, so they find the fix or write the code themselves.
 `;
 }
@@ -77,6 +97,18 @@ argument-hint: "[path[#symbol]] [quick] [kata|prediction]"
 ${stamp(version)}
 
 Use the kintsugi skill to create a Drill for: $ARGUMENTS
+`;
+}
+
+export function atlasCommandMarkdown(version: string): string {
+  return `---
+description: Build or refresh the Kintsugi Atlas, what each folder, file, and key function is for
+argument-hint: "[folder]"
+---
+
+${stamp(version)}
+
+Use the kintsugi skill to build the Atlas for: $ARGUMENTS (the whole repository when nothing is named)
 `;
 }
 

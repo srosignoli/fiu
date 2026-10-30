@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, rmdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { execa } from 'execa';
 import { excludeFromGit, findRepoRoot, isTracked } from '../workspace.ts';
-import { afterTasksBlock, BLOCK_BEGIN, BLOCK_END, commandMarkdown, skillMarkdown, STAMP_PATTERN } from './texts.ts';
+import { afterTasksBlock, atlasCommandMarkdown, BLOCK_BEGIN, BLOCK_END, commandMarkdown, skillMarkdown, STAMP_PATTERN } from './texts.ts';
 
 export const MCP_SERVER_NAME = 'kintsugi';
 
@@ -41,6 +41,7 @@ interface Targets {
   repoRoot?: string;
   skill: string;
   command: string;
+  atlasCommand: string;
   /** The always-loaded instructions file the end-of-task block goes into. */
   memory: string;
   mcpScope: 'user' | 'local';
@@ -53,6 +54,7 @@ async function targets({ scope, home, cwd }: Pick<ClaudeInstallOptions, 'scope' 
       root,
       skill: join(root, 'skills', 'kintsugi', 'SKILL.md'),
       command: join(root, 'commands', 'kin-drill.md'),
+      atlasCommand: join(root, 'commands', 'kin-atlas.md'),
       memory: join(root, 'CLAUDE.md'),
       mcpScope: 'user',
     };
@@ -64,6 +66,7 @@ async function targets({ scope, home, cwd }: Pick<ClaudeInstallOptions, 'scope' 
     repoRoot,
     skill: join(root, 'skills', 'kintsugi', 'SKILL.md'),
     command: join(root, 'commands', 'kin-drill.md'),
+    atlasCommand: join(root, 'commands', 'kin-atlas.md'),
     // The personal, per-repository counterpart of CLAUDE.md.
     memory: join(repoRoot, 'CLAUDE.local.md'),
     // `local` keeps the registration in the user's own Claude config; `project` would write a tracked .mcp.json.
@@ -71,7 +74,7 @@ async function targets({ scope, home, cwd }: Pick<ClaudeInstallOptions, 'scope' 
   };
 }
 
-/** `kin agent install claude`: the skill, the /kin-drill command, the MCP registration, and optionally the end-of-task block. */
+/** `kin agent install claude`: the skill, the /kin-drill and /kin-atlas commands, the MCP registration, and optionally the end-of-task block. */
 export async function installClaude(options: ClaudeInstallOptions): Promise<InstallReport> {
   const t = await targets(options);
   const report: InstallReport = { written: [], removed: [] };
@@ -85,6 +88,7 @@ export async function installClaude(options: ClaudeInstallOptions): Promise<Inst
 
   await write(t.skill, skillMarkdown(options.version));
   await write(t.command, commandMarkdown(options.version));
+  await write(t.atlasCommand, atlasCommandMarkdown(options.version));
 
   const memory = existsSync(t.memory) ? await readFile(t.memory, 'utf8') : '';
   const withoutBlock = removeBlock(memory);
@@ -110,7 +114,7 @@ export async function installClaude(options: ClaudeInstallOptions): Promise<Inst
 export async function uninstallClaude(options: Omit<ClaudeInstallOptions, 'afterTasks' | 'version' | 'kinCommand'>): Promise<InstallReport> {
   const t = await targets(options);
   const report: InstallReport = { written: [], removed: [] };
-  for (const path of [t.skill, t.command]) {
+  for (const path of [t.skill, t.command, t.atlasCommand]) {
     if (!existsSync(path)) continue;
     // Only files Kintsugi wrote (they carry its stamp).
     if (!STAMP_PATTERN.test(await readFile(path, 'utf8'))) continue;

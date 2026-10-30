@@ -1,20 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { applyAtlasOutput, ATLAS_RULES, describeFolder, FILES_PER_CALL, folderPrompt } from '../atlas/describe.ts';
-import { buildSkeleton, foldersBottomUp, type Skeleton, type SkeletonFolder } from '../atlas/skeleton.ts';
+import { atlasScope, buildSkeleton, foldersBottomUp, type Skeleton, type SkeletonFolder } from '../atlas/skeleton.ts';
 import { folderWork, readAtlas, writeAtlas, type Atlas } from '../atlas/store.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { ConsentDeclinedError, ConsentRequiredError, hasConsent, recordConsent } from '../consent.ts';
 import { describeCost, estimateCost, mergeByModel, type Cost, type ModelUsage } from '../cost/usage.ts';
 import { MissingApiKeyError, resolveApiKey } from '../credentials.ts';
-import { repoRelativeDir } from '../explore/shortlist.ts';
 import { createModel as createModelDefault, type ProviderOptions } from '../synthesis/model.ts';
 import { recordSpend } from '../workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from '../workspace.ts';
 import type { DrillUi } from './drill.ts';
-
-export class AtlasTargetError extends Error {}
 
 export interface AtlasBuildOptions {
   /** --yes: consent to sending code, and to the estimated cost, without prompting. */
@@ -38,16 +35,6 @@ export type AtlasBuildResult =
   | { status: 'up-to-date' }
   | { status: 'declined'; calls: number }
   | { status: 'built'; folders: number; files: number; failed: { folder: string; problems: string[] }[]; cost: Cost };
-
-/** A folder argument as a repository-relative path: '' for the root. */
-export function atlasScope(repoRoot: string, cwd: string, path: string | undefined, skeleton: Skeleton): string {
-  if (path === undefined) return '';
-  const scope = repoRelativeDir(repoRoot, resolve(cwd, path));
-  if (scope.startsWith('..')) throw new AtlasTargetError(`${path} is outside the repository at ${repoRoot}.`);
-  if (scope === '' || skeleton.folders.has(scope)) return scope;
-  if (skeleton.files.has(scope)) throw new AtlasTargetError(`${path} is a file: the Atlas is built a folder at a time. Build its folder instead.`);
-  throw new AtlasTargetError(`${path} holds no source files Kintsugi recognises.`);
-}
 
 /** Every call a build of `scope` makes, deepest folders first: files in batches, the folder's entry with the last. */
 export function planAtlasCalls(atlas: Atlas, skeleton: Skeleton, scope: string): AtlasCall[] {

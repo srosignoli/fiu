@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { execa } from 'execa';
-import { logicScore } from '../explore/shortlist.ts';
+import { logicScore, repoRelativeDir } from '../explore/shortlist.ts';
 import { isDrillableSourcePath } from '../languages/paths.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { profileForFile, UnsupportedLanguageError } from '../languages/registry.ts';
 import { MAX_SOURCE_LINES } from '../synthesis/prompt.ts';
 import { extractSymbols, keyFunctions, type AtlasSymbol } from './symbols.ts';
+
+export class AtlasTargetError extends Error {}
 
 /** One file of the Atlas, computed from the code: correct by construction, free to rebuild. */
 export interface SkeletonFile {
@@ -106,4 +108,14 @@ export function foldersBottomUp(skeleton: Skeleton, scope = ''): SkeletonFolder[
   const inScope = (path: string) => scope === '' || path === scope || path.startsWith(`${scope}/`);
   const depth = (path: string) => (path === '' ? 0 : path.split('/').length);
   return [...skeleton.folders.values()].filter((f) => inScope(f.path)).sort((a, b) => depth(b.path) - depth(a.path) || a.path.localeCompare(b.path));
+}
+
+/** A folder argument as a repository-relative path: '' for the root. */
+export function atlasScope(repoRoot: string, cwd: string, path: string | undefined, skeleton: Skeleton): string {
+  if (path === undefined) return '';
+  const scope = repoRelativeDir(repoRoot, resolve(cwd, path));
+  if (scope.startsWith('..')) throw new AtlasTargetError(`${path} is outside the repository at ${repoRoot}.`);
+  if (scope === '' || skeleton.folders.has(scope)) return scope;
+  if (skeleton.files.has(scope)) throw new AtlasTargetError(`${path} is a file: the Atlas is built a folder at a time. Build its folder instead.`);
+  throw new AtlasTargetError(`${path} holds no source files Kintsugi recognises.`);
 }

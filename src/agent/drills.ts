@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
+import { prepareAtlas, submitAtlas, type PreparedAtlas, type SubmittedAtlas } from '../atlas/agent.ts';
+import type { AtlasOutput } from '../atlas/describe.ts';
 import { parseTarget, repoRelative } from '../commands/drill.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { profileForFile } from '../languages/registry.ts';
@@ -153,6 +155,27 @@ export class AgentDrills {
       rules: TRACK_RULES,
       candidates: candidates.map(({ path, lines, outline }) => ({ path, lines, outline })),
     };
+  }
+
+  /** The next folder of `dir`'s subtree to describe for the Atlas, with what to read and the rules. */
+  async prepareAtlas(dir: string | undefined): Promise<PreparedAtlas> {
+    const { repoRoot, paths, config } = await this.#workspace();
+    return prepareAtlas(repoRoot, paths, config.profiles, dir);
+  }
+
+  /** Checks and saves one folder's Atlas entries; reports what remains of `scope`. */
+  async submitAtlas(folder: string, entries: AtlasOutput, scope?: string): Promise<SubmittedAtlas> {
+    const { repoRoot, paths, config } = await this.#workspace();
+    return submitAtlas(repoRoot, paths, config.profiles, folder, entries, scope, this.#now());
+  }
+
+  async #workspace() {
+    const repoRoot = await this.repository();
+    const paths = workspacePaths(repoRoot);
+    await ensureWorkspace(paths);
+    await excludeWorkspaceFromGit(repoRoot);
+    const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(this.#configEnv()));
+    return { repoRoot, paths, config };
   }
 
   /** Saves the Track once at least MIN_STEPS of its steps are Verified; otherwise its Drills stay ordinary Workouts. */

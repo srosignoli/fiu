@@ -57,11 +57,52 @@ async function connect(repo: string, home?: string) {
 
 const readJson = async (path: string) => JSON.parse(await readFile(path, 'utf8'));
 
+describe('the Atlas in agent mode', () => {
+  const entries = (folder: string, files: { path: string; text: string; functions: { name: string; text: string }[] }[] = []) => ({ folder, files });
+
+  it('hands out folders deepest first, checks each submission, and reports what remains', async () => {
+    const repo = await repoWithSources('queue.ts');
+    const { call } = await connect(repo);
+    const first = (await call('prepare_atlas')).json;
+    assert.equal(first.status, 'ready');
+    assert.equal(first.folder, 'src');
+    assert.deepEqual(first.pending, ['src', '']);
+    assert.deepEqual(first.files, ['src/queue.ts']);
+    assert.match(first.rules, /You write the Atlas of a codebase/);
+    assert.match(first.prompt, /Key functions to describe: pickNext/);
+
+    const wrong = await call('submit_atlas', { folder: 'src', entries: entries('The job queue.', [{ path: 'src/queue.ts', text: 'Picks jobs.', functions: [] }]), scope: '' });
+    assert.equal(wrong.json.status, 'rejected');
+    assert.match(wrong.json.feedback, /describe its key function\(s\) pickNext/);
+
+    const saved = await call('submit_atlas', {
+      folder: 'src',
+      entries: entries('The job queue.', [{ path: 'src/queue.ts', text: 'Picks jobs.', functions: [{ name: 'pickNext', text: 'Chooses the next job.' }] }]),
+      scope: '',
+    });
+    assert.deepEqual(saved.json, { status: 'saved', folder: 'src', pending: [''] });
+    const root = (await call('prepare_atlas')).json;
+    assert.equal(root.folder, '');
+    assert.match(root.prompt, /- src: The job queue\./);
+    assert.deepEqual((await call('submit_atlas', { folder: '', entries: entries('A job scheduler.\nsrc holds it.'), scope: '' })).json.pending, []);
+    assert.deepEqual((await call('prepare_atlas')).json, { status: 'up-to-date', scope: '' });
+
+    const atlas = await readJson(join(repo, '.kintsugi', 'atlas.json'));
+    assert.equal(atlas.files['src/queue.ts'].functions.pickNext, 'Chooses the next job.');
+  });
+
+  it('refuses a folder outside the repository, or a file', async () => {
+    const { call } = await connect(await repoWithSources('queue.ts'));
+    assert.match((await call('prepare_atlas', { dir: 'src/queue.ts' })).text, /is a file/);
+    assert.match((await call('prepare_atlas', { dir: '../elsewhere' })).text, /outside the repository/);
+  });
+});
+
 describe('kin mcp', () => {
   it('offers its tools and the rules for using them', async () => {
     const { client } = await connect(await repoWithSources('queue.ts'));
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((t) => t.name).sort(), ['finish_track', 'list_workouts', 'prepare_drill', 'prepare_track', 'submit_drill']);
+    assert.deepEqual(tools.map((t) => t.name).sort(), ['finish_track', 'list_workouts', 'prepare_atlas', 'prepare_drill', 'prepare_track', 'submit_atlas', 'submit_drill']);
     assert.match(client.getInstructions() ?? '', /^Kintsugi turns code in this repository into Drills/);
     // The submit schema is the Drill schema itself, so the client checks the shape.
     const submit = tools.find((t) => t.name === 'submit_drill')!;
@@ -240,6 +281,8 @@ describe('kin agent install claude', () => {
     assert.match(skill, /^---\nname: kintsugi\ndescription: Creates Kintsugi Drills/);
     assert.match(skill, /<!-- kintsugi-version: 1\.2\.0 -->/);
     assert.match(await readFile(join(home, '.claude', 'commands', 'kin-drill.md'), 'utf8'), /Use the kintsugi skill to create a Drill for: \$ARGUMENTS/);
+    assert.match(await readFile(join(home, '.claude', 'commands', 'kin-atlas.md'), 'utf8'), /Use the kintsugi skill to build the Atlas for: \$ARGUMENTS/);
+    assert.match(skill, /# Building the Kintsugi Atlas/);
     assert.ok(!existsSync(join(home, '.claude', 'CLAUDE.md')), 'no end-of-task block unless asked');
     assert.deepEqual(calls, [
       ['mcp', 'remove', '--scope', 'user', 'kintsugi'],
@@ -265,6 +308,7 @@ describe('kin agent install claude', () => {
     assert.equal(await readFile(memory, 'utf8'), '# My rules\n\nUse tabs.\n');
     assert.ok(!existsSync(join(home, '.claude', 'skills', 'kintsugi')));
     assert.ok(!existsSync(join(home, '.claude', 'commands', 'kin-drill.md')));
+    assert.ok(!existsSync(join(home, '.claude', 'commands', 'kin-atlas.md')));
   });
 
   it('prints the registration command when the claude CLI is missing', async () => {

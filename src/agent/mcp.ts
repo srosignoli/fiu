@@ -11,8 +11,10 @@ import { SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { NotAGitRepositoryError } from '../workspace.ts';
 import { AgentDrills, AgentRequestError } from './drills.ts';
 import { compareVersions, installedVersion } from './install.ts';
-import { FINISH_TRACK_DESCRIPTION, LIST_DESCRIPTION, PREPARE_DESCRIPTION, PREPARE_TRACK_DESCRIPTION, SERVER_INSTRUCTIONS, SUBMIT_DESCRIPTION } from './texts.ts';
+import { FINISH_TRACK_DESCRIPTION, LIST_DESCRIPTION, PREPARE_ATLAS_DESCRIPTION, SUBMIT_ATLAS_DESCRIPTION, PREPARE_DESCRIPTION, PREPARE_TRACK_DESCRIPTION, SERVER_INSTRUCTIONS, SUBMIT_DESCRIPTION } from './texts.ts';
 import { ExploreTargetError } from '../explore/shortlist.ts';
+import { AtlasOutputSchema } from '../atlas/describe.ts';
+import { AtlasTargetError } from '../atlas/skeleton.ts';
 
 /** Errors the agent can act on (wrong target, no sandbox, full queue…), returned as tool errors rather than crashes. */
 const AGENT_FACING_ERRORS = [
@@ -25,6 +27,7 @@ const AGENT_FACING_ERRORS = [
   NotAGitRepositoryError,
   ToolchainMissingError,
   ExploreTargetError,
+  AtlasTargetError,
 ];
 
 export interface KinMcpServerOptions {
@@ -93,6 +96,30 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
       inputSchema: { trackId: z.string(), title: z.string().describe('A short title naming what the module does.') },
     },
     ({ trackId, title }) => respond(() => drills.finishTrack(trackId, title)),
+  );
+
+  server.registerTool(
+    'prepare_atlas',
+    {
+      title: 'Prepare the next folder of the Kintsugi Atlas',
+      description: PREPARE_ATLAS_DESCRIPTION,
+      inputSchema: { dir: z.string().optional().describe('A folder in this repository, relative to its root; the whole repository when left out.') },
+    },
+    ({ dir }) => respond(() => drills.prepareAtlas(dir)),
+  );
+
+  server.registerTool(
+    'submit_atlas',
+    {
+      title: 'Submit Kintsugi Atlas entries for a folder',
+      description: SUBMIT_ATLAS_DESCRIPTION,
+      inputSchema: {
+        folder: z.string().describe('The folder prepare_atlas returned ("" for the repository root).'),
+        entries: AtlasOutputSchema,
+        scope: z.string().optional().describe('The folder you are building the Atlas for (as passed to prepare_atlas), so the result lists what remains of it.'),
+      },
+    },
+    ({ folder, entries, scope }) => respond(() => drills.submitAtlas(folder, entries, scope)),
   );
 
   server.registerTool('list_workouts', { title: 'List Kintsugi Workouts', description: LIST_DESCRIPTION }, () =>

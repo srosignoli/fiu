@@ -30,6 +30,14 @@ _Avoid_: Quiz, question, scenario (as the umbrella term)
 An ordered sequence of 3 to 5 Workouts, each from a different file, that together teach one module of the repository, foundations first. A Track is not itself a Workout.
 _Avoid_: Ladder, learning path, exploration
 
+**Atlas**:
+A map of the repository saying what each folder, file, and key function is for, so the human can choose what to practise. Its structure is computed from the code; its descriptions are written by a model and never Verified. The Atlas is not a Workout.
+_Avoid_: Assessment, index, overview (that's one Atlas Entry)
+
+**Atlas Entry**:
+One model-written description in the Atlas (of the repository, a folder, a file, or a key function), tied to the exact content it describes; stale once that content changes.
+_Avoid_: Summary, annotation
+
 **Quick**:
 A size constraint on a Workout (completable in about five minutes), not a separate kind of Workout.
 _Avoid_: Micro-kata, wait-time kata

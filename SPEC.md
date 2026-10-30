@@ -45,6 +45,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
 | `kin share <id>... [--remote <name>]` / `kin fetch [--remote <name>] [--no-sandbox]` | Share Workouts or Tracks with the team on the `kintsugi/workouts` branch, or bring in theirs, re-verified (§11.3.2). |
 | `kin map [<path>] [--json]` | Your comprehension debt by directory, or one directory's files: local and free (§11.4). |
+| `kin atlas [<path>] [--markdown]` / `kin atlas build [<dir>] [--yes]` / `kin atlas search "<goal>" [--all]` | Show, build, or search the Atlas: what each folder, file, and key function is for (§11.10). |
 | `kin quick [--while "<cmd>"] [--no-sandbox]` | Start the queue's best Quick Workout right away (§11.2.3); with `--while`, during a slow command (§11.6). |
 | `kin train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
 | `kin mcp` | Kintsugi's MCP server (stdio), started by your coding agent (§11.1.1). |
@@ -437,7 +438,7 @@ Kintsugi now **notices such a bug and reports it after the Attempt**. It doesn't
 - **Prompt rule** (Drills and Katas): *"Keep the Reference Solution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect."* A Drill may still use that defect as its bug, as the dogfooded one did. A Kata whose removed region fixes the original gets only the model report, since its Starting Code is a placeholder.
 - **No comments in the bug** (Drills, enforced from now on; the prompt already forbade them). Comparing the two sides of the changed region by their trailing comments (via `lineComment`), a comment on a buggy line that the fixed side doesn't have is `[schema]` retry feedback: *"The bug region carries a comment that points at the bug; remove it."*
 - **Agent mode:** `originalDefect` is part of the schema `submit_drill` accepts, and the agent gets the same prompt rule. `list_workouts` doesn't report it.
-- **Not in v3.4:** choosing targets for suspected defects (see §11.10); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
+- **Not in v3.4:** choosing targets for suspected defects (see §11.11); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
 
 ### 11.8 v4.0: Predictions (implemented)
 
@@ -545,12 +546,41 @@ Picking the old behaviour gets *"That was true until commit 1a2b3c4d5e6f."* in p
 
 **Not in v4.1:** end-of-task Predictions in agent mode (usually about uncommitted changes: what "before" means with a dirty working tree needs its own design); a Prediction spanning several files of one commit.
 
-### 11.10 Later (not yet designed)
+### 11.10 v4.2: The Atlas
+
+On a large codebase it is hard to choose what to practise: `kin drill <file>#symbol` assumes you already know the file and the symbol, which is what Kintsugi is meant to teach. The **Atlas** is a map of the repository that says what things are for, from the repository's overall organisation down to each file's key functions, so that "I want to understand retries" becomes `kin drill src/queue/retry.go#retryWithBackoff`. Per [ADR 0008](./docs/adr/0008-the-atlas-is-orientation-never-verified.md) it is orientation, not a Workout: labelled as written by a model, never Verified, never input to the gate.
+
+**What it holds.**
+
+- **The skeleton**, computed locally and free: the files `kin map` shows (tracked, recognised by a Language Profile) and their folders; line counts; each file's symbols with line ranges, found by the declaration regex (a Language Profile may override it with `declarationPattern`), named exactly as `#symbol` accepts them (a method as `Class.method`); a logic score per file and per function; the human's map state.
+- **Atlas Entries**, written by a model: an **overview** of the repository (a few lines: how the codebase is organised); one line per folder; one or two lines per drillable file; one line for each **key function**, the top 5 of a file by logic score among symbols of at least 5 lines. Other symbols are listed by name only. Tests and generated files are listed but not described; files over 3,000 lines are described and marked *too long to drill*.
+- **Keyed by content.** Each entry records the git blob hash of what it describes (a folder: its list of files). An entry whose hash no longer matches is *stale*: shown with `≈`, kept until refreshed. Nothing refreshes on its own, and background generation never touches the Atlas. "Once per release" is a habit, not a mechanism: running `kin atlas build` at release time costs only what changed since the last run.
+- Stored in `.kintsugi/atlas.json`.
+
+**Building it.**
+
+- **Bottom up.** One call per leaf folder sees each file's outline plus the bodies of its key functions (not whole files) and writes the folder's, files', and key functions' entries. A parent folder is described from its children's entries, with no code resent. A last call writes the overview from the top-level entries.
+- **API mode:** `kin atlas build [<dir>] [--yes]` describes that subtree (default: the whole repository), only what is missing or stale. It shows how many folders and files it will describe and the estimated cost, and asks to confirm (`--yes` skips it). It uses the repository's existing consent. Each call enters the spend ledger with `result: "atlas"`; `kin cost` shows an *Atlas* line. A partial Atlas is normal: describe the module you work in first.
+- **Agent mode:** `prepare_atlas(dir)` returns the folder's skeleton, the code to read, the children's entries, and the writing rules; `submit_atlas(dir, entries)` checks and saves them. A submission is rejected, with feedback, when it leaves out a file of the folder, describes a symbol the skeleton doesn't have, or goes over the length limits (a folder or function: one line; a file: two lines; each at most 200 characters). The `/kin-atlas` skill runs the whole build in a subagent, bottom up, ending with the overview (`submit_atlas` with the root folder). These checks can't prove an entry true; they guarantee every name in the Atlas exists.
+
+**Using it.**
+
+- **`kin map`** shows the overview at the top and each folder's and file's one-line entry beside it, and a dim line when entries are stale (*Atlas: 14 files changed since described: `kin atlas build` to refresh*). `--json` includes the entries.
+- **`kin atlas search "<goal>" [--all]`**, local and free: ranks files and symbols by keyword relevance (a match in a symbol or file name counts double over a match in an entry), then by map state (red and amber before green). It shows the top 10 (all with `--all`), each with its state and ready commands: `kin drill …#symbol`, `kin kata …#symbol`, `kin predict …#symbol`.
+- **`kin atlas [<path>] [--markdown]`** prints the Atlas (or a subtree) as text, or as a Markdown document for anyone who wants to commit one.
+- **Agent mode:** `/kin-drill <goal>` (words rather than a path) reads the Atlas through `search_atlas(goal)`, proposes 2 to 3 targets, and asks before generating.
+- **Tracks:** when an Atlas exists, `kin explore`'s ordering call (and `prepare_track` in agent mode) sees the files' entries in place of raw outlines; `kin explore --about "<goal>"` picks the module through the same search (the folder of the best-matching files).
+
+**Sharing.** `kin share --atlas` publishes `atlas.json` on the `kintsugi/workouts` branch (ADR 0006), unioned with a teammate's on a rejected push like Workouts. `kin fetch` merges it: for the same hash the local entry wins; a fetched entry fills a gap, and replaces a local entry that is stale when the fetched one matches the code. Entries carry no practice data.
+
+**Not in v4.2:** model-understood search in API mode (the agent understands the wording in agent mode); a real parser; describing every function; refreshing on commit.
+
+### 11.11 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 
 - **End-of-task Predictions in agent mode:** what the agent just changed, before it's committed (§11.9).
-
+- **Prediction accuracy stats:** how often the human predicts right, by file and over time.
 - **Aiming at real bugs:** preferring units with suspected defects when choosing what to drill, if `defectConfirmed` (§11.7) shows the reports are mostly right.
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.
 - **Spaced repetition:** resurfacing attempted Workouts on a schedule.

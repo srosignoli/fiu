@@ -546,7 +546,9 @@ Picking the old behaviour gets *"That was true until commit 1a2b3c4d5e6f."* in p
 
 **Not in v4.1:** end-of-task Predictions in agent mode (usually about uncommitted changes: what "before" means with a dirty working tree needs its own design); a Prediction spanning several files of one commit.
 
-### 11.10 v4.2: The Atlas
+### 11.10 v4.2: The Atlas (implemented)
+
+*Verified for real on 2026-10-30 in agent mode, with headless Claude Code driving `prepare_atlas` and `submit_atlas` through a test harness (API mode has no key here; covered by mock-model tests, and estimated at ≈ $0.73 for Kintsugi's 64 files with the default model). On a copy of Kintsugi it described 17 folders and 64 files in 37 turns, every submission accepted first time; on the SSTorytime copy, one folder in 5 turns. The entries were accurate and specific. Of nine goal searches, eight put the target a reader of the code would choose first; "how a drill is verified" didn't, which exposed a stemming bug (*verified* missed *verify*) and methods scoring on their class's name, both fixed (the gate now ranks among the top results, behind the generate-and-verify loop). Constructors filled key-function slots and are now left out. One entry described a function's intent rather than its real bug (`NormalizeContext`, §11.7): the case ADR 0008 accepts. Not yet run for real: `kin atlas build` through the API, and sharing the Atlas between real teammates (covered by tests on scratch remotes).*
 
 On a large codebase it is hard to choose what to practise: `kin drill <file>#symbol` assumes you already know the file and the symbol, which is what Kintsugi is meant to teach. The **Atlas** is a map of the repository that says what things are for, from the repository's overall organisation down to each file's key functions, so that "I want to understand retries" becomes `kin drill src/queue/retry.go#retryWithBackoff`. Per [ADR 0008](./docs/adr/0008-the-atlas-is-orientation-never-verified.md) it is orientation, not a Workout: labelled as written by a model, never Verified, never input to the gate.
 

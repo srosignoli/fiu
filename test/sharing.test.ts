@@ -3,7 +3,10 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { execa } from 'execa';
+import { buildSkeleton } from '../src/atlas/skeleton.ts';
+import { emptyAtlas, readAtlas, writeAtlas, type Atlas } from '../src/atlas/store.ts';
 import { expireStaleWorkouts } from '../src/background/refill.ts';
+import { profiles } from '../src/languages/registry.ts';
 import { listTracks, saveTrack } from '../src/explore/tracks.ts';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
@@ -233,5 +236,71 @@ describe(`team sharing (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.equal(fingerprint(a), fingerprint(b));
     b.set('kata.ts', Buffer.from('other'));
     assert.notEqual(fingerprint(a), fingerprint(b));
+  });
+});
+
+describe('sharing the Atlas', () => {
+  /** An Atlas entry for queue.ts and the root folder, as the code in `repo` is now. */
+  async function describeQueue(repo: string, text: string, writtenAt = '2026-10-30T10:00:00.000Z'): Promise<Atlas> {
+    const skeleton = await buildSkeleton(repo, profiles());
+    return {
+      version: 1,
+      folders: { '': { hash: skeleton.folders.get('')!.hash, text: 'A job queue.', writtenAt } },
+      files: { 'queue.ts': { hash: skeleton.files.get('queue.ts')!.hash, text, writtenAt, functions: { pickNext: 'Chooses the next job.' } } },
+    };
+  }
+
+  it('shares the Atlas on the branch, and a teammate fetches it', async () => {
+    const { origin, alice, bob } = await team();
+    await writeAtlas(workspacePaths(alice), await describeQueue(alice, 'Picks jobs.'));
+    const report = await share(alice, [], { atlas: true });
+    assert.deepEqual(report.atlas, { entries: 2, changed: true });
+    assert.match(await git(origin, 'ls-tree', '-r', '--name-only', 'kintsugi/workouts'), /^atlas\.json$/m);
+    assert.deepEqual((await share(alice, [], { atlas: true })).atlas, { entries: 2, changed: false });
+
+    await git(bob, 'pull', '-q');
+    assert.deepEqual((await fetchFor(bob)).atlas, { added: 2, replaced: 0 });
+    assert.equal((await readAtlas(workspacePaths(bob))).files['queue.ts']!.text, 'Picks jobs.');
+    assert.deepEqual((await fetchFor(bob)).atlas, { added: 0, replaced: 0 });
+  });
+
+  it('keeps local entries for the same code, and replaces only stale ones with entries that match the code here', async () => {
+    const { alice, bob } = await team();
+    await writeAtlas(workspacePaths(alice), await describeQueue(alice, 'Picks jobs.'));
+    await share(alice, [], { atlas: true });
+    await git(bob, 'pull', '-q');
+
+    await writeAtlas(workspacePaths(bob), await describeQueue(bob, 'Bob’s own words.'));
+    assert.deepEqual((await fetchFor(bob)).atlas, { added: 0, replaced: 0 });
+    assert.equal((await readAtlas(workspacePaths(bob))).files['queue.ts']!.text, 'Bob’s own words.');
+
+    const stale = await describeQueue(bob, 'Written for older code.');
+    stale.files['queue.ts']!.hash = 'old';
+    await writeAtlas(workspacePaths(bob), stale);
+    assert.deepEqual((await fetchFor(bob)).atlas, { added: 0, replaced: 1 });
+    assert.equal((await readAtlas(workspacePaths(bob))).files['queue.ts']!.text, 'Picks jobs.');
+  });
+
+  it('unions both Atlases when a teammate shared first', async () => {
+    const { origin, alice, bob } = await team();
+    await writeAtlas(workspacePaths(alice), await describeQueue(alice, 'Picks jobs.'));
+    await share(alice, [], { atlas: true });
+    await git(bob, 'pull', '-q');
+    await writeFile(join(bob, 'worker.ts'), TS_REFERENCE.replace('pickNext', 'runNext'));
+    await git(bob, 'add', 'worker.ts');
+    await git(bob, 'commit', '-qm', 'worker');
+    const skeleton = await buildSkeleton(bob, profiles());
+    const atlas = emptyAtlas();
+    atlas.files['worker.ts'] = { hash: skeleton.files.get('worker.ts')!.hash, text: 'Runs jobs.', writtenAt: '2026-10-30T11:00:00.000Z', functions: {} };
+    await writeAtlas(workspacePaths(bob), atlas);
+    await share(bob, [], { atlas: true });
+    const shared = JSON.parse(await git(origin, 'show', 'kintsugi/workouts:atlas.json'));
+    assert.deepEqual(Object.keys(shared.files).sort(), ['queue.ts', 'worker.ts']);
+  });
+
+  it('needs something to share', async () => {
+    const { alice } = await team();
+    await assert.rejects(share(alice, []), NotShareableError);
+    await assert.rejects(share(alice, [], { atlas: true }), /There is no Atlas to share yet/);
   });
 });

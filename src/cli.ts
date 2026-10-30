@@ -297,16 +297,18 @@ async function runTrack(id: string, options: { sandbox: boolean }): Promise<void
 
 program
   .command('share')
-  .description("Share Workouts or whole Tracks with your team on the repository's kintsugi/workouts branch.")
-  .argument('<ids...>', 'Workout or Track ids')
+  .description("Share Workouts, whole Tracks, or the Atlas with your team on the repository's kintsugi/workouts branch.")
+  .argument('[ids...]', 'Workout or Track ids')
+  .option('--atlas', "share the Atlas too, merged with the team's")
   .option('--remote <name>', 'the remote to share through (default: share.remote in config, else origin)')
-  .action(async (ids: string[], options: { remote?: string }) => {
+  .action(async (ids: string[], options: { remote?: string; atlas?: boolean }) => {
     const { share } = await import('./sharing/share.ts');
     const report = await share(process.cwd(), ids, options);
     for (const warning of report.warnings) log.warn(warning);
     for (const item of report.shared) log.success(`Shared ${item.kind} ${item.id}${item.as !== item.id ? ` as ${item.as} (a different Workout already had its id)` : ''}`);
     for (const id of report.alreadyShared) log.info(`${id} was already shared`);
-    if (report.shared.length > 0) log.info(`Teammates get them with: kin fetch  (branch kintsugi/workouts on ${report.remote})`);
+    if (report.atlas) log[report.atlas.changed ? 'success' : 'info'](report.atlas.changed ? `Shared the Atlas: the team's now has ${report.atlas.entries} entries.` : 'The team already has your Atlas.');
+    if (report.shared.length > 0 || report.atlas?.changed) log.info(`Teammates get them with: kin fetch  (branch kintsugi/workouts on ${report.remote})`);
   });
 
 program
@@ -331,7 +333,9 @@ program
     for (const item of report.tracks) log.success(`Fetched Track ${item.id}: start it with kin track ${item.as}`);
     for (const item of report.rejected) log.warn(`Skipped ${item.id}: it didn't re-verify here (${item.reason})`);
     for (const item of report.skippedTracks) log.warn(`Skipped Track ${item.id}: ${item.reason}`);
-    if (report.imported.length === 0 && report.tracks.length === 0) log.info('You already have everything your team has shared.');
+    const atlasNews = report.atlas ? report.atlas.added + report.atlas.replaced : 0;
+    if (report.atlas && atlasNews > 0) log.success(`Fetched ${atlasNews} Atlas entr${atlasNews === 1 ? 'y' : 'ies'} (${report.atlas.added} new, ${report.atlas.replaced} replacing out-of-date ones): see them with kin map`);
+    if (report.imported.length === 0 && report.tracks.length === 0 && atlasNews === 0) log.info('You already have everything your team has shared.');
   });
 
 program

@@ -3,6 +3,9 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { homedir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { execa } from 'execa';
+import { existsSync } from 'node:fs';
+import { buildSkeleton } from '../atlas/skeleton.ts';
+import { AtlasSchema, mergeAtlas, preferCurrent, preferOursOrNewer, readAtlas, writeAtlas, type Atlas } from '../atlas/store.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { listTracks, saveTrack, type TrackRecord } from '../explore/tracks.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
@@ -20,6 +23,8 @@ export type { SharedBy };
 const PUSH_ATTEMPTS = 3;
 const WORKOUTS = 'workouts/';
 const TRACKS = 'tracks/';
+/** The team's Atlas: one file, merged entry by entry. */
+const ATLAS = 'atlas.json';
 
 type Files = Map<string, Buffer>;
 
@@ -91,8 +96,23 @@ const suffixed = (id: string, print: string) => `${id}-${print.slice(0, 6)}`;
 export interface ShareOptions {
   /** The remote to share through; `share.remote` in config, else origin. */
   remote?: string;
+  /** --atlas: also share the Atlas, merged with the team's. */
+  atlas?: boolean;
   now?: Date;
 }
+
+/** The Atlas on the shared branch, if any; an unreadable one counts as none. */
+async function sharedAtlas(repo: string, tree: Map<string, string>): Promise<Atlas | undefined> {
+  const blob = tree.get(ATLAS);
+  if (!blob) return undefined;
+  const parsed = AtlasSchema.safeParse(JSON.parse((await readBlob(repo, blob)).toString('utf8')));
+  return parsed.success ? parsed.data : undefined;
+}
+
+const atlasJson = (atlas: Atlas) => {
+  const sorted = (record: Record<string, unknown>) => Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
+  return Buffer.from(JSON.stringify({ version: 1, folders: sorted(atlas.folders), files: sorted(atlas.files) }, null, 2) + '\n');
+};
 
 export interface ShareReport {
   remote: string;
@@ -100,12 +120,15 @@ export interface ShareReport {
   shared: { id: string; as: string; kind: 'workout' | 'track' }[];
   alreadyShared: string[];
   warnings: string[];
+  /** With --atlas: how many entries the team's Atlas holds now, and whether it changed. */
+  atlas?: { entries: number; changed: boolean };
 }
 
 export class NotShareableError extends Error {}
 
 /** `kin share <id>...`: publishes Workouts (or whole Tracks) to the shared branch. */
 export async function share(cwd: string, ids: string[], options: ShareOptions = {}): Promise<ShareReport> {
+  if (ids.length === 0 && !options.atlas) throw new NotShareableError('Name the Workouts or Tracks to share, or pass --atlas to share the Atlas.');
   const repo = await findRepoRoot(cwd);
   const paths = workspacePaths(repo);
   const remote = options.remote ?? (await loadRepoConfig(paths.configFile)).share?.remote ?? 'origin';
@@ -126,6 +149,8 @@ export async function share(cwd: string, ids: string[], options: ShareOptions = 
     }
   }
   const workouts = await Promise.all([...new Set(workoutIds)].map((id) => loadWorkout(paths, id)));
+  if (options.atlas && !existsSync(paths.atlasFile)) throw new NotShareableError('There is no Atlas to share yet: build it with `kin atlas build`, or ask your agent: /kin-atlas');
+  const localAtlas = options.atlas ? await readAtlas(paths) : undefined;
 
   const refusals: string[] = [];
   const warnings: string[] = [];
@@ -191,8 +216,19 @@ export async function share(cwd: string, ids: string[], options: ShareOptions = 
       report.shared.push({ id: track.id, as: track.id, kind: 'track' });
     }
 
+    if (localAtlas) {
+      const theirs = await sharedAtlas(repo, remoteContents.tree);
+      const merged = theirs ? mergeAtlas(localAtlas, theirs, preferOursOrNewer).atlas : localAtlas;
+      const content = atlasJson(merged);
+      const blob = await hashContent(repo, content);
+      const changed = remoteContents.tree.get(ATLAS) !== blob;
+      if (changed) additions.set(ATLAS, blob);
+      report.atlas = { entries: Object.keys(merged.folders).length + Object.keys(merged.files).length, changed };
+    }
+
     if (additions.size === 0) return report;
-    const message = `Share ${report.shared.map((s) => s.as).join(', ')}\n\nShared by ${identity.name} <${identity.email}> with Kintsugi.`;
+    const what = [...report.shared.map((s) => s.as), ...(report.atlas?.changed ? ['the Atlas'] : [])];
+    const message = `Share ${what.join(', ')}\n\nShared by ${identity.name} <${identity.email}> with Kintsugi.`;
     const commit = await commitWith(repo, parent, additions, message);
     if ((await pushShared(repo, remote, commit)) === 'pushed') return report;
     // A teammate pushed first: start again from their branch.
@@ -220,6 +256,8 @@ export interface FetchReport {
   rejected: { id: string; reason: string }[];
   tracks: { id: string; as: string }[];
   skippedTracks: { id: string; reason: string }[];
+  /** Atlas entries the team had that were missing here, or replaced stale ones here. */
+  atlas?: { added: number; replaced: number };
 }
 
 /**
@@ -330,6 +368,13 @@ export async function fetchWorkouts(cwd: string, options: FetchOptions, step: (m
       }
       await saveTrack(paths, { ...manifest, steps });
       report.tracks.push({ id, as: id });
+    }
+
+    const theirs = await sharedAtlas(repo, contents.tree);
+    if (theirs) {
+      const merged = mergeAtlas(await readAtlas(paths), theirs, preferCurrent(await buildSkeleton(repo, config.profiles)));
+      if (merged.added + merged.replaced > 0) await writeAtlas(paths, merged.atlas);
+      report.atlas = { added: merged.added, replaced: merged.replaced };
     }
   } finally {
     await sandbox?.dispose();

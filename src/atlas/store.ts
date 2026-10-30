@@ -65,3 +65,49 @@ export function staleCounts(atlas: Atlas, skeleton: Skeleton): { files: number; 
   for (const folder of skeleton.folders.values()) if (entryState(atlas.folders[folder.path], folder.hash) === 'stale') folders++;
   return { files, folders, described };
 }
+
+/**
+ * Two Atlases as one, entry by entry: an entry only one side has is kept; for two entries, `pick`
+ * chooses. Returns the merge and how many entries came from `incoming`.
+ */
+export function mergeAtlas(
+  base: Atlas,
+  incoming: Atlas,
+  pick: (kind: 'folder' | 'file', path: string, ours: AtlasEntry, theirs: AtlasEntry) => 'ours' | 'theirs',
+): { atlas: Atlas; added: number; replaced: number } {
+  const atlas: Atlas = { version: 1, folders: { ...base.folders }, files: { ...base.files } };
+  let added = 0;
+  let replaced = 0;
+  const merge = <E extends AtlasEntry>(kind: 'folder' | 'file', ours: Record<string, E>, theirs: Record<string, E>) => {
+    for (const [path, entry] of Object.entries(theirs)) {
+      const current = ours[path];
+      if (!current) {
+        ours[path] = entry;
+        added++;
+      } else if (current.hash !== entry.hash || current.text !== entry.text) {
+        if (pick(kind, path, current, entry) === 'theirs') {
+          ours[path] = entry;
+          replaced++;
+        }
+      }
+    }
+  };
+  merge('folder', atlas.folders, incoming.folders);
+  merge('file', atlas.files, incoming.files);
+  return { atlas, added, replaced };
+}
+
+/** Sharing: the sharer's entry wins for the same content; otherwise the more recently written one. */
+export const preferOursOrNewer = (_kind: 'folder' | 'file', _path: string, ours: AtlasEntry, theirs: AtlasEntry): 'ours' | 'theirs' =>
+  ours.hash === theirs.hash || ours.writtenAt >= theirs.writtenAt ? 'ours' : 'theirs';
+
+/**
+ * Fetching: the local entry wins for the same content; a fetched one replaces a local entry that is
+ * stale only when it describes the code as it is here.
+ */
+export const preferCurrent =
+  (skeleton: Skeleton) =>
+  (kind: 'folder' | 'file', path: string, ours: AtlasEntry, theirs: AtlasEntry): 'ours' | 'theirs' => {
+    const hash = kind === 'folder' ? skeleton.folders.get(path)?.hash : skeleton.files.get(path)?.hash;
+    return hash !== undefined && ours.hash !== hash && theirs.hash === hash ? 'theirs' : 'ours';
+  };

@@ -24,7 +24,12 @@ export interface AttemptRecord {
   order?: number[];
   /** Prediction only: the option chosen (an index into the Workout's options). */
   answer?: number;
+  /** Prediction only: how sure the human was of that answer, asked before the reveal; absent when skipped. */
+  confidence?: Confidence;
 }
+
+/** How sure the human was of a Prediction's answer (§11.12). */
+export type Confidence = 'guessing' | 'fairly-sure' | 'certain';
 
 export interface Attempt {
   record: AttemptRecord;

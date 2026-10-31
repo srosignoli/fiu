@@ -208,15 +208,19 @@ describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
       assert.match(io.printed[0]!, /attempt 1\n\nThree jobs are waiting\./);
       assert.doesNotMatch(io.transcript, /Initial run|Incident report/);
       io.press(keyFor(io, 'The "early" job runs next.'));
+      io.press('3');
 
       const result = await training;
       assert.equal(result.status, 'completed', io.transcript);
+      assert.match(io.transcript, /How sure were you\? \[1\] guessing {3}\[2\] fairly sure {3}\[3\] certain/);
       assert.match(io.transcript, /Right: The "early" job runs next\.\n\nThe highest priority wins.*\n\nWhere this lives:\n {2}queue\.ts:3-9: The scheduler picks/);
       const saved = await readJson(join(attempt(), 'attempt.json'));
       assert.equal(saved.answer, 0);
+      assert.equal(saved.confidence, 'certain');
       assert.deepEqual([...saved.order].sort(), [0, 1, 2, 3]);
       assert.equal(existsSync(join(attempt(), 'kata.ts')), false);
       assert.equal((await readJson(paths.stateFile)).outcomes[0].outcome, 'completed');
+      assert.equal((await readJson(paths.stateFile)).outcomes[0].confidence, 'certain');
     });
 
     it('abandons on a wrong answer, explaining the misunderstanding and the code behind it', async () => {
@@ -225,6 +229,7 @@ describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
       const training = startTraining(repo, record.id, io);
       await io.waitFor(/\[1\]-\[4\] answer/);
       io.press(keyFor(io, 'The "late" job runs next.'));
+      io.press('x'); // skip How sure?
       await io.waitFor(/^\[d\] the code difference/);
       io.press('d');
 
@@ -251,6 +256,7 @@ describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
       const training = startTraining(repo, record.id, io);
       await io.waitFor(/\[1\]-\[4\] answer/);
       io.press(keyFor(io, 'The "late" job runs next.'));
+      io.press('x'); // skip How sure?
       await io.waitFor(/^\[d\] what the commit changed/);
       io.press('d');
 
@@ -676,11 +682,13 @@ describe('a Prediction Series', () => {
     const training = startTraining(repo, records[0]!.id, io);
     await io.waitFor(/\[1\]-\[4\] answer/);
     io.press(keyFor('The "early" job runs next.', io.printed[0]!));
+    io.press('x'); // skip How sure?
     await io.waitFor(/\[n\] next question \(2 of 2\)/);
     io.press('n');
     await io.waitFor(/Does urgency beat arrival\?/);
     const second = io.printed.find((p) => p.includes('Does urgency beat arrival?'))!;
     io.press(keyFor('The "urgent" job runs next.', second));
+    io.press('x'); // skip How sure?
     const result = await training;
     assert.deepEqual([result.status, result.status === 'completed' && result.workoutId], ['completed', records[1]!.id]);
     assert.equal(io.printed.filter((p) => /\[n\] next question/.test(p)).length, 1, 'nothing left to offer after the last question');
@@ -692,6 +700,7 @@ describe('a Prediction Series', () => {
     const training = startTraining(repo, records[0]!.id, io);
     await io.waitFor(/\[1\]-\[4\] answer/);
     io.press(keyFor('The "late" job runs next.', io.printed[0]!));
+    io.press('x'); // skip How sure?
     await io.waitFor(/\[d\] the code difference/);
     io.press('x');
     await io.waitFor(/\[n\] next question/);

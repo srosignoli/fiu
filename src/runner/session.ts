@@ -8,7 +8,7 @@ import type { Sandbox } from '../sandbox/sandbox.ts';
 import { diffLines, type Hunk } from '../verify/diff.ts';
 import { buildVariant } from '../verify/gate.ts';
 import type { PredictionOption } from '../synthesis/schema.ts';
-import { isAttemptBookkeeping, listAttemptRecords, saveAttempt, type Attempt } from '../workouts/attempts.ts';
+import { isAttemptBookkeeping, listAttemptRecords, saveAttempt, type Attempt, type Confidence } from '../workouts/attempts.ts';
 import type { WorkoutRecord } from '../workouts/save.ts';
 import { recordOutcome, type Outcome } from '../workouts/store.ts';
 import type { WorkspacePaths } from '../workspace.ts';
@@ -161,12 +161,12 @@ export class TrainingSession {
   }
 
   /** Finishes the Attempt: its outcome goes into the Attempt and into state.json. The Workout stays as it is. */
-  async finish(outcome: Outcome['outcome'], rating?: Outcome['rating'], defectConfirmed?: boolean): Promise<void> {
+  async finish(outcome: Outcome['outcome'], rating?: Outcome['rating'], defectConfirmed?: boolean, confidence?: Confidence): Promise<void> {
     if (this.#finished) throw new Error('This session has already finished.');
     this.#finished = true;
     const { attempt, paths } = this.#options;
     const at = (this.#options.now?.() ?? new Date()).toISOString();
-    const answers = { ...(rating ? { rating } : {}), ...(defectConfirmed === undefined ? {} : { defectConfirmed }) };
+    const answers = { ...(rating ? { rating } : {}), ...(defectConfirmed === undefined ? {} : { defectConfirmed }), ...(confidence ? { confidence } : {}) };
     Object.assign(attempt.record, { outcome, finishedAt: at, ...answers });
     await saveAttempt(attempt);
     await recordOutcome(paths, {

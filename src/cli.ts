@@ -444,6 +444,20 @@ atlas
   });
 
 program
+  .command('stats')
+  .description('How often your Predictions are right, how well your confidence matches, and your Blind Spots: local and free.')
+  .argument('[path]', 'a directory or file to look into')
+  .option('--json', 'print the stats as JSON')
+  .action(async (path: string | undefined, options: { json?: boolean }) => {
+    const { predictionStats } = await import('./map/stats.ts');
+    const { renderStats } = await import('./map/render.ts');
+    const repoRoot = await findRepoRoot(process.cwd());
+    const scope = path ? join(process.cwd(), path).slice(repoRoot.length).replace(/^\/+|\/+$/g, '') : '';
+    const stats = await predictionStats(process.cwd(), scope);
+    console.log(options.json ? JSON.stringify(stats, null, 2) : renderStats(stats, { color: process.stdout.isTTY === true && !process.env.NO_COLOR }));
+  });
+
+program
   .command('quick')
   .description('Start the best Quick Workout in the queue right away: for a short wait.')
   .option('--no-sandbox', 'run the tests without isolation, for this invocation only')

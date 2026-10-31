@@ -4,6 +4,7 @@ import { execa } from 'execa';
 import { existsSync } from 'node:fs';
 import { buildSkeleton } from '../atlas/skeleton.ts';
 import { entryState, readAtlas, staleCounts } from '../atlas/store.ts';
+import { blindSpots, firstAnswers } from './stats.ts';
 import { isAiAuthored } from '../background/commits.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { logicScore } from '../explore/shortlist.ts';
@@ -43,6 +44,8 @@ export interface FileEntry {
   waitingWorkout?: string;
   /** What the Atlas says the file is for. */
   atlas?: AtlasNote;
+  /** Your latest first answer to a Prediction on this file was certain and wrong (§11.12). */
+  blindSpot?: { workoutId: string };
 }
 
 /** An Atlas entry as the map shows it; stale once the content changed since it was written. */
@@ -55,11 +58,14 @@ export interface DirEntry {
   path: string;
   state: FileState;
   counts: { red: number; amber: number; green: number };
+  /** Blind Spots among its files. */
+  blindSpots: number;
   files: FileEntry[];
   atlas?: AtlasNote;
 }
 
 export type Suggestion =
+  | { kind: 'check'; path: string }
   | { kind: 'train'; workoutId: string; path: string }
   | { kind: 'explore'; path: string; red: number }
   | { kind: 'drill'; path: string; state: FileState };
@@ -107,6 +113,7 @@ export async function buildMap(cwd: string, scopePath = '', { configEnv = { env:
   const amberThreshold = quantile(AMBER_QUANTILE);
 
   const practice = await practiceByFile(paths);
+  const blind = new Map(blindSpots(await firstAnswers(paths)).map((b) => [b.path, b.workoutId]));
   const aiChanged = await recentlyAiChanged(repo, now);
   const waiting = new Map<string, string>();
   for (const w of await listWorkouts(paths)) {
@@ -140,6 +147,7 @@ export async function buildMap(cwd: string, scopePath = '', { configEnv = { env:
       aiChangedRecently: ai,
       ...(score !== undefined ? { score } : {}),
       ...(waiting.has(path) ? { waitingWorkout: waiting.get(path) } : {}),
+      ...(blind.has(path) ? { blindSpot: { workoutId: blind.get(path)! } } : {}),
     });
   }
 
@@ -226,8 +234,9 @@ function groupByDirectory(files: FileEntry[]): DirEntry[] {
   const dirs = new Map<string, DirEntry>();
   for (const file of files) {
     const dir = dirname(file.path) === '.' ? '' : dirname(file.path);
-    const entry = dirs.get(dir) ?? { path: dir, state: 'grey' as FileState, counts: { red: 0, amber: 0, green: 0 }, files: [] };
+    const entry = dirs.get(dir) ?? { path: dir, state: 'grey' as FileState, counts: { red: 0, amber: 0, green: 0 }, blindSpots: 0, files: [] };
     entry.files.push(file);
+    if (file.blindSpot) entry.blindSpots++;
     if (file.state !== 'grey') entry.counts[file.state]++;
     if (SEVERITY[file.state] > SEVERITY[entry.state]) entry.state = file.state;
     dirs.set(dir, entry);
@@ -236,9 +245,12 @@ function groupByDirectory(files: FileEntry[]): DirEntry[] {
   return [...dirs.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
-/** At most 3: use Drills already paid for, then explore the reddest module, then drill single files. */
+/** At most 3: check Blind Spots again, use Drills already paid for, then explore the reddest module, then drill single files. */
 function suggest(dirs: DirEntry[]): Suggestion[] {
   const suggestions: Suggestion[] = [];
+  for (const file of dirs.flatMap((d) => d.files).filter((f) => f.blindSpot)) {
+    if (suggestions.length < 3) suggestions.push({ kind: 'check', path: file.path });
+  }
   const files = dirs.flatMap((d) => d.files).filter((f) => f.state === 'red' || f.state === 'amber');
   const bySeverity = files.sort((a, b) => SEVERITY[b.state] - SEVERITY[a.state] || (b.score ?? 0) - (a.score ?? 0));
   for (const file of bySeverity) {

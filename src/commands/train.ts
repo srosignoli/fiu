@@ -13,6 +13,7 @@ import { preflight } from '../languages/run.ts';
 import { openAttempt } from '../workouts/attempts.ts';
 import { nextQuickWorkout } from '../workouts/queue.ts';
 import type { PredictionOption } from '../synthesis/schema.ts';
+import type { Confidence } from '../workouts/attempts.ts';
 import type { WorkoutRecord } from '../workouts/save.ts';
 import { listWorkouts, loadWorkout, nextInSeries, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
@@ -229,7 +230,7 @@ async function runSession(
 }
 
 /** After any finished Attempt: the source-bug notice and question, the rating, and the outcome recorded. */
-async function closeAttempt(session: TrainingSession, io: TrainIo, outcome: Outcome['outcome']): Promise<TrainResult> {
+async function closeAttempt(session: TrainingSession, io: TrainIo, outcome: Outcome['outcome'], confidence?: Confidence): Promise<TrainResult> {
   const { record } = session.workout;
   let defectConfirmed: boolean | undefined;
   if (record.originalDefect) {
@@ -238,7 +239,7 @@ async function closeAttempt(session: TrainingSession, io: TrainIo, outcome: Outc
     if (await session.firstToFinish()) defectConfirmed = await io.confirmDefect();
   }
   const rating = await io.rate();
-  await session.finish(outcome, rating, defectConfirmed);
+  await session.finish(outcome, rating, defectConfirmed, confidence);
   return { status: outcome, workoutId: record.id, attempt: session.attempt.record.number, dir: session.attempt.dir };
 }
 
@@ -285,6 +286,11 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
   }
   ended = true;
 
+  // Asked before the reveal, so it is about the answer, not the outcome (§11.12).
+  io.print('How sure were you? [1] guessing   [2] fairly sure   [3] certain   [any other key] skip');
+  const sure = await io.readKey(new AbortController().signal);
+  const confidence = CONFIDENCE_KEYS[sure ?? ''];
+
   const { outcome, chosen, truth } = await session.answer(picked);
   // In a Prediction from a commit, why the old behaviour is wrong is known for a fact: Kintsugi says it.
   const old = record.prediction!.options.find((o) => o.previous);
@@ -302,8 +308,10 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
       io.print(`${heading}\n${await session.variantDiff(chosen)}`);
     }
   }
-  return closeAttempt(session, io, outcome);
+  return closeAttempt(session, io, outcome, confidence);
 }
+
+const CONFIDENCE_KEYS: Record<string, Confidence> = { '1': 'guessing', '2': 'fairly-sure', '3': 'certain' };
 
 /** The notice that the Workout's bug may be in the source too. Only ever shown after an Attempt: before, it narrows the search. */
 export function describeDefect(record: WorkoutRecord): string {

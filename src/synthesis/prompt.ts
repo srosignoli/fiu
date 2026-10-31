@@ -124,6 +124,24 @@ ${profile.promptRules
   .join('\n')}${commitRules}`;
 }
 
+/** Appended to the Prediction rules for a Series of `count` questions. */
+export function seriesRules(count: number): string {
+  return `
+
+This is a Series: ${count} Predictions about the same unit, generated together. Extract the unit once (one referenceSolution, sourceAnchors, and originalDefect, shared by every question), then write ${count} questions in \`questions\`.
+- Each question asks about a different rule or behaviour of the unit (a limit, an order, what is skipped, what happens on failure), never the same one in other words. No two questions may share a Scenario, a correct outcome, or a Variant.
+- Each question has its own slug, title, estimatedMinutes, scenario, ${PREDICTION_OPTIONS} options with their Variants and misunderstandings, explanation, and testSuiteCode with exactly ${PREDICTION_OPTIONS} tests, one per option, all against the shared referenceSolution.
+- Every rule above for a single Prediction applies to each question.`;
+}
+
+export function seriesRetryPrompt(feedback: string, saved: number, needed: number): string {
+  return `${saved > 0 ? `${saved} question(s) of the Series were Verified and are saved. ` : ''}These were not Verified, so they were discarded:
+
+${feedback}
+
+Write ${needed} replacement question(s), as a Series whose \`questions\` holds only the replacements. Each is Verified against the referenceSolution you return with it, and must ask about something no saved question asks about.`;
+}
+
 export const systemPromptFor = (kind: WorkoutKind, profile: LanguageProfile, options: { quick?: boolean; fromCommit?: boolean } = {}) =>
   kind === 'drill' ? drillSystemPrompt(profile, options) : kind === 'kata' ? kataSystemPrompt(profile, options) : predictionSystemPrompt(profile, options);
 

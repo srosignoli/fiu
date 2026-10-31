@@ -137,6 +137,65 @@ export const CommitPredictionOutputSchema = PredictionOutputSchema.extend({
 });
 export type CommitPredictionOutput = z.infer<typeof CommitPredictionOutputSchema>;
 
+/** A Series asks at most this many questions about one unit. */
+export const MAX_SERIES_QUESTIONS = 5;
+
+/** One question of a Series: everything a Prediction has except what the Series shares (the unit and its Reference Solution). */
+export const SeriesQuestionSchema = z.object({
+  slug: PredictionOutputSchema.shape.slug,
+  title: PredictionOutputSchema.shape.title,
+  estimatedMinutes: PredictionOutputSchema.shape.estimatedMinutes,
+  scenario: PredictionOutputSchema.shape.scenario,
+  options: PredictionOutputSchema.shape.options,
+  explanation: PredictionOutputSchema.shape.explanation,
+  testSuiteCode: z.string().describe("This question's complete test file: exactly one test per option, each asserting that option's outcome in this question's Scenario."),
+});
+export type SeriesQuestion = z.infer<typeof SeriesQuestionSchema>;
+
+/** A Series: one unit, one Reference Solution, several questions about it (§11.11). */
+export const PredictionSeriesOutputSchema = z.object({
+  worthPracticing: PredictionOutputSchema.shape.worthPracticing,
+  notWorthReason: PredictionOutputSchema.shape.notWorthReason,
+  pillar: PredictionOutputSchema.shape.pillar,
+  sourceAnchors: PredictionOutputSchema.shape.sourceAnchors,
+  referenceSolution: PredictionOutputSchema.shape.referenceSolution,
+  originalDefect: PredictionOutputSchema.shape.originalDefect,
+  questions: z.array(SeriesQuestionSchema).describe('The questions, each about a different rule or behaviour of the unit.'),
+});
+export type PredictionSeriesOutput = z.infer<typeof PredictionSeriesOutputSchema>;
+
+/** Each question of a Series as a Prediction of its own, sharing the unit, its Reference Solution, and its Source Anchors. */
+export function expandSeries(series: PredictionSeriesOutput): PredictionOutput[] {
+  const { questions, ...shared } = series;
+  return questions.map((question) => ({ ...shared, ...question }));
+}
+
+const normalised = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '').trim();
+
+/**
+ * What makes questions of a Series ask the same thing: the same true outcome, the same Scenario, or the
+ * same Variant (the same change to the same text). Checks each of `questions` against those before it
+ * and against `kept` (questions already saved); returns problems by index into `questions`.
+ */
+export function seriesOverlaps(questions: PredictionOutput[], kept: PredictionOutput[] = []): Map<number, string[]> {
+  const problems = new Map<number, string[]>();
+  const seen: { label: string; question: PredictionOutput }[] = kept.map((question) => ({ label: `the saved question "${question.title}"`, question }));
+  const truth = (q: PredictionOutput) => normalised(q.options.find((o) => o.correct)?.text ?? '');
+  const variants = (q: PredictionOutput) => new Set(q.options.filter((o) => !o.correct && o.variant.original).map((o) => `${normalised(o.variant.original)}\u0000${normalised(o.variant.changed)}`));
+  questions.forEach((question, i) => {
+    const found: string[] = [];
+    for (const { label, question: other } of seen) {
+      if (normalised(question.scenario) === normalised(other.scenario)) found.push(`it asks the same Scenario as ${label}: ask about a different situation.`);
+      else if (truth(question) && truth(question) === truth(other)) found.push(`its true outcome is the same as ${label}'s: ask about a different rule or behaviour.`);
+      const mine = variants(question);
+      if ([...variants(other)].some((v) => mine.has(v))) found.push(`it repeats a Variant of ${label}: each question's wrong options stand for different misunderstandings.`);
+    }
+    if (found.length > 0) problems.set(i, found);
+    seen.push({ label: `question ${i + 1}`, question });
+  });
+  return problems;
+}
+
 /** Any kind, with each kind's own fields optional: what agent mode's submit_drill accepts (the kind comes from prepare_drill). */
 export const AnyWorkoutOutputSchema = z.object({
   ...baseFields('drill'),

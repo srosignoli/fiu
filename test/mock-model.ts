@@ -1,5 +1,5 @@
 import { MockLanguageModelV4 } from 'ai/test';
-import type { AnyWorkoutOutput, CommitPredictionOutput, DrillOutput, KataOutput, PredictionOutput } from '../src/synthesis/schema.ts';
+import type { AnyWorkoutOutput, CommitPredictionOutput, DrillOutput, KataOutput, PredictionOutput, PredictionSeriesOutput, SeriesQuestion } from '../src/synthesis/schema.ts';
 
 export interface ScriptedModel {
   model: MockLanguageModelV4;
@@ -8,7 +8,7 @@ export interface ScriptedModel {
 }
 
 /** A model that answers successive calls with the given replies (objects are sent as JSON; Errors are thrown). */
-export function scriptedModel(...replies: (Partial<AnyWorkoutOutput> | string | Error)[]): ScriptedModel {
+export function scriptedModel(...replies: (Partial<AnyWorkoutOutput> | PredictionSeriesOutput | string | Error)[]): ScriptedModel {
   const prompts: string[] = [];
   const model = new MockLanguageModelV4({
     doGenerate: async (options) => {
@@ -184,4 +184,51 @@ export function goodCommitPrediction(overrides: Partial<CommitPredictionOutput> 
     previous: TS_BEFORE_COMMIT,
     ...overrides,
   };
+}
+
+/** Tests for a second question about pickNext: which of three jobs with different priorities runs. */
+export const TS_URGENT_TESTS = `import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { pickNext } from './kata.ts';
+
+const jobs = [{ id: 'first', priority: 1, at: 0 }, { id: 'urgent', priority: 5, at: 9 }, { id: 'last', priority: 3, at: 5 }];
+
+describe('what runs next', () => {
+  it('runs the urgent job', () => assert.equal(pickNext(jobs), 'urgent'));
+  it('runs the first job submitted', () => assert.equal(pickNext(jobs), 'first'));
+  it('runs the last job submitted', () => assert.equal(pickNext(jobs), 'last'));
+  it('runs nothing', () => assert.equal(pickNext(jobs), undefined));
+});
+`;
+
+/** A Series question that Verifies against TS_REFERENCE and asks something goodPrediction doesn't. */
+export function urgentQuestion(overrides: Partial<SeriesQuestion> = {}): SeriesQuestion {
+  const none = { original: '', changed: '' };
+  return {
+    slug: 'urgent-first',
+    title: 'Does urgency beat arrival?',
+    estimatedMinutes: 2,
+    scenario: 'Three jobs are waiting: "first" (priority 1, submitted at midnight), "urgent" (priority 5, submitted at 9 o\'clock), and "last" (priority 3, submitted at 5 o\'clock). Which runs next?',
+    options: [
+      { text: 'The "urgent" job runs next.', testName: 'runs the urgent job', correct: true, variant: none, misunderstanding: '' },
+      { text: 'The "first" job runs next.', testName: 'runs the first job submitted', correct: false, variant: { original: 'return best?.id;', changed: 'return jobs[0]?.id;' }, misunderstanding: 'You were picturing a plain first-come queue.' },
+      { text: 'The "last" job runs next.', testName: 'runs the last job submitted', correct: false, variant: { original: 'return best?.id;', changed: 'return jobs[jobs.length - 1]?.id;' }, misunderstanding: 'You were picturing a stack: newest first.' },
+      { text: 'Nothing runs.', testName: 'runs nothing', correct: false, variant: { original: 'return best?.id;', changed: 'return undefined;' }, misunderstanding: 'You were picturing a queue that waits for equal priorities.' },
+    ],
+    explanation: 'The highest priority always runs first, whenever it arrived.',
+    testSuiteCode: TS_URGENT_TESTS,
+    ...overrides,
+  };
+}
+
+/** A Series about pickNext, sharing goodPrediction's unit, with the given questions. */
+export function goodSeries(questions: SeriesQuestion[]): PredictionSeriesOutput {
+  const { worthPracticing, notWorthReason, pillar, sourceAnchors, referenceSolution, originalDefect } = goodPrediction();
+  return { worthPracticing, notWorthReason, pillar, sourceAnchors, referenceSolution, originalDefect, questions };
+}
+
+/** goodPrediction's question, as a Series question. */
+export function tieQuestion(overrides: Partial<SeriesQuestion> = {}): SeriesQuestion {
+  const { slug, title, estimatedMinutes, scenario, options, explanation, testSuiteCode } = goodPrediction();
+  return { slug, title, estimatedMinutes, scenario, options, explanation, testSuiteCode, ...overrides };
 }

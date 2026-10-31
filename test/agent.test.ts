@@ -441,12 +441,25 @@ describe(`Tracks in agent mode (${sandboxWorks ? 'sandboxed' : 'skipped: no sand
     const { json: track } = await call('prepare_track', { module: 'src/core' });
     assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId })).text, /needs `why`/);
     assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: 'track_nope', why: 'x' })).text, /Unknown track id/);
-    assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId, why: 'x', kind: 'kata' })).text, /Track steps are Drills/);
+    assert.deepEqual(track.kinds, ['prediction', 'drill', 'kata']);
+    assert.match(track.rules, /Use at least two different kinds/);
+    assert.equal((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId, why: 'x', kind: 'kata' })).json.kind, 'kata');
     await writeFile(join(repo, 'src', 'core', 'new.ts'), TS_REFERENCE);
     assert.match((await call('prepare_drill', { target: 'src/core/new.ts', trackId: track.trackId, why: 'x' })).text, /not one of the Track's candidate files/);
     await step(call, track.trackId, 'src/core/store.ts', [goodDrill({ slug: 's' })]);
     assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId, why: 'x' })).text, /already a step of this Track/);
     assert.match((await call('prepare_track', { module: 'src/core/store.ts' })).text, /is a file: explore a module directory/);
+  });
+
+  it('makes every step a Prediction for someone who reads no code', async () => {
+    const repo = await repoWithModule();
+    const home = await tempDir();
+    await mkdir(join(home, '.config', 'kintsugi'), { recursive: true });
+    await writeFile(join(home, '.config', 'kintsugi', 'config.json'), JSON.stringify({ kinds: ['prediction'] }));
+    const { call } = await connect(repo, home);
+    const { json: track } = await call('prepare_track', { module: 'src/core' });
+    assert.deepEqual(track.kinds, ['prediction']);
+    assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId, why: 'x' })).text, /This Track's steps are Prediction: a Drill isn't one of them/);
   });
 
   it('saves no Track with fewer than 3 Verified steps', async () => {

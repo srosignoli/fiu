@@ -9,20 +9,20 @@ import { explore, moduleAbout, type ExploreOptions } from '../src/commands/explo
 import { continueTrack, formatProgress } from '../src/commands/track.ts';
 import type { TrainIo } from '../src/commands/train.ts';
 import { emptyAtlas } from '../src/atlas/store.ts';
-import { candidatesPrompt, checkPlan, withAtlas, type TrackPlan } from '../src/explore/plan.ts';
+import { candidatesPrompt, checkPlan, trackKinds, trackRules, withAtlas, type TrackPlan } from '../src/explore/plan.ts';
 import { ExploreTargetError, shortlist } from '../src/explore/shortlist.ts';
 import { listTracks, loadTrack, trackProgress } from '../src/explore/tracks.ts';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { profiles } from '../src/languages/registry.ts';
 import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
-import type { DrillOutput } from '../src/synthesis/schema.ts';
+import type { DrillOutput, WorkoutKind } from '../src/synthesis/schema.ts';
 import { openAttempt, saveAttempt } from '../src/workouts/attempts.ts';
 import { nextQuickWorkout } from '../src/workouts/queue.ts';
 import type { WorkoutRecord } from '../src/workouts/save.ts';
-import { listWorkouts, loadWorkout, readState } from '../src/workouts/store.ts';
+import { averageSpend, listWorkouts, loadWorkout, readState } from '../src/workouts/store.ts';
 import { workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, scriptedModel, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, goodPrediction, scriptedModel, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -56,10 +56,10 @@ const MODULE = {
   'src/core/tiny.ts': 'export const tiny = 1;\n',
 };
 
-const plan = (steps: string[], alternates: string[] = []): TrackPlan => ({
+const plan = (steps: string[], alternates: string[] = [], kinds: WorkoutKind[] = []): TrackPlan => ({
   title: 'The job scheduler',
-  steps: steps.map((path) => ({ path, pillar: 'algorithm', why: `${path} is what the rest builds on.` })),
-  alternates: alternates.map((path) => ({ path, pillar: 'pattern', why: `${path} wires things together.` })),
+  steps: steps.map((path, i) => ({ path, kind: kinds[i] ?? 'drill', pillar: 'algorithm', why: `${path} is what the rest builds on.` })),
+  alternates: alternates.map((path) => ({ path, kind: 'drill', pillar: 'pattern', why: `${path} wires things together.` })),
 });
 
 async function run(repo: string, replies: (TrackPlan | Partial<DrillOutput> | string)[], options: Partial<ExploreOptions> = {}, confirm?: (m: string) => Promise<boolean>) {
@@ -68,7 +68,8 @@ async function run(repo: string, replies: (TrackPlan | Partial<DrillOutput> | st
   const result = await explore(
     repo,
     'src/core',
-    { yes: true, sandbox: sandboxWorks, ...options },
+    // Drill-only unless a test asks for a mix: the scripted replies are Drills.
+    { yes: true, sandbox: sandboxWorks, kinds: ['drill'], ...options },
     { step: (m) => steps.push(m), warn: () => {}, confirm },
     {
       createModel: () => ({ model: scripted.model, providerOptions: {} }),
@@ -123,11 +124,48 @@ describe('checkPlan', () => {
   it('accepts 3 to 5 distinct candidate files and rejects anything else', async () => {
     const repo = await repoWithModule(MODULE);
     const candidates = await shortlist(repo, 'src/core', profiles());
-    assert.deepEqual(checkPlan(plan(['src/core/store.ts', 'src/core/queue.ts', 'src/core/worker.ts']), candidates), []);
+    assert.deepEqual(checkPlan(plan(['src/core/store.ts', 'src/core/queue.ts', 'src/core/worker.ts']), candidates, ['drill']), []);
     const problems = checkPlan(plan(['src/core/store.ts', 'src/core/store.ts', 'src/core/nope.ts', 'src/core/tiny.ts', 'a', 'b']), candidates);
     assert.ok(problems.some((p) => /choose 3 to 5 steps, not 6/.test(p)));
     assert.ok(problems.some((p) => /store\.ts appears more than once/.test(p)));
     assert.ok(problems.some((p) => /nope\.ts is not one of the candidate files/.test(p)));
+  });
+
+  it('holds steps to the allowed kinds, and a Track to at least two of them', async () => {
+    const repo = await repoWithModule(MODULE);
+    const candidates = await shortlist(repo, 'src/core', profiles());
+    const files = ['src/core/store.ts', 'src/core/queue.ts', 'src/core/worker.ts'];
+    assert.deepEqual(checkPlan(plan(files, [], ['prediction', 'drill', 'kata']), candidates), []);
+    assert.deepEqual(checkPlan(plan(files), candidates), ['every step is a drill: use at least two kinds of prediction, drill, kata.']);
+    assert.deepEqual(checkPlan(plan(files, [], ['prediction', 'kata', 'kata']), candidates, ['prediction']), [
+      "src/core/queue.ts is a kata, which this Track doesn't allow: use prediction.",
+      "src/core/worker.ts is a kata, which this Track doesn't allow: use prediction.",
+    ]);
+  });
+});
+
+describe('averageSpend by kind', () => {
+  it('prices a kind from the Workouts of that kind only', () => {
+    const entry = (workoutId: string, usd: number) => ({ at: '2026-10-31T00:00:00.000Z', origin: 'manual' as const, generator: 'kintsugi' as const, source: 'a.ts', result: 'verified' as const, workoutId, generationAttempts: 1, cost: { usage: [], usd, unpricedModels: [], pricesAsOf: '2026-10' } });
+    const spend = [entry('drill_1', 0.4), entry('prediction_1', 0.2), entry('kata_1', 0.6)];
+    assert.equal(averageSpend(spend, 10, 'prediction')?.usd, 0.2);
+    assert.equal(averageSpend(spend, 10, 'kata')?.usd, 0.6);
+    assert.equal(averageSpend(spend)?.usd.toFixed(2), '0.40');
+  });
+});
+
+describe('trackKinds', () => {
+  it('mixes all three by default, Predictions only for someone who reads no code, or what --kinds says', () => {
+    assert.deepEqual(trackKinds(['drill']), ['prediction', 'drill', 'kata']);
+    assert.deepEqual(trackKinds(['prediction', 'drill']), ['prediction', 'drill', 'kata']);
+    assert.deepEqual(trackKinds(['prediction']), ['prediction']);
+    assert.deepEqual(trackKinds(['prediction'], ['kata', 'drill']), ['drill', 'kata']);
+  });
+
+  it('gives the planner rules for the allowed kinds only', () => {
+    assert.match(trackRules(), /Use at least two different kinds across the steps/);
+    assert.match(trackRules(['prediction']), /Every step is a Prediction\./);
+    assert.doesNotMatch(trackRules(['drill', 'kata']), /^- prediction:/m);
   });
 });
 
@@ -184,8 +222,32 @@ describe(`kin explore (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.equal(result.status, 'declined');
     assert.equal(prompts.length, 1, 'only the planning call');
     const question = asked.find((m) => m.startsWith('Track'))!;
-    assert.match(question, /1\. src\/core\/store\.ts: src\/core\/store\.ts is what the rest builds on\./);
-    assert.match(question, /Generate these 3 Drills now\? Estimated cost unknown \(no cost history yet\)\./);
+    assert.match(question, /1\. Drill · algorithm: src\/core\/store\.ts: src\/core\/store\.ts is what the rest builds on\./);
+    assert.match(question, /Generate these 3 Workouts now\? Estimated cost unknown \(no cost history yet\)\./);
+  });
+
+  it('mixes kinds: each step generated as the kind the plan chose', async () => {
+    const repo = await repoWithModule(MODULE);
+    const mixed = plan(three, [], ['prediction', 'drill', 'kata']);
+    const { result, prompts } = await run(repo, [mixed, goodPrediction(), goodDrill({ slug: 'b' }), goodKata()], { kinds: undefined });
+    assert.equal(result.status, 'saved', JSON.stringify(result));
+    if (result.status !== 'saved') return;
+    assert.deepEqual(result.track.steps.map((s) => s.kind), ['prediction', 'drill', 'kata']);
+    assert.match(prompts[0]!, /The allowed kinds:\\n- prediction:/);
+    assert.match(prompts[1]!, /This Prediction is step 1 of 3 in a Track/);
+    assert.doesNotMatch(prompts[1]!, /This is a Series/);
+    const readme = await readFile(join(workspacePaths(repo).workoutsDir, result.track.steps[0]!.workoutId, 'README.md'), 'utf8');
+    assert.match(readme, /\*Part of the Track "The job scheduler": src\/core\/store\.ts is what the rest builds on\.\*/);
+  });
+
+  it('falls back to a Drill on the same file when a step of another kind fails and no alternate is left', async () => {
+    const repo = await repoWithModule(MODULE);
+    const mixed = plan(three, [], ['prediction', 'drill', 'kata']);
+    const { result } = await run(repo, [mixed, 'not json', 'not json', 'not json', goodDrill({ slug: 'a' }), goodDrill({ slug: 'b' }), goodKata()], { kinds: undefined });
+    assert.equal(result.status, 'saved', JSON.stringify(result));
+    if (result.status !== 'saved') return;
+    assert.deepEqual(result.track.steps.map((s) => [s.path, s.kind]), [['src/core/store.ts', 'drill'], ['src/core/queue.ts', 'drill'], ['src/core/worker.ts', 'kata']]);
+    assert.deepEqual(result.dropped, ['src/core/store.ts: no Verified Prediction']);
   });
 
   it('retries a plan that names files outside the shortlist', async () => {
@@ -224,7 +286,7 @@ describe(`kin explore (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     };
     const opened = await continueTrack(repo, track.id, { sandbox: sandboxWorks }, io, { configEnv: { env: {}, home: await tempDir() }, cacheRoot: await tempDir() });
     assert.deepEqual(opened, { status: 'left-pending', workoutId: track.steps[1]!.workoutId, attempt: 1 });
-    assert.match(printed[0]!, /1 of 3 done\n {2}✓ 1\. src\/core\/store\.ts\n[\s\S]*○ 2\. src\/core\/queue\.ts {2}← next/);
+    assert.match(printed[0]!, /1 of 3 done\n {2}✓ 1\. Drill · algorithm: src\/core\/store\.ts\n[\s\S]*○ 2\. Drill · algorithm: src\/core\/queue\.ts {2}← next/);
 
     for (const step of track.steps.slice(1)) {
       const { attempt: a } = await openAttempt(paths, await loadWorkout(paths, step.workoutId), TYPESCRIPT);

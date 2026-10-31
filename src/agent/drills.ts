@@ -12,7 +12,7 @@ import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '.
 import { profileForFile } from '../languages/registry.ts';
 import { preflight } from '../languages/run.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
-import { MAX_STEPS, MIN_STEPS, TRACK_RULES, withAtlas } from '../explore/plan.ts';
+import { MAX_STEPS, MIN_STEPS, trackKinds, trackRules, withAtlas } from '../explore/plan.ts';
 import { readAtlas } from '../atlas/store.ts';
 import { repoRelativeDir, shortlist } from '../explore/shortlist.ts';
 import { saveTrack, trackId, type TrackStep } from '../explore/tracks.ts';
@@ -68,6 +68,8 @@ interface PendingTrack {
   module: string;
   paths: WorkspacePaths;
   candidates: Set<string>;
+  /** The kinds its steps may be. */
+  kinds: WorkoutKind[];
   steps: TrackStep[];
   dropped: string[];
 }
@@ -78,8 +80,10 @@ export interface PreparedTrack {
   module: string;
   minSteps: number;
   maxSteps: number;
-  /** How to choose and order the steps: the same rules Kintsugi's own planning uses. */
+  /** How to choose, order, and pick a kind for the steps: the same rules Kintsugi's own planning uses. */
   rules: string;
+  /** The kinds the steps may be: pass each step's kind to prepare_drill. */
+  kinds: WorkoutKind[];
   /** Each with what the Atlas says it is for, or its declaration lines when the Atlas has no entry. */
   candidates: ({ path: string; lines: number; outline: string[] } | { path: string; lines: number; atlas: string })[];
 }
@@ -165,14 +169,16 @@ export class AgentDrills {
       throw new AgentRequestError(`${module || 'The repository'} has ${candidates.length} source file(s) worth drilling; a Track needs at least ${MIN_STEPS}.`);
     }
     const id = await trackId(paths, module, this.#now());
-    this.#tracks.set(id, { id, module, paths, candidates: new Set(candidates.map((c) => c.path)), steps: [], dropped: [] });
+    const kinds = trackKinds(config.kinds);
+    this.#tracks.set(id, { id, module, paths, candidates: new Set(candidates.map((c) => c.path)), kinds, steps: [], dropped: [] });
     return {
       trackId: id,
       repository: repoRoot,
       module,
       minSteps: MIN_STEPS,
       maxSteps: MAX_STEPS,
-      rules: TRACK_RULES,
+      rules: trackRules(kinds),
+      kinds,
       candidates: candidates.map(({ path, lines, outline, atlas }) => (atlas ? { path, lines, atlas } : { path, lines, outline })),
     };
   }
@@ -240,9 +246,9 @@ export class AgentDrills {
     const sourcePath = repoRelative(repoRoot, file);
     let pendingTrack: PendingTrack | undefined;
     if (forTrack) {
-      if (kind !== 'drill') throw new AgentRequestError(`Track steps are Drills: leave out \`kind\`, or prepare the ${NOUN[kind]} on its own.`);
       pendingTrack = this.#tracks.get(forTrack);
       if (!pendingTrack) throw new AgentRequestError(`Unknown track id "${forTrack}". Call prepare_track to start a Track.`);
+      if (!pendingTrack.kinds.includes(kind)) throw new AgentRequestError(`This Track's steps are ${pendingTrack.kinds.map((k) => NOUN[k]).join(', ')}: a ${NOUN[kind]} isn't one of them.`);
       if (!why?.trim()) throw new AgentRequestError('A Track step needs `why`: one line on why this file matters for the module.');
       if (!pendingTrack.candidates.has(sourcePath)) throw new AgentRequestError(`${sourcePath} is not one of the Track's candidate files.`);
       if (pendingTrack.steps.some((s) => s.path === sourcePath)) throw new AgentRequestError(`${sourcePath} is already a step of this Track: each step is a different file.`);
@@ -387,7 +393,7 @@ export class AgentDrills {
     });
     await record('verified', saved.id);
     if (generation.track) {
-      this.#tracks.get(generation.track.id)?.steps.push({ workoutId: saved.id, path: generation.sourcePath, pillar: workout.pillar, why: generation.track.why });
+      this.#tracks.get(generation.track.id)?.steps.push({ workoutId: saved.id, path: generation.sourcePath, kind: generation.kind, pillar: workout.pillar, why: generation.track.why });
     }
     return {
       status: 'saved',

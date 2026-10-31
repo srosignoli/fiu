@@ -41,6 +41,13 @@ program
   });
 
 /** `kin drill`, `kin kata`, and `kin predict`: the same flow, differing only in what is generated and how it is described. */
+function trackKindList(value: string): WorkoutKind[] {
+  const kinds = value.split(',').map((k) => k.trim()).filter(Boolean);
+  const unknown = kinds.filter((k) => !(k in NOUN));
+  if (kinds.length === 0 || unknown.length > 0) throw new Error(`--kinds takes drill, kata, and prediction, comma-separated, not "${value}".`);
+  return kinds as WorkoutKind[];
+}
+
 function questionCount(value: string): number {
   const n = Number(value);
   if (!Number.isInteger(n) || n < 1 || n > MAX_SERIES_QUESTIONS) throw new Error(`--questions must be a whole number from 1 to ${MAX_SERIES_QUESTIONS}, not "${value}".`);
@@ -242,10 +249,11 @@ program
   .description('Build a Track for a module: 3 to 5 Drills, each from a different file, foundations first.')
   .argument('[path]', 'the module directory')
   .option('--about <goal>', 'choose the module by what you want to learn, through the Atlas, instead of a path')
+  .option('--kinds <list>', 'the kinds of step to use, e.g. drill,kata (default: prediction, drill, and kata; Predictions only if your kinds setting is prediction only)', trackKindList)
   .option('-y, --yes', 'consent to sending code and to the estimated cost without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
   .option('--no-train', 'only build the Track, without opening its first step')
-  .action(async (path: string | undefined, options: { yes: boolean; sandbox: boolean; train: boolean; about?: string }) => {
+  .action(async (path: string | undefined, options: { yes: boolean; sandbox: boolean; train: boolean; about?: string; kinds?: WorkoutKind[] }) => {
     if ((path === undefined) === (options.about === undefined)) throw new Error('Name the module directory, or say what you want to learn with --about "<goal>" (not both).');
     const { explore } = await import('./commands/explore.ts');
     const ui = terminalUi();
@@ -270,7 +278,7 @@ program
       process.exitCode = 1;
       return;
     }
-    log.success(`Saved the Track "${result.track.title}" (${result.track.id}) with ${result.track.steps.length} steps.`);
+    log.success(`Saved the Track "${result.track.title}" (${result.track.id}) with ${result.track.steps.length} steps: ${result.track.steps.map((s) => NOUN[s.kind ?? 'drill']).join(', ')}.`);
     if (options.train && process.stdin.isTTY) await runTrack(result.track.id, options);
     else log.info(`Start it with: kin track ${result.track.id}`);
   });

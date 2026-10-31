@@ -1,4 +1,5 @@
 import { listTracks, loadTrack, trackProgress, type StepProgress, type TrackRecord } from '../explore/tracks.ts';
+import { NOUN } from '../synthesis/schema.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 import { train, type TrainDependencies, type TrainIo, type TrainOptions, type TrainResult } from './train.ts';
 
@@ -14,7 +15,7 @@ export function formatProgress(track: TrackRecord, steps: StepProgress[], next?:
   const done = steps.filter((s) => s.status === 'attempted').length;
   return [
     `Track "${track.title}" (${track.id}): ${track.module || 'the repository'}, ${done} of ${steps.length} done`,
-    ...steps.map((s, i) => `  ${MARKS[s.status]} ${i + 1}. ${s.path}${s === next ? '  ← next' : ''}\n       ${s.why}`),
+    ...steps.map((s, i) => `  ${MARKS[s.status]} ${i + 1}. ${NOUN[s.kind ?? 'drill']} · ${s.pillar}: ${s.path}${s === next ? '  ← next' : ''}\n       ${s.why}`),
   ].join('\n');
 }
 

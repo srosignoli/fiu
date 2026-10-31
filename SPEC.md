@@ -595,7 +595,7 @@ Two extensions of what exists. A Prediction asks one question about a unit, yet 
 
 **Mixed Tracks.**
 
-- **A kind per step.** The planning call (and the agent, after `prepare_track`) chooses each step's kind beside its pillar. The rules suggest an arc: open with a **Prediction** on what the module does, **Drills** on its foundations, and close with a **Kata** on the file that ties it together. A Track of 3 or more steps must use at least two kinds (checked).
+- **A kind per step.** The planning call (and the agent, after `prepare_track`) chooses each step's kind beside its pillar. The rules suggest an arc: open with a **Prediction** on what the module does, **Drills** on its foundations, and close with a **Kata** on the file that ties it together. A Track of 3 or more steps must use at least two kinds when more than one is allowed: checked on Kintsugi's own plan; in agent mode, a rule the agent is given (each step's kind is checked against the allowed ones).
 - **Your `kinds`.** When the personal `kinds` setting lists only `prediction`, every step is a Prediction. `kin explore --kinds drill,kata` sets the allowed kinds for one Track.
 - **When a step can't be Verified.** The next alternate takes its place with the same kind; with no alternates left, the step falls back to a Drill on the same file.
 - **Estimates** price each step from your recent average for its kind, falling back to the overall average.

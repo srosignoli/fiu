@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { WorkoutKind } from '../synthesis/schema.ts';
 import type { Generator, SharedBy } from '../workouts/save.ts';
 import { listWorkouts, type WorkoutStatus } from '../workouts/store.ts';
 import type { WorkspacePaths } from '../workspace.ts';
@@ -8,6 +9,8 @@ import type { WorkspacePaths } from '../workspace.ts';
 export interface TrackStep {
   workoutId: string;
   path: string;
+  /** Absent on Tracks made before v4.3: those steps are Drills. */
+  kind?: WorkoutKind;
   pillar: 'algorithm' | 'pattern' | 'library';
   why: string;
 }

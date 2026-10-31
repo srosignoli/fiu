@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
+import type { WorkoutKind } from '../synthesis/schema.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 import { listAttemptRecords } from './attempts.ts';
 import type { WorkoutRecord } from './save.ts';
@@ -100,9 +101,12 @@ export async function recordSpend(paths: WorkspacePaths, spend: Spend): Promise<
   await writeState(paths, state);
 }
 
-/** The mean cost of recent requests for a Workout, counting only fully priced ones. */
-export function averageSpend(spend: Spend[], last = 10): { usd: number; count: number } | undefined {
-  const forWorkouts = (s: Spend) => s.result !== 'track-plan' && s.result !== 'atlas';
+/**
+ * The mean cost of recent requests for a Workout, counting only fully priced ones; with `kind`, only
+ * requests that produced a Workout of that kind (its id names the kind).
+ */
+export function averageSpend(spend: Spend[], last = 10, kind?: WorkoutKind): { usd: number; count: number } | undefined {
+  const forWorkouts = (s: Spend) => s.result !== 'track-plan' && s.result !== 'atlas' && (!kind || (s.workoutId?.startsWith(`${kind}_`) ?? false));
   const priced = spend.filter((s) => forWorkouts(s) && s.cost !== null && s.cost.unpricedModels.length === 0).slice(-last);
   if (priced.length === 0) return undefined;
   return { usd: priced.reduce((sum, s) => sum + s.cost!.usd, 0) / priced.length, count: priced.length };

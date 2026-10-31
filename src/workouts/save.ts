@@ -246,6 +246,7 @@ function predictionReadme(record: WorkoutRecord): string {
     `# ${record.title}`,
     '',
     ...(record.series ? [`*Question ${record.series.index} of ${record.series.of} about \`${record.source.path}\`.*`, ''] : []),
+    ...trackPlacement(record),
     '## Scenario',
     '',
     scenario.trim(),
@@ -263,12 +264,17 @@ function predictionReadme(record: WorkoutRecord): string {
   ].join('\n');
 }
 
+/** A Track step's README opens with its place in the Track. */
+function trackPlacement(record: WorkoutRecord): string[] {
+  if (!record.track) return [];
+  const trackName = record.track.title ? `the Track "${record.track.title}"` : `a Track on ${record.track.module || 'this repository'}`;
+  return [`*Part of ${trackName}: ${record.track.why}*`, ''];
+}
+
 function readme(drill: AnyWorkoutOutput, record: WorkoutRecord, dir: string, repoRoot: string): string {
   const link = relative(dir, join(repoRoot, record.source.path)).split('\\').join('/');
   const anchors = record.sourceAnchors.map(
     (a) => `- [${a.path}:${a.startLine}-${a.endLine}](${link}#L${a.startLine}-L${a.endLine}): ${a.explanation}`,
   );
-  const trackName = record.track?.title ? `the Track "${record.track.title}"` : `a Track on ${record.track?.module || 'this repository'}`;
-  const placement = record.track ? [`*Part of ${trackName}: ${record.track.why}*`, ''] : [];
-  return [`# ${drill.title}`, '', ...placement, (drill.readmeMarkdown ?? '').trim(), '', '## Source', '', ...anchors, '', ...provenance(record), ''].join('\n');
+  return [`# ${drill.title}`, '', ...trackPlacement(record), (drill.readmeMarkdown ?? '').trim(), '', '## Source', '', ...anchors, '', ...provenance(record), ''].join('\n');
 }

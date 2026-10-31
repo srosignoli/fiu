@@ -26,8 +26,12 @@ _Avoid_: Chaos kata, chaos drill, mutant debugging, incident
 A Workout where the human reads a Scenario and predicts which of four outcomes the system produces, without reading code. Each outcome is measured by running code, never asserted by the model.
 _Avoid_: Quiz, question, scenario (as the umbrella term)
 
+**Series**:
+Several Predictions about the same unit of code, generated together and answered one after another. Each question is its own Prediction, Verified and attempted on its own. A Series is not itself a Workout.
+_Avoid_: Quiz, question set, batch
+
 **Track**:
-An ordered sequence of 3 to 5 Workouts, each from a different file, that together teach one module of the repository, foundations first. A Track is not itself a Workout.
+An ordered sequence of 3 to 5 Workouts of mixed kinds, each from a different file, that together teach one module of the repository, foundations first. A Track is not itself a Workout.
 _Avoid_: Ladder, learning path, exploration
 
 **Atlas**:

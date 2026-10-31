@@ -41,7 +41,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin init` | Creates `.kintsugi/`, appends `.kintsugi/` to `.git/info/exclude`, runs the sandbox canary (§7), prints a tip on disabling AI completions inside `.kintsugi/` in your editor. |
 | `kin drill <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill (Quick with `--quick`) from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
 | `kin kata <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Like `kin drill`, but generates a Kata: one piece of the unit removed, rebuilt from a brief (§11.5). |
-| `kin explore <path> [--yes] [--no-sandbox] [--no-train]` / `kin explore --about "<goal>"` | Build a Track for a module directory (§11.3.1), or for the module a goal is about, found through the Atlas (§11.10). |
+| `kin explore <path> [--yes] [--no-sandbox] [--no-train] [--kinds <list>]` / `kin explore --about "<goal>"` | Build a Track for a module directory (§11.3.1), or for the module a goal is about, found through the Atlas (§11.10). |
 | `kin track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
 | `kin share [<id>...] [--atlas] [--remote <name>]` / `kin fetch [--remote <name>] [--no-sandbox]` | Share Workouts, Tracks, or the Atlas with the team on the `kintsugi/workouts` branch, or bring in theirs, Workouts re-verified (§11.3.2, §11.10). |
 | `kin map [<path>] [--json]` | Your comprehension debt by directory, or one directory's files: local and free (§11.4). |
@@ -438,7 +438,7 @@ Kintsugi now **notices such a bug and reports it after the Attempt**. It doesn't
 - **Prompt rule** (Drills and Katas): *"Keep the Reference Solution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect."* A Drill may still use that defect as its bug, as the dogfooded one did. A Kata whose removed region fixes the original gets only the model report, since its Starting Code is a placeholder.
 - **No comments in the bug** (Drills, enforced from now on; the prompt already forbade them). Comparing the two sides of the changed region by their trailing comments (via `lineComment`), a comment on a buggy line that the fixed side doesn't have is `[schema]` retry feedback: *"The bug region carries a comment that points at the bug; remove it."*
 - **Agent mode:** `originalDefect` is part of the schema `submit_drill` accepts, and the agent gets the same prompt rule. `list_workouts` doesn't report it.
-- **Not in v3.4:** choosing targets for suspected defects (see §11.11); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
+- **Not in v3.4:** choosing targets for suspected defects (see §11.12); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
 
 ### 11.8 v4.0: Predictions (implemented)
 
@@ -577,7 +577,34 @@ On a large codebase it is hard to choose what to practise: `kin drill <file>#sym
 
 **Not in v4.2:** model-understood search in API mode (the agent understands the wording in agent mode); a real parser; describing every function; refreshing on commit.
 
-### 11.11 Later (not yet designed)
+### 11.11 v4.3: Prediction Series and mixed Tracks
+
+Two extensions of what exists. A Prediction asks one question about a unit, yet most of its cost is reading the unit and writing its Reference Solution: a **Series** asks several questions about the same unit for little more. A Track teaches a module through Drills only, yet reading what code does (a Prediction) and writing it (a Kata) are part of knowing a module too: **mixed Tracks** choose a kind per step.
+
+**Prediction Series.**
+
+- **One call, one Reference Solution, several questions.** `kin predict` asks for a Series of **3** questions by default: `--questions <1-5>`, or the personal setting `predictionQuestions`. The model extracts the unit once and writes N Scenarios against it, each with its own four options, Variants, explanation, and test file. Predictions from commits, Track steps, and end-of-task Predictions stay single.
+- **Each question is a Prediction.** It is checked and Verified on its own (§11.8), saved as its own Workout with its own Attempts, and carries `series: { id, index, of }` in `workout.json`. The Reference Solution is copied into each, so every Workout stays self-contained.
+- **Distinct.** Questions must ask about different behaviour: no two share a true outcome (same option text) or a Variant (the same change to the same text). The prompt asks for a different rule or behaviour per question; the check makes it stick.
+- **Keep what passes.** Questions that pass are kept; one retry goes out for the failing ones only ("questions 1 and 3 are saved; write replacements for question 2"). The result says how many were saved ("2 of 3"); none Verified is a failure like any other.
+- **One ledger entry** per generation call sequence, linked to every Workout it saved (`workoutIds`).
+- **Answering.** After an answer, the runner offers `[n] next question (2 of 3)` while the Series has unanswered questions. `kin train`'s picker shows a Series as one row with its progress; `kin quick` serves its questions one at a time. A file counts as Practised from the first answered question (§11.4).
+- **By Series id.** `kin share <series-id>` shares every question; `kin discard <series-id>` discards the unanswered ones. Each question also keeps its own id.
+- **Agent mode.** `prepare_drill` takes `questions` (Predictions only); `submit_drill` then takes the Series (`{ series: [...] }`, one entry per question plus the shared fields) and keeps what passes in the same way, within the usual submissions.
+- **Cost.** Estimated at 1.5 to 1.7 times one Prediction for 3 questions: the source, the extraction, and the Reference Solution are shared; each question adds a Scenario, four options, three Variants, and four tests.
+
+**Mixed Tracks.**
+
+- **A kind per step.** The planning call (and the agent, after `prepare_track`) chooses each step's kind beside its pillar. The rules suggest an arc: open with a **Prediction** on what the module does, **Drills** on its foundations, and close with a **Kata** on the file that ties it together. A Track of 3 or more steps must use at least two kinds (checked).
+- **Your `kinds`.** When the personal `kinds` setting lists only `prediction`, every step is a Prediction. `kin explore --kinds drill,kata` sets the allowed kinds for one Track.
+- **When a step can't be Verified.** The next alternate takes its place with the same kind; with no alternates left, the step falls back to a Drill on the same file.
+- **Estimates** price each step from your recent average for its kind, falling back to the overall average.
+- **Showing it.** `kin track` shows each step's kind and pillar (`2. Drill · algorithm: src/queue/store.ts`); each step's README opens with its place in the Track, as today. Track steps are never a Series.
+- **Agent mode.** `prepare_drill` with a `trackId` accepts `kind`; `prepare_track` returns the kind rules and the allowed kinds.
+
+**Not in v4.3:** a Series from a commit; scoring a Series as a whole; Series inside Tracks.
+
+### 11.12 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 

@@ -16,7 +16,7 @@ import { MissingApiKeyError } from '../src/credentials.ts';
 import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
 import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, goodKata, goodPrediction, scriptedModel, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, goodPrediction, goodSeries, scriptedModel, tieQuestion, TS_REFERENCE, urgentQuestion } from './mock-model.ts';
 import { saveAttempt } from '../src/workouts/attempts.ts';
 
 // Use the real sandbox where it is installed.
@@ -212,7 +212,7 @@ describe('kin predict', () => {
 
   it('generates, verifies, and saves a Prediction whose README holds no answer', async () => {
     const repo = await repoWithSource();
-    const { result, prompts } = await run({ repo, options: { yes: true, kind: 'prediction' }, replies: [goodPrediction()] });
+    const { result, prompts } = await run({ repo, options: { yes: true, kind: 'prediction', questions: 1 }, replies: [goodPrediction()] });
     const { record, workoutDir } = result.status === 'saved' ? result : assert.fail(JSON.stringify(result));
     assert.match(record.id, /^prediction_\d{8}_tied-priorities$/);
     assert.match(prompts[0]!, /You create Predictions/);
@@ -233,7 +233,7 @@ describe('kin predict', () => {
 
   it('picks a never-practised file when given a directory or nothing at all', async () => {
     const repo = await repoWithLongSource();
-    const { result, steps } = await run({ repo, target: null, options: { yes: true, kind: 'prediction' }, replies: [goodPrediction()] });
+    const { result, steps } = await run({ repo, target: null, options: { yes: true, kind: 'prediction', questions: 1 }, replies: [goodPrediction()] });
     assert.ok(steps.includes('Asking about src/queue.ts'), steps.join('\n'));
     const { record } = result.status === 'saved' ? result : assert.fail(JSON.stringify(result));
     assert.equal(record.source.path, 'src/queue.ts');
@@ -242,7 +242,47 @@ describe('kin predict', () => {
     const { attempt } = await openAttempt(paths, await loadWorkout(paths, record.id), TYPESCRIPT);
     Object.assign(attempt.record, { outcome: 'completed', finishedAt: new Date().toISOString() });
     await saveAttempt(attempt);
-    await assert.rejects(run({ repo, target: 'src', options: { yes: true, kind: 'prediction' }, replies: [goodPrediction()] }), /practised every file Kintsugi would pick in src/);
+    await assert.rejects(run({ repo, target: 'src', options: { yes: true, kind: 'prediction', questions: 1 }, replies: [goodPrediction()] }), /practised every file Kintsugi would pick in src/);
+  });
+
+  it('asks a Series of questions by default, each saved as its own Prediction', async () => {
+    const repo = await repoWithSource();
+    const { result, prompts } = await run({ repo, options: { yes: true, kind: 'prediction', questions: 2 }, replies: [goodSeries([tieQuestion(), urgentQuestion()])] });
+    assert.match(prompts[0]!, /This is a Series: 2 Predictions/);
+    const { series } = result.status === 'saved' ? result : assert.fail(JSON.stringify(result));
+    assert.ok(series);
+    assert.match(series.id, /^series_\d{8}_tied-priorities$/);
+    assert.deepEqual(series.records.map((r) => [r.slug, r.series]), [
+      ['tied-priorities', { id: series.id, index: 1, of: 2 }],
+      ['urgent-first', { id: series.id, index: 2, of: 2 }],
+    ]);
+    const paths = workspacePaths(repo);
+    const readme = await readFile(join(paths.workoutsDir, series.records[1]!.id, 'README.md'), 'utf8');
+    assert.match(readme, /\*Question 2 of 2 about `src\/queue\.ts`\.\*/);
+    const [spend] = (await readJson(paths.stateFile)).spend;
+    assert.deepEqual(spend.workoutIds, series.records.map((r) => r.id));
+    assert.equal(spend.workoutId, series.records[0]!.id);
+
+    // The Series counts as attempted once any question is.
+    assert.equal((await costReport(repo, startOfMonth())).neverAttempted.count, 1);
+    const { attempt } = await openAttempt(paths, await loadWorkout(paths, series.records[1]!.id), TYPESCRIPT);
+    await saveAttempt(attempt);
+    assert.equal((await costReport(repo, startOfMonth())).attempted.count, 1);
+  });
+
+  it('uses the predictionQuestions setting', async () => {
+    const repo = await repoWithSource();
+    const home = await tempDir();
+    await mkdir(join(home, '.config', 'kintsugi'), { recursive: true });
+    await writeFile(join(home, '.config', 'kintsugi', 'config.json'), JSON.stringify({ predictionQuestions: 1 }));
+    const scripted = scriptedModel(goodPrediction());
+    const result = await drill(repo, 'src/queue.ts', { yes: true, sandbox: sandboxWorks, kind: 'prediction' }, { step: () => {}, warn: () => {} }, {
+      createModel: () => ({ model: scripted.model, providerOptions: {} }),
+      configEnv: { env: { ANTHROPIC_API_KEY: 'k' }, home },
+      cacheRoot: await tempDir(),
+    });
+    assert.equal(result.status, 'saved');
+    assert.doesNotMatch(scripted.prompts[0]!, /This is a Series/);
   });
 
   it('still takes a file for the other kinds only', async () => {

@@ -57,6 +57,8 @@ export const SpendSchema = z.object({
    */
   result: z.enum(['verified', 'not-verified', 'not-worth-practicing', 'error', 'track-plan', 'atlas']),
   workoutId: z.string().optional(),
+  /** For a Prediction Series: every question it saved (`workoutId` is the first). */
+  workoutIds: z.array(z.string()).optional(),
   generationAttempts: z.number().int().nonnegative(),
   /** Null when the user's agent generated it: Kintsugi can't see its usage. */
   cost: CostSchema.nullable(),

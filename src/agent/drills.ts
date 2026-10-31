@@ -18,11 +18,23 @@ import { repoRelativeDir, shortlist } from '../explore/shortlist.ts';
 import { saveTrack, trackId, type TrackStep } from '../explore/tracks.ts';
 import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox, type Sandbox } from '../sandbox/sandbox.ts';
-import { drillUserPrompt, MAX_SOURCE_LINES, systemPromptFor } from '../synthesis/prompt.ts';
-import { checkWorkoutOutput, NOUN, outputSchemaFor, type AnyWorkoutOutput, type WorkoutKind } from '../synthesis/schema.ts';
+import { drillUserPrompt, MAX_SOURCE_LINES, seriesRetryPrompt, seriesRules, systemPromptFor } from '../synthesis/prompt.ts';
+import {
+  checkWorkoutOutput,
+  expandSeries,
+  MAX_SERIES_QUESTIONS,
+  NOUN,
+  outputSchemaFor,
+  PredictionSeriesOutputSchema,
+  seriesOverlaps,
+  type AnyWorkoutOutput,
+  type PredictionOutput,
+  type PredictionSeriesOutput,
+  type WorkoutKind,
+} from '../synthesis/schema.ts';
 import { MAX_ATTEMPTS, SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { describeFailures, verify } from '../verify/gate.ts';
-import { saveDrill, sourceRevision, type Origin } from '../workouts/save.ts';
+import { newSeriesId, saveDrill, sourceRevision, type Origin, type WorkoutRecord } from '../workouts/save.ts';
 import { listWorkouts, recordSpend, type Spend } from '../workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths, type WorkspacePaths } from '../workspace.ts';
 
@@ -46,6 +58,8 @@ interface Generation {
   submissions: number;
   /** Set when this Drill is a step of a Track being built. */
   track?: { id: string; why: string };
+  /** For a Prediction Series: how many questions, and those Verified so far (saved together when it ends). */
+  series?: { count: number; kept: PredictionOutput[] };
 }
 
 /** A Track an agent is building: its shortlist, and the steps saved so far, in order. */
@@ -84,6 +98,8 @@ export interface PrepareRequest {
   trackId?: string;
   /** For a Track step: one line on why this file matters for the module. */
   why?: string;
+  /** Predictions only: more than 1 asks for a Series of this many questions. */
+  questions?: number;
 }
 
 export interface Prepared {
@@ -103,8 +119,8 @@ export interface Prepared {
 }
 
 export type Submitted =
-  | { status: 'saved'; workoutId: string; title: string; workoutDir: string; submissions: number }
-  | { status: 'rejected'; feedback: string; submissionsLeft: number }
+  | { status: 'saved'; workoutId: string; title: string; workoutDir: string; submissions: number; series?: { id: string; workoutIds: string[]; requested: number } }
+  | { status: 'rejected'; feedback: string; submissionsLeft: number; savedQuestions?: number }
   | { status: 'not-worth-practicing'; reason: string };
 
 export interface AgentDrillsOptions {
@@ -215,7 +231,10 @@ export class AgentDrills {
     return { status: 'saved', trackId: id, title: title.trim(), steps: pending.steps, dropped: pending.dropped, next: `The user starts it with: kin track ${id}` };
   }
 
-  async prepare({ target, kind = 'drill', quick = false, origin = 'manual', trackId: forTrack, why }: PrepareRequest): Promise<Prepared> {
+  async prepare({ target, kind = 'drill', quick = false, origin = 'manual', trackId: forTrack, why, questions = 1 }: PrepareRequest): Promise<Prepared> {
+    if (!Number.isInteger(questions) || questions < 1 || questions > MAX_SERIES_QUESTIONS) throw new AgentRequestError(`questions must be a whole number from 1 to ${MAX_SERIES_QUESTIONS}.`);
+    if (questions > 1 && kind !== 'prediction') throw new AgentRequestError('Only a Prediction can ask several questions: leave out `questions`.');
+    if (questions > 1 && (forTrack || origin === 'agent-task')) throw new AgentRequestError('Track steps and end-of-task Predictions ask one question: leave out `questions`.');
     const repoRoot = await this.repository();
     const { file, symbol } = parseTarget(repoRoot, target);
     const sourcePath = repoRelative(repoRoot, file);
@@ -260,6 +279,7 @@ export class AgentDrills {
       origin,
       submissions: 0,
       ...(pendingTrack ? { track: { id: pendingTrack.id, why: why!.trim() } } : {}),
+      ...(questions > 1 ? { series: { count: questions, kept: [] } } : {}),
     });
     return {
       generationId,
@@ -269,18 +289,18 @@ export class AgentDrills {
       kind,
       quick,
       maxSubmissions: MAX_ATTEMPTS,
-      instructions: systemPromptFor(kind, profile, { quick }),
+      instructions: systemPromptFor(kind, profile, { quick }) + (questions > 1 ? seriesRules(questions) : ''),
       source: drillUserPrompt({
         path: sourcePath,
         source,
         symbol,
         ...(pendingTrack ? { track: { module: pendingTrack.module, step: pendingTrack.steps.length + 1, why: why!.trim() } } : {}),
       }, kind),
-      workoutSchema: z.toJSONSchema(outputSchemaFor(kind)),
+      workoutSchema: z.toJSONSchema(questions > 1 ? PredictionSeriesOutputSchema : outputSchemaFor(kind)),
     };
   }
 
-  async submit(generationId: string, workout: AnyWorkoutOutput): Promise<Submitted> {
+  async submit(generationId: string, workout: AnyWorkoutOutput | PredictionSeriesOutput): Promise<Submitted> {
     const generation = this.#generations.get(generationId);
     if (!generation) throw new AgentRequestError(`Unknown generation id "${generationId}". Call prepare_drill to start a new generation.`);
     // A missing sandbox is not the agent's fault, so it doesn't use up a submission.
@@ -288,7 +308,7 @@ export class AgentDrills {
 
     generation.submissions++;
     const finished = generation.submissions >= MAX_ATTEMPTS;
-    const record = (result: Spend['result'], workoutId?: string) =>
+    const record = (result: Spend['result'], workoutId?: string, workoutIds?: string[]) =>
       recordSpend(generation.paths, {
         at: this.#now().toISOString(),
         origin: generation.origin,
@@ -296,6 +316,7 @@ export class AgentDrills {
         source: generation.sourcePath,
         result,
         ...(workoutId ? { workoutId } : {}),
+        ...(workoutIds ? { workoutIds } : {}),
         generationAttempts: generation.submissions,
         cost: null,
       });
@@ -318,6 +339,12 @@ export class AgentDrills {
       }
       return { status: 'rejected', feedback, submissionsLeft: MAX_ATTEMPTS - generation.submissions };
     };
+
+    if (generation.series) {
+      if (!('questions' in workout)) return reject('[schema] This generation is a Series: submit the shared unit with its `questions`, as workoutSchema describes.');
+      return this.#submitSeries(generationId, generation, workout, reject, record);
+    }
+    if ('questions' in workout) return reject(`[schema] This generation is a single ${NOUN[generation.kind]}, not a Series: submit it as workoutSchema describes.`);
 
     const problems = checkWorkoutOutput(generation.kind, workout, generation.sourceLines, { quick: generation.quick, lineComment: generation.profile.lineComment });
     if (problems.length > 0) return reject(problems.map((p) => `[schema] ${p}`).join('\n'));
@@ -368,6 +395,76 @@ export class AgentDrills {
       title: saved.title,
       workoutDir: join(generation.paths.workoutsDir, saved.id),
       submissions: generation.submissions,
+    };
+  }
+
+  /** One submission of a Series: keep the questions that Verify; save them together once all are in or no submissions are left. */
+  async #submitSeries(
+    generationId: string,
+    generation: Generation,
+    workout: PredictionSeriesOutput,
+    reject: (feedback: string) => Promise<Submitted>,
+    record: (result: Spend['result'], workoutId?: string, workoutIds?: string[]) => Promise<void>,
+  ): Promise<Submitted> {
+    const series = generation.series!;
+    const sandbox = await this.#openSandbox();
+    const needed = series.count - series.kept.length;
+    const questions = expandSeries(workout).slice(0, needed);
+    const failures: string[] = questions.length === 0 ? [`[schema] questions is empty: write ${needed} question(s).`] : [];
+    const overlaps = seriesOverlaps(questions, series.kept);
+    for (const [i, question] of questions.entries()) {
+      const label = `Question ${i + 1} ("${question.title}")`;
+      const problems = [...checkWorkoutOutput('prediction', question, generation.sourceLines, { lineComment: generation.profile.lineComment }), ...(overlaps.get(i) ?? [])];
+      if (problems.length > 0) {
+        failures.push(`${label}:\n${problems.map((p) => `[schema] ${p}`).join('\n')}`);
+        continue;
+      }
+      const verification = await verify(
+        { kind: 'prediction', referenceSolution: question.referenceSolution, testSuiteCode: question.testSuiteCode, options: question.options, source: generation.source, lineComment: generation.profile.lineComment },
+        generation.profile,
+        sandbox,
+        { cacheRoot: this.#options.cacheRoot },
+      );
+      if (verification.verified) series.kept.push(question);
+      else failures.push(`${label}:\n${describeFailures(verification.failures)}`);
+    }
+    const done = series.kept.length >= series.count || generation.submissions >= MAX_ATTEMPTS;
+    if (!done || series.kept.length === 0) {
+      const result = await reject(seriesRetryPrompt(failures.join('\n\n'), series.kept.length, series.count - series.kept.length));
+      return result.status === 'rejected' ? { ...result, savedQuestions: series.kept.length } : result;
+    }
+
+    this.#generations.delete(generationId);
+    const id = await newSeriesId(generation.paths, series.kept[0]!.slug, this.#now());
+    const revision = await sourceRevision(generation.paths.repoRoot, generation.sourcePath);
+    const saved: WorkoutRecord[] = [];
+    for (const [i, question] of series.kept.entries()) {
+      saved.push(
+        await saveDrill({
+          paths: generation.paths,
+          profile: generation.profile,
+          drill: question,
+          kind: 'prediction',
+          sourcePath: generation.sourcePath,
+          symbol: generation.symbol,
+          source: generation.source,
+          revision,
+          generationAttempts: generation.submissions,
+          generator: 'agent',
+          origin: generation.origin,
+          series: { id, index: i + 1, of: series.kept.length },
+          now: this.#now(),
+        }),
+      );
+    }
+    await record('verified', saved[0]!.id, saved.map((r) => r.id));
+    return {
+      status: 'saved',
+      workoutId: saved[0]!.id,
+      title: saved[0]!.title,
+      workoutDir: join(generation.paths.workoutsDir, saved[0]!.id),
+      submissions: generation.submissions,
+      series: { id, workoutIds: saved.map((r) => r.id), requested: series.count },
     };
   }
 

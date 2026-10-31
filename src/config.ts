@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { MAX_SERIES_QUESTIONS } from './synthesis/schema.ts';
 import { ModelPriceSchema, type ModelPrice } from './cost/prices.ts';
 import { UserProfileSchema, type LanguageProfile } from './languages/profile.ts';
 import { profiles } from './languages/registry.ts';
@@ -63,6 +64,8 @@ export const UserConfigSchema = z.strictObject({
   prices: z.record(z.string(), ModelPriceSchema).optional(),
   /** What you'd rather practise, first choice first: commits become the first kind that fits, and `kin quick` serves it first. */
   kinds: KindsSchema.optional(),
+  /** How many questions `kin predict` asks about a unit: a Series (§11.11). */
+  predictionQuestions: z.number().int().min(1).max(MAX_SERIES_QUESTIONS).optional(),
 });
 export type UserConfig = z.infer<typeof UserConfigSchema>;
 
@@ -75,7 +78,12 @@ export interface ResolvedConfig {
   prices: Record<string, ModelPrice>;
   /** Preferred kinds, first choice first: a preference with fallbacks, never a filter. Repo over user. */
   kinds: PreferredKind[];
+  /** Questions per `kin predict`: the user's setting, else DEFAULT_PREDICTION_QUESTIONS. */
+  predictionQuestions: number;
 }
+
+/** Three questions cost about 1.5 to 1.7 times one: past that, Scenarios on one unit start to repeat. */
+export const DEFAULT_PREDICTION_QUESTIONS = 3;
 
 export class ConfigError extends Error {}
 
@@ -122,6 +130,7 @@ export function resolveConfig(repo: RepoConfig, user: UserConfig): ResolvedConfi
     profiles: profiles(repo.profiles, user.profiles),
     prices: { ...user.prices, ...repo.prices },
     kinds: repo.kinds ?? user.kinds ?? ['drill'],
+    predictionQuestions: user.predictionQuestions ?? DEFAULT_PREDICTION_QUESTIONS,
   };
 }
 

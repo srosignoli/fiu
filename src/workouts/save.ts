@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, extname, join, relative } from 'node:path';
 import { execa } from 'execa';
@@ -48,6 +48,15 @@ export interface TrackPlacement {
   why: string;
 }
 
+/** A question's place in its Series (§11.11). */
+export interface SeriesPlacement {
+  id: string;
+  /** 1-based. */
+  index: number;
+  /** How many questions the Series saved. */
+  of: number;
+}
+
 /** The metadata saved beside a Workout as workout.json. */
 export interface WorkoutRecord {
   id: string;
@@ -60,6 +69,8 @@ export interface WorkoutRecord {
   commit?: { sha: string; aiAuthored: boolean; subject?: string };
   /** For Origin `explore`: the Track this Drill is a step of. */
   track?: TrackPlacement;
+  /** For a question of a Prediction Series: which Series, and where in it. */
+  series?: SeriesPlacement;
   /** Set on Workouts fetched from the team's shared branch: who shared them. */
   sharedBy?: SharedBy;
   title: string;
@@ -113,6 +124,7 @@ export interface SaveDrillOptions {
   origin?: Origin;
   commit?: { sha: string; aiAuthored: boolean; subject?: string };
   track?: TrackPlacement;
+  series?: SeriesPlacement;
   now?: Date;
 }
 
@@ -132,6 +144,7 @@ export async function saveDrill({
   origin = 'manual',
   commit,
   track,
+  series,
   now = new Date(),
 }: SaveDrillOptions): Promise<WorkoutRecord> {
   const id = uniqueId(paths, `${kind}_${now.toISOString().slice(0, 10).replaceAll('-', '')}_${drill.slug}`);
@@ -148,6 +161,7 @@ export async function saveDrill({
     origin,
     ...(commit ? { commit } : {}),
     ...(track ? { track } : {}),
+    ...(series ? { series } : {}),
     title: drill.title,
     slug: drill.slug,
     pillar: drill.pillar,
@@ -187,6 +201,20 @@ export async function saveDrill({
   return record;
 }
 
+/** A new Series id, `series_<date>_<slug>`, not taken by any Workout's Series. */
+export async function newSeriesId(paths: WorkspacePaths, slug: string, now = new Date()): Promise<string> {
+  const base = `series_${now.toISOString().slice(0, 10).replaceAll('-', '')}_${slug}`;
+  const taken = new Set<string>();
+  for (const dir of existsSync(paths.workoutsDir) ? await readdir(paths.workoutsDir) : []) {
+    const json = await readFile(join(paths.workoutsDir, dir, 'workout.json'), 'utf8').catch(() => undefined);
+    const id = json ? (JSON.parse(json) as WorkoutRecord).series?.id : undefined;
+    if (id) taken.add(id);
+  }
+  let id = base;
+  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+  return id;
+}
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function uniqueId(paths: WorkspacePaths, base: string): string {
@@ -217,6 +245,7 @@ function predictionReadme(record: WorkoutRecord): string {
   return [
     `# ${record.title}`,
     '',
+    ...(record.series ? [`*Question ${record.series.index} of ${record.series.of} about \`${record.source.path}\`.*`, ''] : []),
     '## Scenario',
     '',
     scenario.trim(),

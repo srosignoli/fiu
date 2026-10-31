@@ -42,7 +42,9 @@ export async function costReport(cwd: string, since: Date = startOfMonth()): Pro
   // v1 outcomes count too: those Workouts were attempted before Attempts existed.
   const attemptedIds = new Set(state.outcomes.map((o) => o.workoutId));
   for (const entry of state.spend) {
-    if (entry.workoutId && (await listAttemptRecords(paths, entry.workoutId)).length > 0) attemptedIds.add(entry.workoutId);
+    for (const id of entry.workoutIds ?? (entry.workoutId ? [entry.workoutId] : [])) {
+      if ((await listAttemptRecords(paths, id)).length > 0) attemptedIds.add(id);
+    }
   }
 
   const empty = (): SpendBucket => ({ usd: 0, count: 0 });
@@ -83,5 +85,6 @@ function bucketFor(report: CostReport, entry: Spend, attemptedIds: Set<string>):
   if (entry.result === 'track-plan') return report.trackPlanning;
   if (entry.result === 'atlas') return report.atlas;
   if (entry.result !== 'verified' || !entry.workoutId) return report.producedNothing;
-  return attemptedIds.has(entry.workoutId) ? report.attempted : report.neverAttempted;
+  // A Series counts as attempted once any of its questions is.
+  return (entry.workoutIds ?? [entry.workoutId]).some((id) => attemptedIds.has(id)) ? report.attempted : report.neverAttempted;
 }

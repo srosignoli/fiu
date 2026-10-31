@@ -7,7 +7,7 @@ import { confirm, log, spinner } from '@clack/prompts';
 import { Command } from 'commander';
 import { costReport, startOfMonth, type SpendBucket } from './commands/cost.ts';
 import { drill, type DrillUi } from './commands/drill.ts';
-import { NOUN, type WorkoutKind } from './synthesis/schema.ts';
+import { MAX_SERIES_QUESTIONS, NOUN, type WorkoutKind } from './synthesis/schema.ts';
 import { describeCost, formatUsd, totalTokens } from './cost/usage.ts';
 import { EDITOR_TIP, init } from './commands/init.ts';
 import { quick, quickWhile, train, type TrainResult } from './commands/train.ts';
@@ -41,9 +41,15 @@ program
   });
 
 /** `kin drill`, `kin kata`, and `kin predict`: the same flow, differing only in what is generated and how it is described. */
+function questionCount(value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_SERIES_QUESTIONS) throw new Error(`--questions must be a whole number from 1 to ${MAX_SERIES_QUESTIONS}, not "${value}".`);
+  return n;
+}
+
 function generationCommand(kind: WorkoutKind) {
   const noun = NOUN[kind];
-  return async (target: string | undefined, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean }) => {
+  return async (target: string | undefined, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean; questions?: number }) => {
     const ui = terminalUi();
     try {
       const result = await drill(process.cwd(), target, { ...options, kind }, ui);
@@ -56,8 +62,15 @@ function generationCommand(kind: WorkoutKind) {
         );
         process.exitCode = 1;
       } else {
-        const { record, workoutDir } = result;
-        log.success(`Saved ${noun} "${record.title}" (${record.id}), generated for ${describeCost(result.cost)}`);
+        const { record, workoutDir, series } = result;
+        if (series) {
+          const short = series.records.length < series.requested ? ` (${series.requested - series.records.length} couldn't be Verified)` : '';
+          log.success(
+            [`Saved a Series of ${series.records.length} Predictions${short}, generated for ${describeCost(result.cost)}:`, ...series.records.map((r, i) => `  ${i + 1}. ${r.title} (${r.id})`)].join('\n'),
+          );
+        } else {
+          log.success(`Saved ${noun} "${record.title}" (${record.id}), generated for ${describeCost(result.cost)}`);
+        }
         if (options.train && process.stdin.isTTY) {
           ui.settle();
           await runTrain(record.id, options);
@@ -105,12 +118,14 @@ program
   .description('Generate a Prediction: a plain-English Scenario about what your code does, with four outcomes to choose from. No code to read.')
   .argument('[target]', 'a source file (optionally #symbol), or a directory to pick a file from (default: the whole repository)')
   .option('--commit <sha>', 'ask what a commit changed: the code before it becomes one of the wrong answers')
+  .option('--questions <n>', 'how many questions to ask about the unit, 1 to 5 (default: predictionQuestions in your config, else 3)', questionCount)
   .option('--no-train', 'only save the Prediction, without opening the runner')
   .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
-  .action(async (target: string | undefined, options: { commit?: string; train: boolean; yes: boolean; sandbox: boolean }) => {
+  .action(async (target: string | undefined, options: { commit?: string; questions?: number; train: boolean; yes: boolean; sandbox: boolean }) => {
     if (!options.commit) return generationCommand('prediction')(target, options);
     if (target) throw new Error('Give either a target or --commit, not both: a commit chooses its own file.');
+    if (options.questions !== undefined && options.questions > 1) throw new Error('A Prediction from a commit asks one question: leave out --questions.');
     await runRefill({ ...options, background: false, kinds: ['prediction'] });
   });
 

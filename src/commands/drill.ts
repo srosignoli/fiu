@@ -26,6 +26,8 @@ export interface DrillCommandOptions {
   quick?: boolean;
   /** `kin kata` and `kin predict`: a Kata or a Prediction instead of a Drill. */
   kind?: WorkoutKind;
+  /** `kin predict --questions`: how many questions the Series asks (default: the `predictionQuestions` setting). */
+  questions?: number;
 }
 
 /** How the command talks to the user; the CLI renders it, tests record it. */
@@ -115,6 +117,7 @@ export async function drill(
       // Every Prediction is Quick by its own rules; the flag only shapes Drills and Katas.
       quick: kind !== 'prediction' && (options.quick ?? false),
       kind,
+      ...(kind === 'prediction' ? { questions: options.questions ?? config.predictionQuestions } : {}),
       origin: 'manual',
       cacheRoot,
       step: (message) => ui.step(message),

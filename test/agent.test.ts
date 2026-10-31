@@ -16,6 +16,7 @@ import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
 import { goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
+import { goodSeries, tieQuestion, urgentQuestion } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -113,9 +114,11 @@ describe('kin mcp', () => {
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map((t) => t.name).sort(), ['finish_track', 'list_workouts', 'prepare_atlas', 'prepare_drill', 'prepare_track', 'search_atlas', 'submit_atlas', 'submit_drill']);
     assert.match(client.getInstructions() ?? '', /^Kintsugi turns code in this repository into Drills/);
-    // The submit schema is the Drill schema itself, so the client checks the shape.
+    // The submit schema is the Workout schema itself (or a Series), so the client checks the shape.
     const submit = tools.find((t) => t.name === 'submit_drill')!;
-    assert.ok((submit.inputSchema.properties as Record<string, { properties?: object }>).workout?.properties);
+    const workout = (submit.inputSchema.properties as Record<string, { anyOf?: { properties?: Record<string, unknown> }[] }>).workout!;
+    assert.ok(workout.anyOf?.[0]?.properties?.startingCode);
+    assert.ok(workout.anyOf?.[1]?.properties?.questions);
   });
 
   it('prepares a Drill with the same prompt and numbered source as API mode', async () => {
@@ -245,6 +248,34 @@ describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     assert.equal(saved.status, 'saved', JSON.stringify(saved));
     assert.match(saved.workoutId, /^prediction_\d{8}_tied-priorities$/);
     assert.equal((await readJson(join(saved.workoutDir, 'workout.json'))).prediction.options.length, 4);
+  });
+
+  it('keeps the questions of a Series that Verify, and saves them together', async () => {
+    const repo = await repoWithSources('queue.ts');
+    const { call } = await connect(repo);
+    const { json: prepared } = await call('prepare_drill', { target: 'src/queue.ts', kind: 'prediction', questions: 2 });
+    assert.match(prepared.instructions, /This is a Series: 2 Predictions/);
+    assert.ok(prepared.workoutSchema.properties.questions, 'the schema asks for questions');
+
+    const first = await call('submit_drill', { generationId: prepared.generationId, workout: goodSeries([tieQuestion(), tieQuestion({ slug: 'again', title: 'Again' })]) });
+    assert.equal(first.isError, false, first.text);
+    assert.equal(first.json.status, 'rejected');
+    assert.equal(first.json.savedQuestions, 1);
+    assert.match(first.json.feedback, /Question 2 \("Again"\):\n\[schema\] it asks the same Scenario as question 1/);
+
+    const { json: saved } = await call('submit_drill', { generationId: prepared.generationId, workout: goodSeries([urgentQuestion()]) });
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    assert.deepEqual(saved.series.requested, 2);
+    assert.equal(saved.series.workoutIds.length, 2);
+    const second = await readJson(join(repo, '.kintsugi', 'workouts', saved.series.workoutIds[1], 'workout.json'));
+    assert.deepEqual(second.series, { id: saved.series.id, index: 2, of: 2 });
+    assert.equal(second.generator, 'agent');
+  });
+
+  it('asks several questions of Predictions only', async () => {
+    const { call } = await connect(await repoWithSources('queue.ts'));
+    assert.match((await call('prepare_drill', { target: 'src/queue.ts', questions: 3 })).text, /Only a Prediction can ask several questions/);
+    assert.match((await call('prepare_drill', { target: 'src/queue.ts', kind: 'prediction', questions: 9 })).text, /from 1 to 5/);
   });
 
   it('ends a generation the agent judges not worth practicing', async () => {

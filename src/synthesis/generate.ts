@@ -3,16 +3,27 @@ import type { ResolvedConfig } from '../config.ts';
 import { estimateCost, formatUsd, type Cost, type ModelUsage } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
-import { saveDrill, type Origin, type SourceRevision, type TrackPlacement, type WorkoutRecord } from '../workouts/save.ts';
+import type { LanguageModel } from 'ai';
+import { newSeriesId, saveDrill, type Origin, type SourceRevision, type TrackPlacement, type WorkoutRecord } from '../workouts/save.ts';
 import { averageSpend, readState, recordSpend, type Spend } from '../workouts/store.ts';
 import type { WorkspacePaths } from '../workspace.ts';
-import type { createModel } from './model.ts';
+import type { createModel, ProviderOptions } from './model.ts';
 import type { DrillTarget } from './prompt.ts';
 import { NOUN, type WorkoutKind } from './schema.ts';
-import { MAX_ATTEMPTS, synthesizeDrill, type SynthesisEvent } from './synthesize.ts';
+import { MAX_ATTEMPTS, SERIES_ATTEMPTS, synthesizeDrill, synthesizeSeries, type SynthesisEvent } from './synthesize.ts';
 
 export type GenerationResult =
-  | { status: 'saved'; record: WorkoutRecord; workoutDir: string; testCmd: string; attempts: number; cost: Cost }
+  | {
+      status: 'saved';
+      /** The Workout, or a Series' first question. */
+      record: WorkoutRecord;
+      workoutDir: string;
+      testCmd: string;
+      attempts: number;
+      cost: Cost;
+      /** For a Prediction Series: every question saved, and how many were asked for. */
+      series?: { id: string; records: WorkoutRecord[]; requested: number };
+    }
   | { status: 'not-worth-practicing'; reason: string; cost: Cost }
   | { status: 'failed'; feedback: string; cost: Cost };
 
@@ -33,6 +44,8 @@ export interface GenerateOptions {
   commit?: { sha: string; aiAuthored: boolean; subject?: string };
   /** For a Track step: its placement, recorded on the Workout. */
   track?: TrackPlacement;
+  /** For a Prediction not from a commit: more than 1 makes a Series of this many questions (§11.11). */
+  questions?: number;
   /** Fewer than the usual attempts when a daily limit has fewer left. */
   maxAttempts?: number;
   cacheRoot?: string;
@@ -51,8 +64,11 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
   const { model, providerOptions } = options.createModel(config.provider, config.model, options.apiKey);
   const maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
   const usage: ModelUsage[] = [];
-  const spend: Pick<Spend, 'result' | 'workoutId' | 'generationAttempts'> = { result: 'error', generationAttempts: 0 };
+  const spend: Pick<Spend, 'result' | 'workoutId' | 'workoutIds' | 'generationAttempts'> = { result: 'error', generationAttempts: 0 };
   try {
+    if (options.kind === 'prediction' && (options.questions ?? 1) > 1 && target.change === undefined) {
+      return await generateSeries(options, { model, providerOptions, maxAttempts, usage, spend });
+    }
     const result = await synthesizeDrill({
       quick: options.quick,
       kind: options.kind,
@@ -115,6 +131,76 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
       });
     }
   }
+}
+
+/** A Prediction Series: each Verified question saved as its own Workout, linked by the Series id. */
+async function generateSeries(
+  options: GenerateOptions,
+  run: { model: LanguageModel; providerOptions: ProviderOptions; maxAttempts: number; usage: ModelUsage[]; spend: Pick<Spend, 'result' | 'workoutId' | 'workoutIds' | 'generationAttempts'> },
+): Promise<GenerationResult> {
+  const { paths, config, profile, sandbox, target, step } = options;
+  const count = options.questions!;
+  const attempts = Math.min(run.maxAttempts, SERIES_ATTEMPTS);
+  const result = await synthesizeSeries({
+    count,
+    maxAttempts: attempts,
+    target,
+    profile,
+    sandbox,
+    model: run.model,
+    modelId: config.model,
+    providerOptions: run.providerOptions,
+    cacheRoot: options.cacheRoot,
+    onEvent: (event) => {
+      if (event.type === 'usage') {
+        run.usage.push(...event.usage);
+        run.spend.generationAttempts = event.attempt;
+      } else {
+        step(event.type === 'generating' ? `Generating a Series of ${count} Predictions (attempt ${event.attempt} of ${attempts})` : describeEvent(event, attempts, 'prediction'));
+      }
+    },
+  });
+  const cost = estimateCost(run.usage, config.prices);
+  if (result.status === 'not-worth-practicing') {
+    run.spend.result = 'not-worth-practicing';
+    return { ...result, cost };
+  }
+  if (result.status === 'failed') {
+    run.spend.result = 'not-verified';
+    return { status: 'failed', feedback: result.feedback, cost };
+  }
+
+  const id = await newSeriesId(paths, result.questions[0]!.workout.slug);
+  const records: WorkoutRecord[] = [];
+  for (const [i, question] of result.questions.entries()) {
+    records.push(
+      await saveDrill({
+        paths,
+        profile,
+        drill: question.workout,
+        kind: 'prediction',
+        sourcePath: target.path,
+        symbol: target.symbol,
+        source: target.source,
+        revision: options.revision,
+        // The Series' cost is shared: each question records its share.
+        cost: { ...cost, usd: cost.usd / result.questions.length, usage: [] },
+        generationAttempts: result.attempts,
+        origin: options.origin,
+        series: { id, index: i + 1, of: result.questions.length },
+      }),
+    );
+  }
+  Object.assign(run.spend, { result: 'verified', workoutId: records[0]!.id, workoutIds: records.map((r) => r.id) });
+  return {
+    status: 'saved',
+    record: records[0]!,
+    workoutDir: resolve(paths.workoutsDir, records[0]!.id),
+    testCmd: profile.testCmd,
+    attempts: result.attempts,
+    cost,
+    series: { id, records, requested: count },
+  };
 }
 
 function describeEvent(event: Exclude<SynthesisEvent, { type: 'usage' }>, maxAttempts: number, kind: WorkoutKind): string {

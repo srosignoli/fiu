@@ -114,6 +114,10 @@ _Avoid_: Covered, mastered, learned
 Practice on a file is Stale when the file has changed substantially since the code the practised Workout was derived from.
 _Avoid_: Outdated, expired (expiry is for queued Workouts)
 
+**Blind Spot**:
+A file where the human's most recent first answer to a Prediction was certain and wrong: a confident, wrong picture of what the code does. A later right answer on that file clears it.
+_Avoid_: Weak spot, gap, debt (that's the map's word for unpractised code)
+
 **Discarded**:
 A Workout is Discarded when it is removed without being attempted, by the human or because it went stale.
 _Avoid_: Deleted, expired, skipped

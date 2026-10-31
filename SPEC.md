@@ -45,6 +45,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
 | `kin share [<id>...] [--atlas] [--remote <name>]` / `kin fetch [--remote <name>] [--no-sandbox]` | Share Workouts, Tracks, or the Atlas with the team on the `kintsugi/workouts` branch, or bring in theirs, Workouts re-verified (§11.3.2, §11.10). |
 | `kin map [<path>] [--json]` | Your comprehension debt by directory, or one directory's files: local and free (§11.4). |
+| `kin stats [<path>] [--json]` | How often your Predictions are right, how well your confidence matches, and your Blind Spots: local and free (§11.12). |
 | `kin atlas [<path>] [--markdown]` / `kin atlas build [<dir>] [--yes]` / `kin atlas search "<goal>" [--all]` | Show, build, or search the Atlas: what each folder, file, and key function is for (§11.10). |
 | `kin quick [--while "<cmd>"] [--no-sandbox]` | Start the queue's best Quick Workout right away (§11.2.3); with `--while`, during a slow command (§11.6). |
 | `kin train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
@@ -438,7 +439,7 @@ Kintsugi now **notices such a bug and reports it after the Attempt**. It doesn't
 - **Prompt rule** (Drills and Katas): *"Keep the Reference Solution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect."* A Drill may still use that defect as its bug, as the dogfooded one did. A Kata whose removed region fixes the original gets only the model report, since its Starting Code is a placeholder.
 - **No comments in the bug** (Drills, enforced from now on; the prompt already forbade them). Comparing the two sides of the changed region by their trailing comments (via `lineComment`), a comment on a buggy line that the fixed side doesn't have is `[schema]` retry feedback: *"The bug region carries a comment that points at the bug; remove it."*
 - **Agent mode:** `originalDefect` is part of the schema `submit_drill` accepts, and the agent gets the same prompt rule. `list_workouts` doesn't report it.
-- **Not in v3.4:** choosing targets for suspected defects (see §11.12); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
+- **Not in v3.4:** choosing targets for suspected defects (see §11.13); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
 
 ### 11.8 v4.0: Predictions (implemented)
 
@@ -606,12 +607,25 @@ Two extensions of what exists. A Prediction asks one question about a unit, yet 
 
 **Not in v4.3:** a Series from a commit; scoring a Series as a whole; Series inside Tracks.
 
-### 11.12 Later (not yet designed)
+### 11.12 v4.4: Calibration and Blind Spots
+
+For the people Predictions serve, the dangerous state isn't not knowing how the system behaves: it's being sure of a wrong picture, because that is what they steer agents and triage incidents with. v4.4 asks how sure they were, keeps score, and points at the files where they were certain and wrong. Local and free: no model calls, nothing new generated; it only reads Attempts.
+
+- **How sure?** After picking a Prediction's answer and before the reveal, the runner asks: *How sure were you? [1] guessing [2] fairly sure [3] certain [any other key] skip*. The answer is saved as `confidence` in `attempt.json` and the outcome in `state.json`. A skipped one records nothing.
+- **What counts.** Only the first Attempt at each Prediction (a retry already knows the answer), of every Prediction: single, Series, from a commit, Track steps. First Attempts from before v4.4 count toward accuracy but not calibration. Drills and Katas have no single answer to be sure of, so they don't count.
+- **Calibration.** Each level has an expected hit rate: guessing 25% (one of four), fairly sure 70%, certain 95%. Calibration is how far the hit rate at each level is from that.
+- **Blind Spot.** A file is a Blind Spot when its most recent first answer was *certain* and wrong. A later right answer on that file, at any confidence, clears it.
+- **`kin map`** marks Blind Spot files `⚠` and counts them per directory (`⚠1`), apart from the practice states (red, amber, green stay about practice, not correctness). Blind Spots come first among the suggestions: `kin predict <file>` to check your picture again.
+- **`kin stats [<path>] [--json]`:** overall Prediction accuracy; the calibration table (answers and hit rate per level, against the expected rate); the last 30 days against before; accuracy per directory, worst first; the Blind Spots. A rate is shown only with at least 3 answers behind it.
+- **Yours only.** Like the map, it never leaves the machine (ADR 0004); `--json` is there for anyone who wants to share their own. A team view would make honest answers costly, and the numbers worthless.
+
+**Not in v4.4:** confidence for Drills and Katas; spaced repetition of Blind Spots (§11.13).
+
+### 11.13 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 
 - **End-of-task Predictions in agent mode:** what the agent just changed, before it's committed (§11.9).
-- **Prediction accuracy stats:** how often the human predicts right, by file and over time.
 - **Distinct from what's saved:** checking a new Prediction or Series against Predictions already saved for the same file (§11.11).
 - **Aiming at real bugs:** preferring units with suspected defects when choosing what to drill, if `defectConfirmed` (§11.7) shows the reports are mostly right.
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.

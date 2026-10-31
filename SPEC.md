@@ -577,7 +577,9 @@ On a large codebase it is hard to choose what to practise: `kin drill <file>#sym
 
 **Not in v4.2:** model-understood search in API mode (the agent understands the wording in agent mode); a real parser; describing every function; refreshing on commit.
 
-### 11.11 v4.3: Prediction Series and mixed Tracks
+### 11.11 v4.3: Prediction Series and mixed Tracks (implemented)
+
+*Verified for real on 2026-10-31 in agent mode, with headless Claude Code calling Kintsugi's tools through a test harness (API mode has no key here; covered by mock-model tests). Three Series of 3 questions, on `config.ts#resolveConfig`, `queue.ts#nextQuickWorkout`, and the SSTorytime copy's `NChannel`, were all Verified on the first submission, each question asking about a different rule (settings precedence for prices, preferred kinds, and provider; the queue's ranking, exclusions, and size limits; three text-size boundaries), for $0.51 to $1.01 of agent spend each. A Track on `src/background` came out as the suggested arc: a Prediction on `log.ts`, a Drill on `commits.ts`, a Kata on `refill.ts`, every step Verified first time. One overlap the checks don't see: the SSTorytime Series' first question asks what an earlier single Prediction on the same file asked (distinctness is checked within a Series, not against Workouts already saved). Not yet run for real: a Series and a mixed Track through the API.*
 
 Two extensions of what exists. A Prediction asks one question about a unit, yet most of its cost is reading the unit and writing its Reference Solution: a **Series** asks several questions about the same unit for little more. A Track teaches a module through Drills only, yet reading what code does (a Prediction) and writing it (a Kata) are part of knowing a module too: **mixed Tracks** choose a kind per step.
 
@@ -610,6 +612,7 @@ Each item needs its own design round before implementation.
 
 - **End-of-task Predictions in agent mode:** what the agent just changed, before it's committed (§11.9).
 - **Prediction accuracy stats:** how often the human predicts right, by file and over time.
+- **Distinct from what's saved:** checking a new Prediction or Series against Predictions already saved for the same file (§11.11).
 - **Aiming at real bugs:** preferring units with suspected defects when choosing what to drill, if `defectConfirmed` (§11.7) shows the reports are mostly right.
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.
 - **Spaced repetition:** resurfacing attempted Workouts on a schedule.

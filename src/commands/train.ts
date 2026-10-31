@@ -14,7 +14,7 @@ import { openAttempt } from '../workouts/attempts.ts';
 import { nextQuickWorkout } from '../workouts/queue.ts';
 import type { PredictionOption } from '../synthesis/schema.ts';
 import type { WorkoutRecord } from '../workouts/save.ts';
-import { listWorkouts, loadWorkout, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
+import { listWorkouts, loadWorkout, nextInSeries, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 
 /** The terminal, as `kin train` sees it. */
@@ -96,7 +96,17 @@ export async function train(
     if (workout.status === 'discarded') throw new WorkoutDiscardedError(id);
   } else {
     const all = await listWorkouts(paths);
-    const choices = [...all.filter((w) => w.status === 'in-progress'), ...all.filter((w) => w.status === 'queued')];
+    const pending = [...all.filter((w) => w.status === 'in-progress'), ...all.filter((w) => w.status === 'queued')];
+    // A Series is one row: its open question if it has one (pending lists those first), else its first unanswered one.
+    const shownSeries = new Set<string>();
+    const choices = pending.filter((w) => {
+      const series = w.record.series;
+      if (!series) return true;
+      const first = w.status === 'in-progress' || !pending.some((o) => o.record.series?.id === series.id && o.status === 'queued' && o.record.series.index < series.index);
+      if (!first || shownSeries.has(series.id)) return false;
+      shownSeries.add(series.id);
+      return true;
+    });
     if (choices.length === 0) return { status: 'nothing-pending' };
     const picked = choices.length === 1 ? choices[0] : await io.pick(choices);
     if (!picked) return { status: 'cancelled' };
@@ -109,8 +119,20 @@ export async function train(
 
   // A Prediction runs nothing during its Attempt: every outcome was measured when it was Verified.
   if (workout.record.kind === 'prediction') {
-    const { attempt, resumed } = await openAttempt(paths, workout, profile);
-    return runPrediction(new TrainingSession({ paths, workout, attempt, profile, cacheRoot }), io, { resumed, background });
+    for (;;) {
+      const { attempt, resumed } = await openAttempt(paths, workout, profile);
+      const result = await runPrediction(new TrainingSession({ paths, workout, attempt, profile, cacheRoot }), io, { resumed, background });
+      // A Series offers its next question, one key away.
+      const next = result.status === 'completed' || result.status === 'abandoned' ? await nextInSeries(paths, workout.record) : undefined;
+      if (!next) return result;
+      io.print(`[n] next question (${next.record.series!.index} of ${next.record.series!.of})   [any other key] stop here`);
+      const read = new AbortController();
+      if ((await io.readKey(read.signal)) !== 'n') {
+        io.print(`The rest of the Series waits in the queue: kin train ${next.record.id}`);
+        return result;
+      }
+      workout = next;
+    }
   }
 
   const sandbox = await openSandbox({ repoRoot, allowUnsandboxed: !options.sandbox });

@@ -14,7 +14,7 @@ import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox, type Sandbox } from '../sandbox/sandbox.ts';
 import { describeFailures, verify } from '../verify/gate.ts';
 import type { SharedBy, WorkoutRecord } from '../workouts/save.ts';
-import { listWorkouts, loadWorkout } from '../workouts/store.ts';
+import { listWorkouts, loadWorkout, seriesQuestions } from '../workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from '../workspace.ts';
 import { commitWith, fetchShared, gitIdentity, onSomeRemoteBranch, pushShared, readBlob, readTree, SharingError } from './git.ts';
 
@@ -135,15 +135,18 @@ export async function share(cwd: string, ids: string[], options: ShareOptions = 
   const identity = await gitIdentity(repo);
   const sharedBy: SharedBy = { ...identity, at: (options.now ?? new Date()).toISOString() };
 
-  // What to share: each id is a Track (with all its steps) or a single Workout.
+  // What to share: each id is a Track (with all its steps), a Series (with all its questions), or a single Workout.
   const tracks = new Map((await listTracks(paths)).map((t) => [t.id, t]));
   const workoutIds: string[] = [];
   const trackRecords: TrackRecord[] = [];
   for (const id of ids) {
     const track = tracks.get(id);
+    const series = id.startsWith('series_') ? await seriesQuestions(paths, id) : [];
     if (track) {
       trackRecords.push(track);
       workoutIds.push(...track.steps.map((s) => s.workoutId));
+    } else if (series.length > 0) {
+      workoutIds.push(...series.map((w) => w.record.id));
     } else {
       workoutIds.push(id);
     }

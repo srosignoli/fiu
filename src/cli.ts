@@ -14,7 +14,7 @@ import { quick, quickWhile, train, type TrainResult } from './commands/train.ts'
 import { runInForeground } from './runner/background.ts';
 import { terminalTrainIo } from './terminal.ts';
 import { VERSION } from './version.ts';
-import { discardWorkout, legacyDoneNotice, restoreWorkout } from './workouts/store.ts';
+import { discardSeries, discardWorkout, legacyDoneNotice, restoreWorkout } from './workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from './workspace.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type PreferredKind } from './config.ts';
 
@@ -668,10 +668,16 @@ async function legacyNotice(): Promise<void> {
 
 program
   .command('discard')
-  .argument('<workout-id>', 'the Workout to archive')
+  .argument('<workout-id>', 'the Workout to archive, or a Series id for its unanswered questions')
   .description('Archive a Workout: hidden from the queue, but kept. Undo with kin restore.')
   .action(async (id: string) => {
-    await discardWorkout(workspacePaths(await findRepoRoot(process.cwd())), id, 'manual');
+    const paths = workspacePaths(await findRepoRoot(process.cwd()));
+    if (id.startsWith('series_')) {
+      const discarded = await discardSeries(paths, id);
+      if (discarded.length === 0) return log.info(`Every question of ${id} is already answered: nothing to discard.`);
+      return log.success(`Discarded ${discarded.length} unanswered question(s) of ${id}. Bring one back with: kin restore <workout-id>\n${discarded.map((d) => `  ${d}`).join('\n')}`);
+    }
+    await discardWorkout(paths, id, 'manual');
     log.success(`Discarded ${id}. Bring it back with: kin restore ${id}`);
   });
 

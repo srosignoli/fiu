@@ -17,7 +17,8 @@ import { saveDrill, sourceRevision, type WorkoutRecord } from '../src/workouts/s
 import { listWorkouts } from '../src/workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, workspacePaths } from '../src/workspace.ts';
 import { tempDir } from './helpers.ts';
-import { goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
+import { goodDrill, goodKata, goodPrediction, goodSeries, tieQuestion, TS_REFERENCE, urgentQuestion } from './mock-model.ts';
+import { expandSeries } from '../src/synthesis/schema.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -228,6 +229,17 @@ describe(`team sharing (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     const paths = workspacePaths(bob);
     const later = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
     assert.deepEqual(await expireStaleWorkouts(paths, 14, later), []);
+  });
+
+  it('shares a whole Series by its id', async () => {
+    const { alice } = await team();
+    const ids: string[] = [];
+    for (const [i, drill] of expandSeries(goodSeries([tieQuestion(), urgentQuestion()])).entries()) {
+      const record = await saveDrill({ paths: workspacePaths(alice), profile: TYPESCRIPT, drill, kind: 'prediction', sourcePath: 'queue.ts', revision: await sourceRevision(alice, 'queue.ts'), generationAttempts: 1, series: { id: 'series_x', index: i + 1, of: 2 } });
+      ids.push(record.id);
+    }
+    const report = await share(alice, ['series_x']);
+    assert.deepEqual(report.shared.map((s) => s.id), ids);
   });
 
   it('fingerprints content, not ids or sharing stamps', () => {

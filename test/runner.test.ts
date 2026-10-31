@@ -18,6 +18,9 @@ import { discardWorkout, listWorkouts, loadWorkout, readState, restoreWorkout, t
 import { ensureWorkspace, workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
 import { goodCommitPrediction, goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
+import { goodSeries, tieQuestion, urgentQuestion } from './mock-model.ts';
+import { expandSeries } from '../src/synthesis/schema.ts';
+import { discardSeries } from '../src/workouts/store.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -645,5 +648,67 @@ describe(`kin quick (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
       assert.equal(existsSync(join(repo, 'should-not-exist')), false);
       assert.equal(existsSync(join(paths.root, 'while')), false);
     });
+  });
+});
+
+describe('a Prediction Series', () => {
+  async function repoWithSeries() {
+    const repo = await tempGitRepo();
+    await writeFile(join(repo, 'queue.ts'), TS_REFERENCE);
+    await execa('git', ['add', '.'], { cwd: repo });
+    await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], { cwd: repo });
+    const paths = workspacePaths(repo);
+    await ensureWorkspace(paths);
+    const questions = expandSeries(goodSeries([tieQuestion(), urgentQuestion()]));
+    const records = [];
+    for (const [i, drill] of questions.entries()) {
+      records.push(
+        await saveDrill({ paths, profile: TYPESCRIPT, drill, kind: 'prediction', sourcePath: 'queue.ts', revision: await sourceRevision(repo, 'queue.ts'), generationAttempts: 1, series: { id: 'series_20261031_tied-priorities', index: i + 1, of: 2 } }),
+      );
+    }
+    return { repo, paths, records };
+  }
+  const keyFor = (text: string, printed: string) => printed.match(new RegExp(`\\[(\\d)\\] ${text.replace(/[."]/g, '\\$&')}`))![1]!;
+
+  it('offers the next question after each answer, until the Series is done', async () => {
+    const { repo, records } = await repoWithSeries();
+    const io = new ScriptedIo();
+    const training = startTraining(repo, records[0]!.id, io);
+    await io.waitFor(/\[1\]-\[4\] answer/);
+    io.press(keyFor('The "early" job runs next.', io.printed[0]!));
+    await io.waitFor(/\[n\] next question \(2 of 2\)/);
+    io.press('n');
+    await io.waitFor(/Does urgency beat arrival\?/);
+    const second = io.printed.find((p) => p.includes('Does urgency beat arrival?'))!;
+    io.press(keyFor('The "urgent" job runs next.', second));
+    const result = await training;
+    assert.deepEqual([result.status, result.status === 'completed' && result.workoutId], ['completed', records[1]!.id]);
+    assert.equal(io.printed.filter((p) => /\[n\] next question/.test(p)).length, 1, 'nothing left to offer after the last question');
+  });
+
+  it('leaves the rest in the queue when the human stops', async () => {
+    const { repo, records } = await repoWithSeries();
+    const io = new ScriptedIo();
+    const training = startTraining(repo, records[0]!.id, io);
+    await io.waitFor(/\[1\]-\[4\] answer/);
+    io.press(keyFor('The "late" job runs next.', io.printed[0]!));
+    await io.waitFor(/\[d\] the code difference/);
+    io.press('x');
+    await io.waitFor(/\[n\] next question/);
+    io.press('x');
+    assert.equal((await training).status, 'abandoned');
+    assert.match(io.transcript, new RegExp(`The rest of the Series waits in the queue: kin train ${records[1]!.id}`));
+  });
+
+  it('is one row in the picker, and discarded by its id', async () => {
+    const { repo, paths, records } = await repoWithSeries();
+    const io = new ScriptedIo();
+    const training = startTraining(repo, undefined, io);
+    await io.waitFor(/\[1\]-\[4\] answer/);
+    assert.deepEqual(io.picked, undefined, 'one row: nothing to pick between');
+    io.press('q');
+    await training;
+    assert.deepEqual(await discardSeries(paths, 'series_20261031_tied-priorities'), [records[0]!.id, records[1]!.id]);
+    assert.deepEqual((await listWorkouts(paths)).map((w) => w.status), ['discarded', 'discarded']);
   });
 });

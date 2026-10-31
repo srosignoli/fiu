@@ -61,7 +61,7 @@ export function terminalTrainIo(): TrainIo & { close(): void } {
         message: 'Which Workout?',
         options: workouts.map((w) => ({
           value: w.record.id,
-          label: w.record.title,
+          label: w.record.series ? `${w.record.title} (a Series: question ${w.record.series.index} of ${w.record.series.of})` : w.record.title,
           hint: [w.status === 'in-progress' ? 'open Attempt' : 'new', w.record.id, ...(w.record.cost ? [describeCost(w.record.cost)] : [])].join(', '),
         })),
       });

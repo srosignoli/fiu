@@ -171,6 +171,29 @@ export async function discardWorkout(paths: WorkspacePaths, id: string, reason: 
   await writeState(paths, state);
 }
 
+/** The questions of a Series, in order. */
+export async function seriesQuestions(paths: WorkspacePaths, seriesId: string): Promise<StoredWorkout[]> {
+  return (await listWorkouts(paths)).filter((w) => w.record.series?.id === seriesId).sort((a, b) => a.record.series!.index - b.record.series!.index);
+}
+
+/** The next unanswered question of a Workout's Series (after it first, then any earlier one), if any. */
+export async function nextInSeries(paths: WorkspacePaths, record: WorkoutRecord): Promise<StoredWorkout | undefined> {
+  if (!record.series) return undefined;
+  const open = (await seriesQuestions(paths, record.series.id)).filter((w) => w.record.id !== record.id && (w.status === 'queued' || w.status === 'in-progress'));
+  return open.find((w) => w.record.series!.index > record.series!.index) ?? open[0];
+}
+
+/** `kin discard <series-id>`: discards the Series' questions nobody has answered yet. Returns their ids. */
+export async function discardSeries(paths: WorkspacePaths, seriesId: string, now = new Date()): Promise<string[]> {
+  const questions = await seriesQuestions(paths, seriesId);
+  if (questions.length === 0) throw new WorkoutNotFoundError(seriesId);
+  const open = questions.filter((w) => w.status === 'queued' || w.status === 'in-progress').map((w) => w.record.id);
+  const state = await readState(paths);
+  for (const id of open) state.discarded[id] = { at: now.toISOString(), reason: 'manual' };
+  await writeState(paths, state);
+  return open;
+}
+
 export async function restoreWorkout(paths: WorkspacePaths, id: string): Promise<void> {
   const state = await readState(paths);
   if (!state.discarded[id]) throw new Error(`Workout "${id}" isn't discarded.`);

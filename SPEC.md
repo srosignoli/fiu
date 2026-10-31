@@ -607,7 +607,9 @@ Two extensions of what exists. A Prediction asks one question about a unit, yet 
 
 **Not in v4.3:** a Series from a commit; scoring a Series as a whole; Series inside Tracks.
 
-### 11.12 v4.4: Calibration and Blind Spots
+### 11.12 v4.4: Calibration and Blind Spots (implemented)
+
+*Checked on 2026-10-31 against real data: the 7 Predictions made by agent mode in the v4.3 pass (three Series questions on `config.ts`, three on `queue.ts`, one Track step on `log.ts`) were answered through the real runner with scripted keys (the first option shown, with a fixed sequence of confidences), so this checks the mechanics, not anyone's picture of the code. `kin stats` showed 3 of 7 right, *certain* at 1 of 4 flagged overconfident, levels under 3 answers without a rate, directories weakest first, and two Blind Spots (`config.ts`, `log.ts`); `queue.ts`, whose latest first answer was a wrong guess after a certain-and-wrong one, correctly wasn't one. `kin map` marked both with ⚠ in their directories' counts and suggested checking them first. Not yet done: a human answering for real over weeks, which is what calibration needs to mean anything.*
 
 For the people Predictions serve, the dangerous state isn't not knowing how the system behaves: it's being sure of a wrong picture, because that is what they steer agents and triage incidents with. v4.4 asks how sure they were, keeps score, and points at the files where they were certain and wrong. Local and free: no model calls, nothing new generated; it only reads Attempts.
 

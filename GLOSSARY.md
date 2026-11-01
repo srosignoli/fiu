@@ -30,6 +30,14 @@ _Avoid_: Quiz, question, scenario (as the umbrella term)
 A Workout where the human reads a practice incident and chooses which of four Causes explains it, without reading code. Each Cause's link to its Symptom is measured by running code, never asserted by the model.
 _Avoid_: Triage, root-cause quiz, incident (the incident is what it shows)
 
+**What-if**:
+A Prediction about a Proposed Change: what the code would do with it, in a situation where that differs from today. Its outcomes are measured; that the code matches the change as worded is the model's reading, shown to the human.
+_Avoid_: Simulation, scenario (that's the situation it asks about), impact analysis
+
+**Proposed Change**:
+A change that hasn't been made, typed by the human or suggested by the model, modelled in a self-contained copy of one unit. Nothing in the repository changes.
+_Avoid_: Patch, diff
+
 **Series**:
 Several Predictions about the same unit of code, generated together and answered one after another. Each question is its own Prediction, Verified and attempted on its own. A Series is not itself a Workout.
 _Avoid_: Quiz, question set, batch

@@ -41,6 +41,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin init` | Creates `.kintsugi/`, appends `.kintsugi/` to `.git/info/exclude`, runs the sandbox canary (§7), prints a tip on disabling AI completions inside `.kintsugi/` in your editor. |
 | `kin drill <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill (Quick with `--quick`) from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
 | `kin kata <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Like `kin drill`, but generates a Kata: one piece of the unit removed, rebuilt from a brief (§11.5). |
+| `kin predict [<file>[#symbol] \| <dir>] --what-if ["<change>"]` | A Prediction about a change not yet made: what would happen, measured against today's code (§11.14). |
 | `kin diagnose [<file>[#symbol] \| <dir>] [--no-train] [--yes] [--no-sandbox]` | Generate a Diagnosis: a practice incident and four possible Causes, each measured (§11.13). |
 | `kin explore <path> [--yes] [--no-sandbox] [--no-train] [--kinds <list>]` / `kin explore --about "<goal>"` | Build a Track for a module directory (§11.3.1), or for the module a goal is about, found through the Atlas (§11.10). |
 | `kin track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
@@ -440,7 +441,7 @@ Kintsugi now **notices such a bug and reports it after the Attempt**. It doesn't
 - **Prompt rule** (Drills and Katas): *"Keep the Reference Solution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect."* A Drill may still use that defect as its bug, as the dogfooded one did. A Kata whose removed region fixes the original gets only the model report, since its Starting Code is a placeholder.
 - **No comments in the bug** (Drills, enforced from now on; the prompt already forbade them). Comparing the two sides of the changed region by their trailing comments (via `lineComment`), a comment on a buggy line that the fixed side doesn't have is `[schema]` retry feedback: *"The bug region carries a comment that points at the bug; remove it."*
 - **Agent mode:** `originalDefect` is part of the schema `submit_drill` accepts, and the agent gets the same prompt rule. `list_workouts` doesn't report it.
-- **Not in v3.4:** choosing targets for suspected defects (see §11.14); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
+- **Not in v3.4:** choosing targets for suspected defects (see §11.15); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
 
 ### 11.8 v4.0: Predictions (implemented)
 
@@ -622,7 +623,7 @@ For the people Predictions serve, the dangerous state isn't not knowing how the 
 - **`kin stats [<path>] [--json]`:** overall Prediction accuracy; the calibration table (answers and hit rate per level, against the expected rate); the last 30 days against before; accuracy per directory, worst first; the Blind Spots. A rate is shown only with at least 3 answers behind it.
 - **Yours only.** Like the map, it never leaves the machine (ADR 0004); `--json` is there for anyone who wants to share their own. A team view would make honest answers costly, and the numbers worthless.
 
-**Not in v4.4:** confidence for Drills and Katas; spaced repetition of Blind Spots (§11.14).
+**Not in v4.4:** confidence for Drills and Katas; spaced repetition of Blind Spots (§11.15).
 
 ### 11.13 v5.0: Diagnosis (implemented)
 
@@ -652,9 +653,23 @@ The gate proves that among these four, only the true Cause produces the incident
 
 **With the rest.** Quick by its own rules, so `kin quick` serves it. It counts toward `kin stats`, which becomes *Your answers*, split by kind, and toward Blind Spots. It can be a Track step (§11.11). `kinds` accepts `diagnosis`: `kin quick` honours it first, commit generation skips it, and a personal `kinds` of only no-code kinds (`prediction`, `diagnosis`) makes a Track of exactly those. Shared and re-verified on fetch like any Workout.
 
-**Not in v5.0:** a Series of Diagnoses; Diagnoses from commits or in the background; running diagnostic checks before answering (§11.14).
+**Not in v5.0:** a Series of Diagnoses; Diagnoses from commits or in the background; running diagnostic checks before answering (§11.15).
 
-### 11.14 Later (not yet designed)
+### 11.14 v5.1: What-if Predictions
+
+Someone steering agents decides what to ask for before anyone writes code: *what would happen if we raised the cap?* A **What-if** is a Prediction about a **Proposed Change** that hasn't been made. It is a Prediction from a commit (§11.9) pointing forward: the code with the change takes the place of "after", and today's code the place of "before".
+
+- **`kin predict [<file>[#symbol] | <dir>] --what-if ["<change>"]`.** With a sentence, it models that change. Without one, the model proposes a change someone might plausibly ask for. With a sentence and no file, the free Atlas search (§11.10), limited to `<dir>` if given, names the closest target and asks before spending anything. With no sentence and no file, the file is picked as for `kin predict`. Agent mode: `prepare_drill` with `whatIf` (empty to let the model propose).
+- **Measured, in four versions.** `referenceSolution` is the unit with the change, and its behaviour is the true option. `previous` is the unit as it is today, and its behaviour is one wrong option, *what happens today*: the Scenario must be one where they differ. The other two wrong options are ordinary Variants of the changed code. All of §11.8's checks apply, and §11.9's Measured and Distinct.
+- **Anchored to today.** Every region where `previous` differs from `referenceSolution` must have a significant line found in the source file and not in `referenceSolution` (where the change only adds lines, a `referenceSolution` line found nowhere in the source anchors it). Otherwise the model could invent a "today" to fit the question.
+- **At most 10 changed lines** between the two, checked. A bigger change can't be modelled faithfully in one self-contained file. The model answers `worthPracticing: false`, saying why, when the change is larger, too vague to pin down, or about behaviour that isn't in this file; nothing is saved and there is no fallback.
+- **The model's reading is shown.** Running code proves what the changed code does; that the code matches the sentence is the model's word (ADR 0007). So before answering, the human sees their sentence and the model's plain-English reading: *Modelled as: …*.
+- **The reveal** states both sides, whatever the answer: *Today: … With this change: …*, then the explanation, where it lives, and Kintsugi's own line: *Measured on a self-contained copy of this unit, not your whole system. Nothing in your repository changed.* After any answer, `[d]` shows the code change as modelled.
+- **With the rest.** It stays in the queue if unanswered, `kin quick` can serve it, and it counts in `kin stats` and Blind Spots. It is shared and re-verified like any Prediction; on fetch the anchoring is skipped, as the sharer's source isn't there. Always one question: never a Series or a Track step.
+
+**Not in v5.1:** several Scenarios for one change; changes spanning several files.
+
+### 11.15 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 

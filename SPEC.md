@@ -655,7 +655,9 @@ The gate proves that among these four, only the true Cause produces the incident
 
 **Not in v5.0:** a Series of Diagnoses; Diagnoses from commits or in the background; running diagnostic checks before answering (§11.15).
 
-### 11.14 v5.1: What-if Predictions
+### 11.14 v5.1: What-if Predictions (implemented)
+
+*Verified for real on 2026-11-01 in agent mode, with headless Claude Code calling Kintsugi's tools through a test harness (API mode has no key here; covered by mock-model tests). Five requests: letting `kin quick` serve Track steps, expiring teammates' shared Workouts, a change the model proposed for `resolveConfig` (combining preferred kinds), raising SSTorytime's long-text limit, and, on purpose, retrying API calls in `config.ts`. Each of the four that fit was modelled in 1 to 3 changed lines matching the request, with a Scenario where today and the change differ, for $0.41 to $0.63 of agent spend; three took one submission and the SSTorytime one took two (the harness doesn't keep the feedback, so the first rejection's reason isn't known). The misfit was judged not worth practising, and its reason correctly named where failed API calls are handled. Not yet done: `kin predict --what-if` through the API, a case where the model misreads a sentence, and real people using one to make a decision.*
 
 Someone steering agents decides what to ask for before anyone writes code: *what would happen if we raised the cap?* A **What-if** is a Prediction about a **Proposed Change** that hasn't been made. It is a Prediction from a commit (§11.9) pointing forward: the code with the change takes the place of "after", and today's code the place of "before".
 

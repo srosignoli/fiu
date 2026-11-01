@@ -11,7 +11,9 @@ import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox } from '../sandbox/sandbox.ts';
 import { createModel as createModelDefault } from '../synthesis/model.ts';
 import { generateWorkout, type GenerationResult } from '../synthesis/generate.ts';
+import { targetOf } from '../atlas/search.ts';
 import { shortlist } from '../explore/shortlist.ts';
+import { searchAtlasCommand } from './atlas.ts';
 import { practiceByFile } from '../map/map.ts';
 import { answersOnly, NOUN, type WorkoutKind } from '../synthesis/schema.ts';
 import { sourceRevision } from '../workouts/save.ts';
@@ -28,6 +30,8 @@ export interface DrillCommandOptions {
   kind?: WorkoutKind;
   /** `kin predict --questions`: how many questions the Series asks (default: the `predictionQuestions` setting). */
   questions?: number;
+  /** `kin predict --what-if`: a sentence to model, or true to have the model propose a change. */
+  whatIf?: string | true;
 }
 
 /** How the command talks to the user; the CLI renders it, tests record it. */
@@ -69,8 +73,9 @@ export async function drill(
   const userConfig = await loadUserConfig(configEnv);
   const config = resolveConfig(repoConfig, userConfig);
   const directory = answersOnly(kind) ? directoryTarget(cwd, repoRoot, target) : undefined;
+  const sentence = typeof options.whatIf === 'string' ? options.whatIf.trim() : undefined;
   if (directory !== undefined) {
-    target = await pickUnpractised(repoRoot, directory, config.profiles, paths);
+    target = sentence ? await closestTo(sentence, repoRoot, directory, options, ui, configEnv) : await pickUnpractised(repoRoot, directory, config.profiles, paths);
     ui.step(`Asking about ${target}`);
   }
   if (target === undefined) throw new DrillTargetError(`Name the file to make the ${noun} from.`);
@@ -112,12 +117,13 @@ export async function drill(
       sandbox,
       apiKey,
       createModel,
-      target: { path: sourcePath, source: await readFile(file, 'utf8'), symbol },
+      target: { path: sourcePath, source: await readFile(file, 'utf8'), symbol, ...(options.whatIf ? { whatIf: sentence ? { sentence } : {} } : {}) },
       revision: await sourceRevision(repoRoot, sourcePath),
       // Every Prediction and Diagnosis is Quick by its own rules; the flag only shapes Drills and Katas.
       quick: !answersOnly(kind) && (options.quick ?? false),
       kind,
-      ...(kind === 'prediction' ? { questions: options.questions ?? config.predictionQuestions } : {}),
+      // A What-if is always one question.
+      ...(kind === 'prediction' && !options.whatIf ? { questions: options.questions ?? config.predictionQuestions } : {}),
       origin: 'manual',
       cacheRoot,
       step: (message) => ui.step(message),
@@ -125,6 +131,18 @@ export async function drill(
   } finally {
     await sandbox.dispose();
   }
+}
+
+/** A What-if with no file: the Atlas search's closest target for the sentence, confirmed before anything is spent. */
+async function closestTo(sentence: string, repoRoot: string, directory: string, options: DrillCommandOptions, ui: DrillUi, configEnv: ConfigEnv): Promise<string> {
+  const { results } = await searchAtlasCommand(repoRoot, sentence, { configEnv });
+  const best = results.find((r) => directory === '' || r.path.startsWith(`${directory}/`));
+  if (!best) throw new DrillTargetError(`Nothing${directory ? ` in ${directory}` : ''} matches "${sentence}". Name the file: kin predict <file> --what-if "${sentence}"`);
+  const target = targetOf(best);
+  if (options.yes) return target;
+  if (!ui.confirm) throw new DrillTargetError(`The closest match is ${target}. Name it to go ahead: kin predict ${target} --what-if "${sentence}"`);
+  if (!(await ui.confirm(`The closest match for "${sentence}" is ${target}. Model the change there?`))) throw new DrillTargetError(`Nothing generated. Name the file: kin predict <file> --what-if "${sentence}"`);
+  return target;
 }
 
 /** For `kin predict`: the directory to choose a file from (repository-relative), or undefined when the target is a file. */

@@ -14,7 +14,7 @@ import { openAttempt } from '../workouts/attempts.ts';
 import { nextQuickWorkout } from '../workouts/queue.ts';
 import type { PredictionOption } from '../synthesis/schema.ts';
 import type { Confidence } from '../workouts/attempts.ts';
-import { incidentOf, PRACTICE_INCIDENT, type WorkoutRecord } from '../workouts/save.ts';
+import { incidentOf, PRACTICE_INCIDENT, WHAT_IF_LIMITS, whatIfLines, type WorkoutRecord } from '../workouts/save.ts';
 import { listWorkouts, loadWorkout, nextInSeries, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 
@@ -334,6 +334,7 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
     [
       `${record.title} (${record.id}), attempt ${number}${resumed ? ', resumed' : ''}`,
       '',
+      ...(record.whatIf ? [...whatIfLines(record.whatIf), ''] : []),
       scenario.trim(),
       '',
       ...shown.map(({ option }, i) => `  [${i + 1}] ${option.text.trim()}`),
@@ -347,6 +348,7 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
   const { picked, confidence } = answer;
 
   const { outcome, chosen, truth } = await session.answer(picked);
+  if (record.whatIf) return revealWhatIf(session, io, { outcome, chosen, truth, confidence });
   // In a Prediction from a commit, why the old behaviour is wrong is known for a fact: Kintsugi says it.
   const old = record.prediction!.options.find((o) => o.previous);
   const commit = record.commit ? `commit ${record.commit.sha.slice(0, 12)}` : 'the commit';
@@ -363,6 +365,24 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
       io.print(`${heading}\n${await session.variantDiff(chosen)}`);
     }
   }
+  return closeAttempt(session, io, outcome, confidence);
+}
+
+/** A What-if's reveal: both sides, whatever the answer, what was measured, and the change as modelled. */
+async function revealWhatIf(
+  session: TrainingSession,
+  io: TrainIo,
+  { outcome, chosen, truth, confidence }: { outcome: Outcome['outcome']; chosen: PredictionOption; truth: PredictionOption; confidence?: Confidence },
+): Promise<TrainResult> {
+  const { record } = session.workout;
+  const today = record.prediction!.options.find((o) => o.previous)!;
+  const verdict = outcome === 'completed' ? ['Right.'] : ['Not quite.', chosen.previous ? 'That is what happens today, and this change alters it.' : chosen.misunderstanding.trim()];
+  const anchors = record.sourceAnchors.map((a) => `  ${a.path}:${a.startLine}-${a.endLine}: ${a.explanation}`);
+  io.print(
+    [...verdict, '', `Today: ${today.text.trim()}`, `With this change: ${truth.text.trim()}`, '', record.prediction!.explanation.trim(), '', 'Where this lives:', ...anchors, '', WHAT_IF_LIMITS].join('\n'),
+  );
+  io.print('[d] the code change, as modelled   [any other key] continue');
+  if ((await io.readKey(new AbortController().signal)) === 'd') io.print(`The change, as modelled (- today, + with it):\n${await session.variantDiff(today)}`);
   return closeAttempt(session, io, outcome, confidence);
 }
 

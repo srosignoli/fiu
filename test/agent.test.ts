@@ -16,7 +16,7 @@ import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
 import { goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
-import { goodDiagnosis, goodSeries, tieQuestion, urgentQuestion } from './mock-model.ts';
+import { goodDiagnosis, goodSeries, goodWhatIf, tieQuestion, TS_BEFORE_COMMIT, urgentQuestion } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -282,6 +282,24 @@ describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     assert.equal(saved.status, 'saved', JSON.stringify(saved));
     assert.match(saved.workoutId, /^diagnosis_\d{8}_late-job-first$/);
     assert.equal((await readJson(join(saved.workoutDir, 'workout.json'))).diagnosis.causes.length, 4);
+  });
+
+  it('makes a What-if about the user\'s sentence, anchored to the source', async () => {
+    const repo = await repoWithSources('queue.ts');
+    await writeFile(join(repo, 'src', 'queue.ts'), TS_BEFORE_COMMIT);
+    const { call } = await connect(repo);
+    assert.match((await call('prepare_drill', { target: 'src/queue.ts', kind: 'drill', whatIf: 'x' })).text, /A What-if is one Prediction on request/);
+    const { json: prepared } = await call('prepare_drill', { target: 'src/queue.ts', kind: 'prediction', whatIf: 'let the first job win a tie' });
+    assert.match(prepared.instructions, /This is a What-if/);
+    assert.match(prepared.source, /The Proposed Change, in the human's words: "let the first job win a tie"/);
+    assert.ok(prepared.workoutSchema.properties.modelledAs);
+    const invented = goodWhatIf({ previous: TS_BEFORE_COMMIT.replace('job.at > best.at', 'best.at < job.at') });
+    const { json: rejected } = await call('submit_drill', { generationId: prepared.generationId, workout: invented });
+    assert.match(rejected.feedback, /is not in the source file/);
+    const { json: saved } = await call('submit_drill', { generationId: prepared.generationId, workout: goodWhatIf() });
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    const record = await readJson(join(saved.workoutDir, 'workout.json'));
+    assert.deepEqual(record.whatIf, { sentence: 'let the first job win a tie', modelled: goodWhatIf().modelledAs });
   });
 
   it('asks several questions of Predictions only', async () => {

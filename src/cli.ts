@@ -56,7 +56,7 @@ function questionCount(value: string): number {
 
 function generationCommand(kind: WorkoutKind) {
   const noun = NOUN[kind];
-  return async (target: string | undefined, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean; questions?: number }) => {
+  return async (target: string | undefined, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean; questions?: number; whatIf?: string | true }) => {
     const ui = terminalUi();
     try {
       const result = await drill(process.cwd(), target, { ...options, kind }, ui);
@@ -127,11 +127,14 @@ program
   .description('Generate a Prediction: a plain-English Scenario about what your code does, with four outcomes to choose from. No code to read.')
   .argument('[target]', 'a source file (optionally #symbol), or a directory to pick a file from (default: the whole repository)')
   .option('--commit <sha>', 'ask what a commit changed: the code before it becomes one of the wrong answers')
+  .option('--what-if [change]', 'what would happen with a change nobody has made: your sentence, or leave it out for the model to propose one')
   .option('--questions <n>', 'how many questions to ask about the unit, 1 to 5 (default: predictionQuestions in your config, else 3)', questionCount)
   .option('--no-train', 'only save the Prediction, without opening the runner')
   .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
-  .action(async (target: string | undefined, options: { commit?: string; questions?: number; train: boolean; yes: boolean; sandbox: boolean }) => {
+  .action(async (target: string | undefined, options: { commit?: string; questions?: number; whatIf?: string | true; train: boolean; yes: boolean; sandbox: boolean }) => {
+    if (options.whatIf && options.commit) throw new Error('A What-if is about a change nobody has made: leave out --commit.');
+    if (options.whatIf && options.questions !== undefined && options.questions > 1) throw new Error('A What-if asks one question: leave out --questions.');
     if (!options.commit) return generationCommand('prediction')(target, options);
     if (target) throw new Error('Give either a target or --commit, not both: a commit chooses its own file.');
     if (options.questions !== undefined && options.questions > 1) throw new Error('A Prediction from a commit asks one question: leave out --questions.');

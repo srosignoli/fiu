@@ -59,6 +59,8 @@ interface Generation {
   submissions: number;
   /** Set when this Drill is a step of a Track being built. */
   track?: { id: string; why: string };
+  /** For a What-if: the change to model; no sentence means the model proposes one. */
+  whatIf?: { sentence?: string };
   /** For a Prediction Series: how many questions, and those Verified so far (saved together when it ends). */
   series?: { count: number; kept: PredictionOutput[] };
 }
@@ -105,6 +107,8 @@ export interface PrepareRequest {
   why?: string;
   /** Predictions only: more than 1 asks for a Series of this many questions. */
   questions?: number;
+  /** Predictions only: a What-if about this change; empty to have the model propose one. */
+  whatIf?: string;
 }
 
 export interface Prepared {
@@ -238,7 +242,9 @@ export class AgentDrills {
     return { status: 'saved', trackId: id, title: title.trim(), steps: pending.steps, dropped: pending.dropped, next: `The user starts it with: kin track ${id}` };
   }
 
-  async prepare({ target, kind = 'drill', quick = false, origin = 'manual', trackId: forTrack, why, questions = 1 }: PrepareRequest): Promise<Prepared> {
+  async prepare({ target, kind = 'drill', quick = false, origin = 'manual', trackId: forTrack, why, questions = 1, whatIf }: PrepareRequest): Promise<Prepared> {
+    if (whatIf !== undefined && (kind !== 'prediction' || questions > 1 || forTrack || origin === 'agent-task')) throw new AgentRequestError('A What-if is one Prediction on request: not another kind, a Series, a Track step, or an end-of-task Prediction.');
+    const proposed = whatIf === undefined ? undefined : whatIf.trim() ? { sentence: whatIf.trim() } : {};
     if (!Number.isInteger(questions) || questions < 1 || questions > MAX_SERIES_QUESTIONS) throw new AgentRequestError(`questions must be a whole number from 1 to ${MAX_SERIES_QUESTIONS}.`);
     if (questions > 1 && kind !== 'prediction') throw new AgentRequestError('Only a Prediction can ask several questions: leave out `questions`.');
     if (questions > 1 && (forTrack || origin === 'agent-task')) throw new AgentRequestError('Track steps and end-of-task Predictions ask one question: leave out `questions`.');
@@ -287,6 +293,7 @@ export class AgentDrills {
       submissions: 0,
       ...(pendingTrack ? { track: { id: pendingTrack.id, why: why!.trim() } } : {}),
       ...(questions > 1 ? { series: { count: questions, kept: [] } } : {}),
+      ...(proposed ? { whatIf: proposed } : {}),
     });
     return {
       generationId,
@@ -296,14 +303,15 @@ export class AgentDrills {
       kind,
       quick,
       maxSubmissions: MAX_ATTEMPTS,
-      instructions: systemPromptFor(kind, profile, { quick }) + (questions > 1 ? seriesRules(questions) : ''),
+      instructions: systemPromptFor(kind, profile, { quick, whatIf: proposed !== undefined }) + (questions > 1 ? seriesRules(questions) : ''),
       source: drillUserPrompt({
         path: sourcePath,
         source,
         symbol,
+        ...(proposed ? { whatIf: proposed } : {}),
         ...(pendingTrack ? { track: { module: pendingTrack.module, step: pendingTrack.steps.length + 1, why: why!.trim() } } : {}),
       }, kind),
-      workoutSchema: z.toJSONSchema(questions > 1 ? PredictionSeriesOutputSchema : outputSchemaFor(kind)),
+      workoutSchema: z.toJSONSchema(questions > 1 ? PredictionSeriesOutputSchema : outputSchemaFor(kind, { whatIf: proposed !== undefined })),
     };
   }
 
@@ -353,7 +361,7 @@ export class AgentDrills {
     }
     if ('questions' in workout) return reject(`[schema] This generation is a single ${NOUN[generation.kind]}, not a Series: submit it as workoutSchema describes.`);
 
-    const problems = checkWorkoutOutput(generation.kind, workout, generation.sourceLines, { quick: generation.quick, lineComment: generation.profile.lineComment });
+    const problems = checkWorkoutOutput(generation.kind, workout, generation.sourceLines, { quick: generation.quick, lineComment: generation.profile.lineComment, whatIf: generation.whatIf !== undefined });
     if (problems.length > 0) return reject(problems.map((p) => `[schema] ${p}`).join('\n'));
 
     const verification = await verify(
@@ -368,6 +376,8 @@ export class AgentDrills {
         causes: workout.causes,
         source: generation.source,
         lineComment: generation.profile.lineComment,
+        // A What-if's today is the source itself, and its lines must be gone from the changed code.
+        ...(generation.whatIf ? { whatIf: true, previous: workout.previous, sourceBefore: generation.source, sourceAfter: workout.referenceSolution } : {}),
       },
       generation.profile,
       sandbox,
@@ -390,6 +400,7 @@ export class AgentDrills {
       generationAttempts: generation.submissions,
       generator: 'agent',
       origin: generation.origin,
+      ...(generation.whatIf ? { whatIf: { ...generation.whatIf, modelled: workout.modelledAs ?? '' } } : {}),
       ...(generation.track ? { track: { id: generation.track.id, module: this.#tracks.get(generation.track.id)?.module ?? '', why: generation.track.why } } : {}),
       now: this.#now(),
     });

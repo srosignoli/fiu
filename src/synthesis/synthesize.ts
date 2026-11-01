@@ -82,6 +82,7 @@ export async function synthesizeDrill({
   // A Prediction from a commit also sees the file before it, and offers its behaviour as a wrong option.
   const before = kind === 'prediction' ? target.change?.before : undefined;
   const fromCommit = before !== undefined;
+  const whatIf = kind === 'prediction' && target.whatIf !== undefined;
   const beforeLines = before?.replace(/\n$/, '').split('\n').length ?? 0;
   if (beforeLines > MAX_SOURCE_LINES) throw new SourceTooLargeError(`${target.path} (before the commit)`, beforeLines);
 
@@ -92,7 +93,7 @@ export async function synthesizeDrill({
   const attempts = Math.min(maxAttempts, MAX_ATTEMPTS);
   for (let attempt = 1; attempt <= attempts; attempt++) {
     onEvent({ type: 'generating', attempt });
-    const generated = await generate(model, modelId, systemPromptFor(kind, profile, { quick, fromCommit }), outputSchemaFor(kind, { fromCommit }), messages, providerOptions);
+    const generated = await generate(model, modelId, systemPromptFor(kind, profile, { quick, fromCommit, whatIf }), outputSchemaFor(kind, { fromCommit, whatIf }), messages, providerOptions);
     onEvent({ type: 'usage', attempt, usage: generated.usage });
     messages.push(...generated.responseMessages);
 
@@ -103,7 +104,7 @@ export async function synthesizeDrill({
     if (!generated.output) {
       feedback = `[schema] The response was not a valid ${NOUN[kind]} object: ${generated.error}`;
     } else {
-      const problems = checkWorkoutOutput(kind, generated.output, sourceLines, { quick, lineComment: profile.lineComment, fromCommit });
+      const problems = checkWorkoutOutput(kind, generated.output, sourceLines, { quick, lineComment: profile.lineComment, fromCommit, whatIf });
       if (problems.length > 0) {
         feedback = problems.map((problem) => `[schema] ${problem}`).join('\n');
       } else {
@@ -121,7 +122,9 @@ export async function synthesizeDrill({
             source: target.source,
             lineComment: profile.lineComment,
             previous: generated.output.previous,
-            sourceBefore: before,
+            // A What-if's today is the source itself, and its lines must be gone from the changed code.
+            sourceBefore: whatIf ? target.source : before,
+            ...(whatIf ? { whatIf, sourceAfter: generated.output.referenceSolution } : {}),
           },
           profile,
           sandbox,

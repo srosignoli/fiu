@@ -1,5 +1,5 @@
 import { MockLanguageModelV4 } from 'ai/test';
-import type { AnyWorkoutOutput, CommitPredictionOutput, DiagnosisOutput, DrillOutput, KataOutput, PredictionOutput, PredictionSeriesOutput, SeriesQuestion } from '../src/synthesis/schema.ts';
+import type { AnyWorkoutOutput, CommitPredictionOutput, DiagnosisOutput, DrillOutput, KataOutput, PredictionOutput, PredictionSeriesOutput, SeriesQuestion, WhatIfOutput } from '../src/synthesis/schema.ts';
 
 export interface ScriptedModel {
   model: MockLanguageModelV4;
@@ -270,4 +270,9 @@ export function goodDiagnosis(overrides: Partial<DiagnosisOutput> = {}): Diagnos
     originalDefect: NO_DEFECT,
     ...overrides,
   };
+}
+
+/** A What-if on code whose ties go to the newest job (TS_BEFORE_COMMIT): what if the first job won them instead? */
+export function goodWhatIf(overrides: Partial<WhatIfOutput> = {}): WhatIfOutput {
+  return { ...goodCommitPrediction(), slug: 'ties-to-first', modelledAs: 'When two jobs tie on priority, the one that arrived first runs.', ...overrides };
 }

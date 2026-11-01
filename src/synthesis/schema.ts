@@ -150,6 +150,24 @@ export const CommitPredictionOutputSchema = PredictionOutputSchema.extend({
 });
 export type CommitPredictionOutput = z.infer<typeof CommitPredictionOutputSchema>;
 
+/** Changed lines allowed between a What-if's today and its Proposed Change: beyond this, one self-contained file can't model it faithfully. */
+export const WHAT_IF_MAX_CHANGED_LINES = 10;
+
+/** A What-if: the Reference Solution is the unit with the Proposed Change; `previous` is the unit as it is today. */
+export const WhatIfOutputSchema = CommitPredictionOutputSchema.extend({
+  modelledAs: z.string().describe('One plain-English sentence with concrete values saying how you understood the change, shown before answering. No names from the code.'),
+  options: z
+    .array(
+      PredictionOptionSchema.extend({
+        previous: z.boolean().describe('True for exactly one wrong option: what the code does today (its outcome comes from `previous`, so its variant is empty strings).'),
+      }),
+    )
+    .describe('Exactly 4 options: the true one (with the change), what happens today (previous: true), and two wrong ones from Variants.'),
+  referenceSolution: z.string().describe('The complete code file with the Proposed Change made: its behaviour is the true outcome.'),
+  previous: z.string().describe('The same unit as it is today, identical to referenceSolution except for the change, with those lines copied from the source file as they are.'),
+});
+export type WhatIfOutput = z.infer<typeof WhatIfOutputSchema>;
+
 /** One of a Diagnosis's four Causes. Every Cause has a Variant, the true one included: the Reference Solution is the healthy code. */
 export const DiagnosisCauseSchema = z.object({
   text: z.string().describe('The possible cause, in plain English for someone who never reads code: no names from the code.'),
@@ -244,15 +262,16 @@ export const AnyWorkoutOutputSchema = z.object({
   gapSummary: z.string().optional().describe('Katas only: internal note on what was removed and what a correct fill must do.'),
   scenario: z.string().optional().describe('Predictions only: the plain-English situation.'),
   options: z.array(PredictionOptionSchema.extend({ previous: z.boolean().optional() })).optional().describe('Predictions only: exactly 4 options.'),
-  previous: z.string().optional().describe('Predictions from a commit only: the unit before the commit.'),
+  previous: z.string().optional().describe('Predictions from a commit: the unit before the commit. What-ifs: the unit as it is today.'),
+  modelledAs: z.string().optional().describe('What-ifs only: how you understood the change, in plain English.'),
   explanation: z.string().optional().describe('Predictions and Diagnoses: why the truth is true, shown after answering.'),
   causes: z.array(DiagnosisCauseSchema).optional().describe('Diagnoses only: exactly 4 Causes, one true.'),
   originalDefect: OriginalDefectSchema.optional(),
 });
 export type AnyWorkoutOutput = z.infer<typeof AnyWorkoutOutputSchema>;
 
-export const outputSchemaFor = (kind: WorkoutKind, { fromCommit = false } = {}) =>
-  kind === 'drill' ? DrillOutputSchema : kind === 'kata' ? KataOutputSchema : kind === 'diagnosis' ? DiagnosisOutputSchema : fromCommit ? CommitPredictionOutputSchema : PredictionOutputSchema;
+export const outputSchemaFor = (kind: WorkoutKind, { fromCommit = false, whatIf = false } = {}) =>
+  whatIf ? WhatIfOutputSchema : kind === 'drill' ? DrillOutputSchema : kind === 'kata' ? KataOutputSchema : kind === 'diagnosis' ? DiagnosisOutputSchema : fromCommit ? CommitPredictionOutputSchema : PredictionOutputSchema;
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -270,7 +289,7 @@ export function checkWorkoutOutput(
   kind: WorkoutKind,
   output: AnyWorkoutOutput,
   sourceLineCount: number,
-  { quick = false, lineComment, fromCommit = false }: { quick?: boolean; lineComment?: string; fromCommit?: boolean } = {},
+  { quick = false, lineComment, fromCommit = false, whatIf = false }: { quick?: boolean; lineComment?: string; fromCommit?: boolean; whatIf?: boolean } = {},
 ): string[] {
   const noun = NOUN[kind];
   const problems: string[] = [];
@@ -295,7 +314,7 @@ export function checkWorkoutOutput(
   }
   empty('referenceSolution', output.referenceSolution);
   empty('testSuiteCode', output.testSuiteCode);
-  if (kind === 'prediction') return [...problems, ...predictionProblems(output, fromCommit)];
+  if (kind === 'prediction') return [...problems, ...predictionProblems(output, fromCommit, whatIf)];
   if (kind === 'diagnosis') return [...problems, ...diagnosisProblems(output)];
 
   if (quick) {
@@ -332,10 +351,15 @@ export function codeVocabulary(code: string): Set<string> {
   return new Set(words.filter((w) => w.length >= CODE_WORD_MIN_CHARS && (/[a-z][A-Z]/.test(w) || /[A-Za-z0-9]_[A-Za-z0-9]/.test(w))));
 }
 
-function predictionProblems(output: AnyWorkoutOutput, fromCommit: boolean): string[] {
+function predictionProblems(output: AnyWorkoutOutput, fromCommit: boolean, whatIf: boolean): string[] {
   const problems: string[] = [];
   const previous = (output.options ?? []).filter((o) => o.previous);
-  if (fromCommit) {
+  if (whatIf) {
+    if (!output.modelledAs?.trim()) problems.push('modelledAs is empty: say how you understood the change.');
+    if (!output.previous?.trim()) problems.push('previous is empty: give the unit as it is today.');
+    if (previous.length !== 1) problems.push(`exactly one option must be what happens today (previous: true), not ${previous.length}.`);
+    if (previous.some((o) => o.correct)) problems.push('what happens today is wrong by definition: the true option is what the changed code does.');
+  } else if (fromCommit) {
     if (!output.previous?.trim()) problems.push('previous is empty: give the unit as it was before the commit.');
     if (previous.length !== 1) problems.push(`exactly one option must be the old behaviour (previous: true), not ${previous.length}.`);
     if (previous.some((o) => o.correct)) problems.push('the old-behaviour option is wrong by definition: it cannot also be correct.');
@@ -357,7 +381,7 @@ function predictionProblems(output: AnyWorkoutOutput, fromCommit: boolean): stri
     else if (testNames.has(option.testName)) problems.push(`${which}'s testName "${option.testName}" is used by another option: each option has its own test.`);
     testNames.add(option.testName);
     if (option.correct || option.previous) {
-      const role = option.correct ? 'the correct one' : 'the old behaviour';
+      const role = option.correct ? 'the correct one' : whatIf ? 'what happens today' : 'the old behaviour';
       if (option.variant.original || option.variant.changed) problems.push(`${which} is ${role}, so it has no Variant: leave its variant empty.`);
       return;
     }
@@ -371,7 +395,7 @@ function predictionProblems(output: AnyWorkoutOutput, fromCommit: boolean): stri
 
   // The Scenario and options are for people who never read code.
   const vocabulary = codeVocabulary(`${output.referenceSolution}\n${output.previous ?? ''}`);
-  const shown: [string, string][] = [['the scenario', output.scenario ?? ''], ...options.map((o, i): [string, string] => [`option ${i + 1}'s text`, o.text])];
+  const shown: [string, string][] = [['the scenario', output.scenario ?? ''], ['modelledAs', output.modelledAs ?? ''], ...options.map((o, i): [string, string] => [`option ${i + 1}'s text`, o.text])];
   for (const [where, text] of shown) {
     const words = (text.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) ?? []).filter((w) => vocabulary.has(w));
     if (words.length > 0) problems.push(`${where} uses names from the code (${[...new Set(words)].join(', ')}): describe the behaviour in plain English.`);

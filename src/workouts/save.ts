@@ -48,6 +48,12 @@ export interface TrackPlacement {
   why: string;
 }
 
+/** What a What-if models (§11.14). */
+export interface WhatIfPlacement {
+  sentence?: string;
+  modelled: string;
+}
+
 /** A question's place in its Series (§11.11). */
 export interface SeriesPlacement {
   id: string;
@@ -90,6 +96,8 @@ export interface WorkoutRecord {
   gapSummary?: string;
   /** Prediction only: what the human reads, and the answer (the options in the order they were written; Attempts shuffle them). */
   prediction?: { scenario: string; explanation: string; options: PredictionOption[] };
+  /** What-if only: the human's sentence, when they typed one, and how the model read it. */
+  whatIf?: WhatIfPlacement;
   /** Diagnosis only: the Causes (the order they were written; Attempts shuffle them) and why the true one explains the incident, its Symptom. */
   diagnosis?: { explanation: string; causes: DiagnosisCause[] };
   /** A bug the source file appears to contain already. Shown only after an Attempt. */
@@ -127,6 +135,7 @@ export interface SaveDrillOptions {
   commit?: { sha: string; aiAuthored: boolean; subject?: string };
   track?: TrackPlacement;
   series?: SeriesPlacement;
+  whatIf?: WhatIfPlacement;
   now?: Date;
 }
 
@@ -147,6 +156,7 @@ export async function saveDrill({
   commit,
   track,
   series,
+  whatIf,
   now = new Date(),
 }: SaveDrillOptions): Promise<WorkoutRecord> {
   const id = uniqueId(paths, `${kind}_${now.toISOString().slice(0, 10).replaceAll('-', '')}_${drill.slug}`);
@@ -164,6 +174,7 @@ export async function saveDrill({
     ...(commit ? { commit } : {}),
     ...(track ? { track } : {}),
     ...(series ? { series } : {}),
+    ...(whatIf ? { whatIf } : {}),
     title: drill.title,
     slug: drill.slug,
     pillar: drill.pillar,
@@ -251,6 +262,7 @@ function predictionReadme(record: WorkoutRecord): string {
     '',
     ...(record.series ? [`*Question ${record.series.index} of ${record.series.of} about \`${record.source.path}\`.*`, ''] : []),
     ...trackPlacement(record),
+    ...(record.whatIf ? [...whatIfLines(record.whatIf), ''] : []),
     '## Scenario',
     '',
     scenario.trim(),
@@ -266,6 +278,14 @@ function predictionReadme(record: WorkoutRecord): string {
     `\`${record.source.path}\`. ${provenance(record).join('\n')}`,
     '',
   ].join('\n');
+}
+
+/** Kintsugi's own line on every What-if's reveal: what was measured, and what wasn't. */
+export const WHAT_IF_LIMITS = 'Measured on a self-contained copy of this unit, not your whole system. Nothing in your repository changed.';
+
+/** The change as the human put it, and as the model read it: that the code matches the sentence is the model's word. */
+export function whatIfLines({ sentence, modelled }: WhatIfPlacement): string[] {
+  return sentence ? [`Imagine this change: ${sentence}`, `Modelled as: ${modelled.trim()}`] : [`Imagine this change: ${modelled.trim()}`];
 }
 
 /** Readers can't see the code, so Kintsugi itself says the incident isn't real. */

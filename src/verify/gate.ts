@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { LanguageProfile, TestResult, TestRun } from '../languages/profile.ts';
 import { runTests } from '../languages/run.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
-import type { DiagnosisCause, PredictionOption, WorkoutKind } from '../synthesis/schema.ts';
+import { WHAT_IF_MAX_CHANGED_LINES, type DiagnosisCause, type PredictionOption, type WorkoutKind } from '../synthesis/schema.ts';
 import { matchSource, unanchoredRegions } from './defect.ts';
 import { diffLines, type Hunk } from './diff.ts';
 
@@ -30,6 +30,10 @@ export interface Candidate {
   previous?: string;
   /** Prediction from a commit only: the source file before the commit, where the Previous Version is anchored. */
   sourceBefore?: string;
+  /** What the Previous Version's lines must not be found in, when that isn't `source`: for a What-if, the changed code. */
+  sourceAfter?: string;
+  /** A What-if: `previous` is the code today, and the change is limited in size. */
+  whatIf?: boolean;
 }
 
 export type Check = 'reference-passes' | 'starting-code-fails' | 'regression-test' | 'minimal-diff' | 'option-tests' | 'outcomes' | 'real-variant' | 'previous';
@@ -209,7 +213,7 @@ async function verifyPrediction(candidate: Candidate, profile: LanguageProfile, 
     ...checkOptionTests(options, referenceRun),
     ...checkOutcomes(options, options.findIndex((o) => o.correct), 'the Reference Solution', referenceRun),
     ...wrong.flatMap(({ option, index }, i) =>
-      checkOutcomes(options, index, option.previous ? `option ${index + 1}'s previous (the code before the commit)` : `option ${index + 1}'s Variant`, variantRuns[i]!),
+      checkOutcomes(options, index, option.previous ? `option ${index + 1}'s previous (${candidate.whatIf ? "today's code" : 'the code before the commit'})` : `option ${index + 1}'s Variant`, variantRuns[i]!),
     ),
     ...wrong.flatMap(({ option, index, code }, i) =>
       option.previous ? checkPrevious(candidate, index, code, wrong.slice(0, i)) : checkVariantDiff(candidate, index, code, wrong.slice(0, i)),
@@ -298,21 +302,28 @@ export function checkOutcomes(options: Pick<PredictionOption, 'testName'>[], exp
 
 /** The Previous Version: any size, but different from the others, and anchored to the file before and after the commit. */
 function checkPrevious(candidate: Candidate, index: number, code: string, earlier: { index: number; code: string }[]): CheckFailure[] {
-  const which = `Option ${index + 1}'s previous (the code before the commit)`;
-  if (diffLines(candidate.referenceSolution, code).length === 0) return [{ check: 'previous', message: `${which} is identical to the Reference Solution: the commit must change the outcome.` }];
+  const which = `Option ${index + 1}'s previous (${candidate.whatIf ? "today's code" : 'the code before the commit'})`;
+  const hunks = diffLines(candidate.referenceSolution, code);
+  if (hunks.length === 0) return [{ check: 'previous', message: `${which} is identical to the Reference Solution: the ${candidate.whatIf ? 'change' : 'commit'} must change the outcome.` }];
   const failures: CheckFailure[] = [];
+  const changed = hunks.reduce((sum, hunk) => sum + Math.max(hunk.removed.length, hunk.added.length), 0);
+  if (candidate.whatIf && changed > WHAT_IF_MAX_CHANGED_LINES) {
+    failures.push({ check: 'previous', message: `The change touches ${changed} lines; a What-if models at most ${WHAT_IF_MAX_CHANGED_LINES}. Make it smaller, or set worthPracticing to false and say why.` });
+  }
   const twin = earlier.find((e) => diffLines(e.code, code).length === 0);
   if (twin) failures.push({ check: 'previous', message: `${which} is identical to option ${twin.index + 1}'s Variant.` });
   // A fetched Prediction has no sharer's source to compare with: that check ran when it was made.
   if (candidate.source !== undefined && candidate.sourceBefore !== undefined) {
-    const loose = unanchoredRegions(candidate.referenceSolution, code, candidate.sourceBefore, candidate.source, candidate.lineComment);
+    const loose = unanchoredRegions(candidate.referenceSolution, code, candidate.sourceBefore, candidate.sourceAfter ?? candidate.source, candidate.lineComment);
     if (loose.length > 0) {
-      const regions = loose.map(({ line, missing }) => `line ${line} ("${missing}" is not in the file before the commit)`).join('; ');
+      const regions = loose.map(({ line, missing }) => `line ${line} ("${missing}" is not in the ${candidate.whatIf ? 'source file' : 'file before the commit'})`).join('; ');
       failures.push({
         check: 'previous',
         message:
-          `${which} differs from the Reference Solution in ways the old file doesn't have: ${regions}. ` +
-          'It must be the same unit as the referenceSolution, differing only where the commit changed it, with those changed lines copied from the file before the commit as they were, even where the rest of the unit uses fakes.',
+          `${which} differs from the Reference Solution in ways the ${candidate.whatIf ? 'source' : 'old'} file doesn't have: ${regions}. ` +
+          (candidate.whatIf
+            ? 'It must be the same unit as the referenceSolution, differing only by the change, with those lines copied from the source file as they are, even where the rest of the unit uses fakes.'
+            : 'It must be the same unit as the referenceSolution, differing only where the commit changed it, with those changed lines copied from the file before the commit as they were, even where the rest of the unit uses fakes.'),
       });
     }
   }

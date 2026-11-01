@@ -54,12 +54,13 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
         afterTask: z.boolean().optional().describe('True only when generating at the end of your own coding task.'),
         trackId: z.string().optional().describe('Makes this Drill the next step of a Track started with prepare_track.'),
         why: z.string().optional().describe('For a Track step: one line on why this file matters for the module.'),
+        whatIf: z.string().optional().describe('Predictions only: a What-if, asking what the code would do with a change nobody has made. The change in the user\'s words, or an empty string to propose one yourself.'),
         questions: z.number().optional().describe('Predictions only: ask a Series of this many questions (2 to 5) about the unit, from one shared extraction. The user asks for 3 unless they say otherwise.'),
       },
     },
-    ({ target, kind, quick, afterTask, trackId, why, questions }) =>
+    ({ target, kind, quick, afterTask, trackId, why, questions, whatIf }) =>
       respond(async () => {
-        const prepared = await drills.prepare({ target, kind, quick, origin: afterTask ? 'agent-task' : 'manual', trackId, why, questions });
+        const prepared = await drills.prepare({ target, kind, quick, origin: afterTask ? 'agent-task' : 'manual', trackId, why, questions, whatIf });
         const notice = await staleInstallNotice(home, prepared.repository, version);
         return { ...prepared, ...(notice ? { notice } : {}) };
       }),

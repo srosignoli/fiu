@@ -1,5 +1,5 @@
 import type { LanguageProfile } from '../languages/profile.ts';
-import { answersOnly, NOUN, PREDICTION_OPTIONS, QUICK, type WorkoutKind } from './schema.ts';
+import { answersOnly, NOUN, PREDICTION_OPTIONS, QUICK, WHAT_IF_MAX_CHANGED_LINES, type WorkoutKind } from './schema.ts';
 
 export interface DrillTarget {
   /** Path relative to the repository root, as shown to the model. */
@@ -15,6 +15,8 @@ export interface DrillTarget {
     /** For a Prediction from a commit: the file before it, where the Previous Version is extracted from. */
     before?: string;
   };
+  /** A What-if: the change to model, or no sentence to have the model propose one. */
+  whatIf?: { sentence?: string };
   /** This Drill is one step of a Track teaching a module. */
   track?: { module: string; step: number; of?: number; why: string };
 }
@@ -89,8 +91,19 @@ ${profile.promptRules
 }
 
 /** The rules for a Prediction: what the system does in a concrete situation, for people who never read code. */
-export function predictionSystemPrompt(profile: LanguageProfile, { fromCommit = false } = {}): string {
-  const commitRules = fromCommit
+export function predictionSystemPrompt(profile: LanguageProfile, { fromCommit = false, whatIf = false } = {}): string {
+  const commitRules = whatIf
+    ? `
+
+This is a What-if: it asks what the code would do with a Proposed Change that has not been made. Here the rule about faithfulness applies to previous, not referenceSolution.
+- referenceSolution: the unit with the change made. Its behaviour is the correct option.
+- previous: the same unit as it is today, made self-contained the same way and identical to referenceSolution except for the change. Copy the changed lines from the source file as they are. The two may differ by at most ${WHAT_IF_MAX_CHANGED_LINES} lines in all.
+- modelledAs: one plain-English sentence with concrete values saying how you understood the change. The human reads it before answering, and it is how they find out if you misread them.
+- Choose a Scenario whose outcome is different today and with the change, and ask what happens with the change.
+- One wrong option is what happens today: what previous does. Mark it previous: true and leave its variant and misunderstanding empty (Kintsugi explains it). Every other option has previous: false; the other two wrong options are ordinary Variants of referenceSolution.
+- explanation says why the change has this effect.
+- If the change is about behaviour that isn't in this file, is too vague to pin down, or needs more than ${WHAT_IF_MAX_CHANGED_LINES} changed lines, set worthPracticing to false and say why in notWorthReason, naming what is missing or where the behaviour seems to live.`
+    : fromCommit
     ? `
 
 This is a Prediction from a commit: it asks what the code does now, in a situation the commit changed.
@@ -171,7 +184,7 @@ ${feedback}
 Write ${needed} replacement question(s), as a Series whose \`questions\` holds only the replacements. Each is Verified against the referenceSolution you return with it, and must ask about something no saved question asks about.`;
 }
 
-export const systemPromptFor = (kind: WorkoutKind, profile: LanguageProfile, options: { quick?: boolean; fromCommit?: boolean } = {}) =>
+export const systemPromptFor = (kind: WorkoutKind, profile: LanguageProfile, options: { quick?: boolean; fromCommit?: boolean; whatIf?: boolean } = {}) =>
   kind === 'drill' ? drillSystemPrompt(profile, options) : kind === 'kata' ? kataSystemPrompt(profile, options) : kind === 'diagnosis' ? diagnosisSystemPrompt(profile) : predictionSystemPrompt(profile, options);
 
 export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'): string {
@@ -181,7 +194,14 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
     .split('\n')
     .map((line, i) => `${String(i + 1).padStart(5)} | ${line}`)
     .join('\n');
-  const focus = target.symbol
+  const proposed = target.whatIf
+    ? target.whatIf.sentence
+      ? ` The Proposed Change, in the human's words: "${target.whatIf.sentence}".`
+      : ' Propose one small change to its behaviour that someone responsible for this system might plausibly ask for, and model it.'
+    : '';
+  const focus = target.whatIf && !target.symbol
+    ? `Build the ${noun} around the unit this change concerns.${proposed}`
+    : target.symbol
     ? `Build the ${noun} around \`${target.symbol}\`.`
     : target.change?.before !== undefined
       ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"). Build the ${noun} around behaviour the commit changed. The source below is the file as of that commit; the file before it follows the diff.`
@@ -195,7 +215,7 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
   const track = target.track
     ? `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the ${noun} around the logic that makes it matter.`
     : '';
-  return `Source file: ${target.path}\n${focus}${track}\n\n<source>\n${numbered}\n</source>${change}`;
+  return `Source file: ${target.path}\n${focus}${target.symbol ? proposed : ''}${track}\n\n<source>\n${numbered}\n</source>${change}`;
 }
 
 export function retryPrompt(feedback: string, kind: WorkoutKind = 'drill'): string {

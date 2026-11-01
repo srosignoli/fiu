@@ -335,6 +335,7 @@ export async function fetchWorkouts(cwd: string, options: FetchOptions, step: (m
           options: record.prediction?.options,
           causes: record.diagnosis?.causes,
           ...(record.files.previous ? { previous: text(record.files.previous) } : {}),
+          ...(record.whatIf ? { whatIf: true } : {}),
         },
         profile,
         await sandboxFor(profile),

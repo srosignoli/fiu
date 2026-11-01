@@ -1,4 +1,5 @@
 import { dirname } from 'node:path';
+import { answersOnly, type WorkoutKind } from '../synthesis/schema.ts';
 import { listAttemptRecords, type Confidence } from '../workouts/attempts.ts';
 import { listWorkouts } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths, type WorkspacePaths } from '../workspace.ts';
@@ -11,9 +12,10 @@ export const MIN_ANSWERS = 3;
 /** "Recently", for the trend. */
 export const RECENT_DAYS = 30;
 
-/** The first finished Attempt at a Prediction: a retry already knows the answer. */
+/** The first finished Attempt at a Prediction or Diagnosis: a retry already knows the answer. */
 export interface FirstAnswer {
   workoutId: string;
+  kind: WorkoutKind;
   path: string;
   at: string;
   right: boolean;
@@ -25,9 +27,11 @@ export interface Tally {
   right: number;
 }
 
-export interface PredictionStats {
+export interface AnswerStats {
   scope: string;
   overall: Tally;
+  /** The same, split by kind. */
+  byKind: (Tally & { kind: WorkoutKind })[];
   calibration: (Tally & { confidence: Confidence; expected: number })[];
   /** The last RECENT_DAYS days against everything before. */
   trend: { recent: Tally; before: Tally };
@@ -43,15 +47,16 @@ export interface BlindSpot {
   at: string;
 }
 
-/** The first answer to every Prediction, oldest first. */
+/** The first answer to every Prediction and Diagnosis, oldest first. */
 export async function firstAnswers(paths: WorkspacePaths): Promise<FirstAnswer[]> {
   const answers: FirstAnswer[] = [];
   for (const { record } of await listWorkouts(paths)) {
-    if (record.kind !== 'prediction') continue;
+    if (!answersOnly(record.kind)) continue;
     const first = (await listAttemptRecords(paths, record.id)).find((a) => a.outcome && a.finishedAt);
     if (!first) continue;
     answers.push({
       workoutId: record.id,
+      kind: record.kind,
       path: record.source.path,
       at: first.finishedAt!,
       right: first.outcome === 'completed',
@@ -73,8 +78,8 @@ export function blindSpots(answers: FirstAnswer[]): BlindSpot[] {
 
 const tally = (answers: FirstAnswer[]): Tally => ({ answers: answers.length, right: answers.filter((a) => a.right).length });
 
-/** `kin stats [<path>]`: how often the human's Predictions are right, how well their confidence matches, and their Blind Spots. */
-export async function predictionStats(cwd: string, scope = '', now = new Date()): Promise<PredictionStats> {
+/** `kin stats [<path>]`: how often the human's answers are right, how well their confidence matches, and their Blind Spots. */
+export async function answerStats(cwd: string, scope = '', now = new Date()): Promise<AnswerStats> {
   const paths = workspacePaths(await findRepoRoot(cwd));
   const inScope = (path: string) => scope === '' || path === scope || path.startsWith(`${scope}/`);
   const answers = (await firstAnswers(paths)).filter((a) => inScope(a.path));
@@ -89,6 +94,10 @@ export async function predictionStats(cwd: string, scope = '', now = new Date())
   return {
     scope,
     overall: tally(answers),
+    byKind: (['prediction', 'diagnosis'] as const).flatMap((kind) => {
+      const ofKind = answers.filter((a) => a.kind === kind);
+      return ofKind.length > 0 ? [{ kind, ...tally(ofKind) }] : [];
+    }),
     calibration: CONFIDENCE_LEVELS.map((confidence) => ({ confidence, expected: EXPECTED_RATE[confidence], ...tally(answers.filter((a) => a.confidence === confidence)) })),
     trend: { recent: tally(answers.filter((a) => a.at >= since)), before: tally(answers.filter((a) => a.at < since)) },
     byDirectory: [...byDirectory].map(([path, list]) => ({ path, ...tally(list) })).sort((a, b) => rate(a) - rate(b) || b.answers - a.answers || a.path.localeCompare(b.path)),

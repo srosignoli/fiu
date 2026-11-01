@@ -6,7 +6,7 @@ import { execa } from 'execa';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { buildMap } from '../src/map/map.ts';
 import { renderMap, renderStats } from '../src/map/render.ts';
-import { blindSpots, firstAnswers, predictionStats } from '../src/map/stats.ts';
+import { blindSpots, firstAnswers, answerStats } from '../src/map/stats.ts';
 import { openAttempt, saveAttempt, type Confidence } from '../src/workouts/attempts.ts';
 import { saveDrill, sourceRevision } from '../src/workouts/save.ts';
 import { loadWorkout } from '../src/workouts/store.ts';
@@ -65,7 +65,7 @@ describe('kin stats', () => {
     await answer('core/store.ts', false, 'certain', '2026-10-20T10:00:00.000Z');
     await answer('web/page.ts', true, 'guessing', '2026-10-21T10:00:00.000Z');
     await answer('web/page.ts', true, undefined, '2026-10-22T10:00:00.000Z');
-    const stats = await predictionStats(dir, '', new Date('2026-10-31T00:00:00.000Z'));
+    const stats = await answerStats(dir, '', new Date('2026-10-31T00:00:00.000Z'));
     assert.deepEqual(stats.overall, { answers: 5, right: 4 });
     assert.deepEqual(stats.calibration.map((c) => [c.confidence, c.answers, c.right]), [['guessing', 1, 1], ['fairly-sure', 0, 0], ['certain', 3, 2]]);
     assert.deepEqual(stats.trend, { recent: { answers: 3, right: 2 }, before: { answers: 2, right: 2 } });
@@ -73,19 +73,19 @@ describe('kin stats', () => {
     assert.deepEqual(stats.blindSpots.map((b) => b.path), ['core/store.ts']);
 
     const text = renderStats(stats, { color: false });
-    assert.match(text, /^Your Predictions: 80% right \(4 of 5, first answers only\)/);
+    assert.match(text, /^Your answers: 80% right \(4 of 5, first answers only\)/);
     assert.match(text, /Guessing {8}— right {2}\(1 of 1; expected about 25%\)\n/);
     assert.match(text, /Certain {7}67% right {2}\(2 of 3; expected about 95%\) {2}overconfident/);
     assert.match(text, /Last 30 days: 67% \(2 of 3\); before: — \(2 of 2\)/);
     assert.match(text, /⚠ Blind Spots: you were certain, and wrong\n {2}core\/store\.ts {3}check again: kin predict core\/store\.ts/);
 
-    const web = await predictionStats(dir, 'web');
+    const web = await answerStats(dir, 'web');
     assert.deepEqual(web.overall, { answers: 2, right: 2 });
   });
 
   it('says how to start when nothing is answered', async () => {
     const { dir } = await repo();
-    assert.equal(renderStats(await predictionStats(dir), { color: false }), 'No Predictions answered yet. Ask for one with: kin predict');
+    assert.equal(renderStats(await answerStats(dir), { color: false }), 'Nothing answered yet. Ask for a Prediction with: kin predict');
   });
 });
 

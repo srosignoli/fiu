@@ -22,7 +22,7 @@ export const OutcomeSchema = z.preprocess(
   rating: z.enum(['up', 'down']).optional(),
   /** Whether the source bug the Workout reported is real, by the human's answer. */
   defectConfirmed: z.boolean().optional(),
-  /** Prediction only: how sure the human was of the answer. */
+  /** Prediction and Diagnosis: how sure the human was of the answer. */
   confidence: z.enum(['guessing', 'fairly-sure', 'certain']).optional(),
   }),
 );

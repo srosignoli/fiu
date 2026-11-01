@@ -42,15 +42,15 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'prepare_drill',
     {
-      title: 'Prepare a Kintsugi Drill, Kata, or Prediction',
+      title: 'Prepare a Kintsugi Drill, Kata, Prediction, or Diagnosis',
       description: PREPARE_DESCRIPTION,
       inputSchema: {
         target: z.string().describe('A source file in this repository, relative to its root, optionally followed by #symbol.'),
         kind: z
-          .enum(['drill', 'kata', 'prediction'])
+          .enum(['drill', 'kata', 'prediction', 'diagnosis'])
           .optional()
-          .describe('"drill" (find the bug, the default), "kata" (rebuild a removed piece from a brief), or "prediction" (predict what the code does in a plain-English Scenario, for people who don\'t read code).'),
-        quick: z.boolean().optional().describe('A Quick Drill or Kata: small enough for a short wait. Every Prediction is Quick.'),
+          .describe('"drill" (find the bug, the default), "kata" (rebuild a removed piece from a brief), "prediction" (predict what the code does in a plain-English Scenario), or "diagnosis" (choose which Cause explains a practice incident); the last two are for people who don\'t read code.'),
+        quick: z.boolean().optional().describe('A Quick Drill or Kata: small enough for a short wait. Every Prediction and Diagnosis is Quick.'),
         afterTask: z.boolean().optional().describe('True only when generating at the end of your own coding task.'),
         trackId: z.string().optional().describe('Makes this Drill the next step of a Track started with prepare_track.'),
         why: z.string().optional().describe('For a Track step: one line on why this file matters for the module.'),
@@ -68,7 +68,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'submit_drill',
     {
-      title: 'Submit a Kintsugi Drill, Kata, or Prediction',
+      title: 'Submit a Kintsugi Drill, Kata, Prediction, or Diagnosis',
       description: SUBMIT_DESCRIPTION,
       // A Series (prepared with questions) has its own shape: the shared unit, then the questions.
       inputSchema: { generationId: z.string(), workout: z.union([AnyWorkoutOutputSchema, PredictionSeriesOutputSchema]) },

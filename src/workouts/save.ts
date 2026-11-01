@@ -4,7 +4,7 @@ import { dirname, extname, join, relative } from 'node:path';
 import { execa } from 'execa';
 import { describeCost, type Cost } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
-import type { AnyWorkoutOutput, PredictionOption, WorkoutKind } from '../synthesis/schema.ts';
+import { answersOnly, type AnyWorkoutOutput, type DiagnosisCause, type PredictionOption, type WorkoutKind } from '../synthesis/schema.ts';
 import { findOriginalDefect, type OriginalDefect } from '../verify/defect.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 
@@ -90,6 +90,8 @@ export interface WorkoutRecord {
   gapSummary?: string;
   /** Prediction only: what the human reads, and the answer (the options in the order they were written; Attempts shuffle them). */
   prediction?: { scenario: string; explanation: string; options: PredictionOption[] };
+  /** Diagnosis only: the Causes (the order they were written; Attempts shuffle them) and why the true one explains the incident, its Symptom. */
+  diagnosis?: { explanation: string; causes: DiagnosisCause[] };
   /** A bug the source file appears to contain already. Shown only after an Attempt. */
   originalDefect?: OriginalDefect;
   /** What generating this Workout cost, across all its generation attempts. Absent when the user's agent generated it (not measured) and on Workouts made before cost recording. */
@@ -175,20 +177,22 @@ export async function saveDrill({
       ? { regressionTestName: drill.regressionTestName, injectedBugDescription: drill.injectedBugDescription }
       : kind === 'kata'
         ? { gapSummary: drill.gapSummary }
-        : { prediction: { scenario: drill.scenario ?? '', explanation: drill.explanation ?? '', options: drill.options ?? [] } }),
+        : kind === 'diagnosis'
+          ? { diagnosis: { explanation: drill.explanation ?? '', causes: drill.causes ?? [] } }
+          : { prediction: { scenario: drill.scenario ?? '', explanation: drill.explanation ?? '', options: drill.options ?? [] } }),
     ...(originalDefect ? { originalDefect } : {}),
     ...(cost ? { cost: { ...cost, generationAttempts } } : {}),
-    // A Prediction has no code to work on: its code and tests are the ones it was Verified with.
-    files: kind === 'prediction'
+    // A Prediction or Diagnosis has no code to work on: its code and tests are the ones it was Verified with.
+    files: answersOnly(kind)
       ? { code: solution, test: originalTest, solution, originalTest, ...(previous ? { previous } : {}) }
       : { code: profile.codeFilename, test: profile.testFilename, solution, originalTest },
   };
 
   const files: Record<string, string> = {
-    ...(kind === 'prediction'
+    ...(answersOnly(kind)
       ? {}
       : { ...profile.supportFiles, [profile.codeFilename]: drill.startingCode ?? '', [profile.testFilename]: drill.testSuiteCode }),
-    'README.md': kind === 'prediction' ? predictionReadme(record) : readme(drill, record, dir, paths.repoRoot),
+    'README.md': kind === 'prediction' ? predictionReadme(record) : kind === 'diagnosis' ? diagnosisReadme(record) : readme(drill, record, dir, paths.repoRoot),
     [solution]: drill.referenceSolution,
     [originalTest]: drill.testSuiteCode,
     ...(previous ? { [previous]: drill.previous! } : {}),
@@ -258,6 +262,38 @@ function predictionReadme(record: WorkoutRecord): string {
     `Answer with \`kin train ${record.id}\`.`,
     '',
     `## Source`,
+    '',
+    `\`${record.source.path}\`. ${provenance(record).join('\n')}`,
+    '',
+  ].join('\n');
+}
+
+/** Readers can't see the code, so Kintsugi itself says the incident isn't real. */
+export const PRACTICE_INCIDENT = "Practice incident: this didn't happen. The code here was changed on purpose.";
+
+/** The incident shown: the true Cause's Symptom. */
+export const incidentOf = (record: WorkoutRecord) => record.diagnosis!.causes.find((c) => c.correct)!.symptom.trim();
+
+/** Written by Kintsugi, not the model: the incident and the Causes, sorted so their written order gives nothing away. */
+function diagnosisReadme(record: WorkoutRecord): string {
+  const sorted = record.diagnosis!.causes.map((c) => c.text.trim()).sort((a, b) => a.localeCompare(b));
+  return [
+    `# ${record.title}`,
+    '',
+    ...trackPlacement(record),
+    `*${PRACTICE_INCIDENT}*`,
+    '',
+    '## What happened',
+    '',
+    incidentOf(record),
+    '',
+    '## What explains it?',
+    '',
+    ...sorted.map((text) => `- ${text}`),
+    '',
+    `Answer with \`kin train ${record.id}\`.`,
+    '',
+    '## Source',
     '',
     `\`${record.source.path}\`. ${provenance(record).join('\n')}`,
     '',

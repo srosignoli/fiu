@@ -20,15 +20,15 @@ export interface AttemptRecord {
   rating?: 'up' | 'down';
   /** The human's answer to "Is it a real bug in your code?", when the Workout reported one. */
   defectConfirmed?: boolean;
-  /** Prediction only: the order its options are shown in (indices into the Workout's options), shuffled per Attempt. */
+  /** Prediction and Diagnosis: the order its options are shown in (indices into the Workout's options), shuffled per Attempt. */
   order?: number[];
-  /** Prediction only: the option chosen (an index into the Workout's options). */
+  /** Prediction and Diagnosis: the one chosen (an index into the Workout's options or Causes). */
   answer?: number;
-  /** Prediction only: how sure the human was of that answer, asked before the reveal; absent when skipped. */
+  /** Prediction and Diagnosis: how sure the human was of that answer, asked before the reveal; absent when skipped. */
   confidence?: Confidence;
 }
 
-/** How sure the human was of a Prediction's answer (§11.12). */
+/** How sure the human was of an answer (§11.12). */
 export type Confidence = 'guessing' | 'fairly-sure' | 'certain';
 
 export interface Attempt {
@@ -66,9 +66,9 @@ export async function openAttempt(
 
   const number = (records.at(-1)?.number ?? 0) + 1;
   const dir = attemptDir(paths, id, number);
-  // A Prediction has no code to work on: only its options, in a fresh order so a retry isn't answered by position.
-  const prediction = workout.record.prediction;
-  const files = prediction ? [] : [...Object.keys(profile.supportFiles), workout.record.files.code, workout.record.files.test];
+  // A Prediction or Diagnosis has no code to work on: only its answers, in a fresh order so a retry isn't answered by position.
+  const answers = workout.record.prediction?.options ?? workout.record.diagnosis?.causes;
+  const files = answers ? [] : [...Object.keys(profile.supportFiles), workout.record.files.code, workout.record.files.test];
   for (const file of files) {
     const source = join(workout.dir, file);
     if (!existsSync(source)) continue;
@@ -81,7 +81,7 @@ export async function openAttempt(
     startedAt: now.toISOString(),
     runs: 0,
     hintsUsed: 0,
-    ...(prediction ? { order: shuffled(prediction.options.length, random) } : {}),
+    ...(answers ? { order: shuffled(answers.length, random) } : {}),
   };
   await saveAttempt({ record, dir });
   return { attempt: { record, dir }, resumed: false };

@@ -7,7 +7,7 @@ import { runTests } from '../languages/run.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
 import { diffLines, type Hunk } from '../verify/diff.ts';
 import { buildVariant } from '../verify/gate.ts';
-import type { PredictionOption } from '../synthesis/schema.ts';
+import type { DiagnosisCause, PredictionOption } from '../synthesis/schema.ts';
 import { isAttemptBookkeeping, listAttemptRecords, saveAttempt, type Attempt, type Confidence } from '../workouts/attempts.ts';
 import type { WorkoutRecord } from '../workouts/save.ts';
 import { recordOutcome, type Outcome } from '../workouts/store.ts';
@@ -34,7 +34,7 @@ export interface TrainingSessionOptions {
   /** Where the human works. A resumed Attempt keeps its runs and Hints. */
   attempt: Attempt;
   profile: LanguageProfile;
-  /** Absent for a Prediction: everything was measured when it was Verified, so nothing runs during its Attempt. */
+  /** Absent for a Prediction or Diagnosis: everything was measured when it was Verified, so nothing runs during its Attempt. */
   sandbox?: Sandbox;
   cacheRoot?: string;
   now?: () => Date;
@@ -120,6 +120,25 @@ export class TrainingSession {
     return order.map((index) => ({ index, option: prediction.options[index]! }));
   }
 
+  /** A Diagnosis's Causes in this Attempt's order: `[n]` on screen is `causes[n - 1]` here. */
+  diagnosisCauses(): { index: number; cause: DiagnosisCause }[] {
+    const { diagnosis } = this.#options.workout.record;
+    if (!diagnosis) throw new Error('This Workout is not a Diagnosis.');
+    const order = this.#options.attempt.record.order ?? diagnosis.causes.map((_, i) => i);
+    return order.map((index) => ({ index, cause: diagnosis.causes[index]! }));
+  }
+
+  /** Records a Diagnosis's one answer. Right means Completed; wrong means Abandoned, and the truth is shown. */
+  async diagnose(index: number): Promise<{ outcome: Outcome['outcome']; chosen: DiagnosisCause; truth: DiagnosisCause }> {
+    const { causes } = this.#options.workout.record.diagnosis!;
+    const { attempt } = this.#options;
+    attempt.record.answer = index;
+    await saveAttempt(attempt);
+    const truth = causes.find((c) => c.correct)!;
+    const chosen = causes[index]!;
+    return { outcome: chosen.correct ? 'completed' : 'abandoned', chosen, truth };
+  }
+
   /** Records the one answer this Attempt gets. Right means Completed; wrong means Abandoned, and the truth is shown. */
   async answer(index: number): Promise<{ outcome: Outcome['outcome']; chosen: PredictionOption; truth: PredictionOption }> {
     const { options } = this.#options.workout.record.prediction!;
@@ -135,7 +154,7 @@ export class TrainingSession {
    * What would have to change in the code for the chosen (wrong) option to be what happens. For the
    * old-behaviour option of a Prediction from a commit: what the commit changed, old lines first.
    */
-  async variantDiff(option: PredictionOption): Promise<string> {
+  async variantDiff(option: Pick<PredictionOption, 'variant' | 'previous'>): Promise<string> {
     const { workout } = this.#options;
     const read = (file: string) => readFile(join(workout.dir, file), 'utf8');
     const reference = await read(workout.record.files.solution);

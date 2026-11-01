@@ -14,7 +14,7 @@ import { openAttempt } from '../workouts/attempts.ts';
 import { nextQuickWorkout } from '../workouts/queue.ts';
 import type { PredictionOption } from '../synthesis/schema.ts';
 import type { Confidence } from '../workouts/attempts.ts';
-import type { WorkoutRecord } from '../workouts/save.ts';
+import { incidentOf, PRACTICE_INCIDENT, type WorkoutRecord } from '../workouts/save.ts';
 import { listWorkouts, loadWorkout, nextInSeries, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 
@@ -118,7 +118,11 @@ export async function train(
   const profile = config.profiles.find((p) => p.id === workout.record.language);
   if (!profile) throw new UnknownProfileError(`No Language Profile "${workout.record.language}" is configured for ${workout.record.id}.`);
 
-  // A Prediction runs nothing during its Attempt: every outcome was measured when it was Verified.
+  // A Prediction or Diagnosis runs nothing during its Attempt: every outcome was measured when it was Verified.
+  if (workout.record.kind === 'diagnosis') {
+    const { attempt, resumed } = await openAttempt(paths, workout, profile);
+    return runDiagnosis(new TrainingSession({ paths, workout, attempt, profile, cacheRoot }), io, { resumed, background });
+  }
   if (workout.record.kind === 'prediction') {
     for (;;) {
       const { attempt, resumed } = await openAttempt(paths, workout, profile);
@@ -243,6 +247,82 @@ async function closeAttempt(session: TrainingSession, io: TrainIo, outcome: Outc
   return { status: outcome, workoutId: record.id, attempt: session.attempt.record.number, dir: session.attempt.dir };
 }
 
+/**
+ * The one answer of a Prediction or Diagnosis: a key per option, in the order shown, then how sure the
+ * human was (asked before the reveal, so it is about the answer, not the outcome: §11.12).
+ */
+async function readAnswer(io: TrainIo, indices: number[], id: string, number: number, background?: BackgroundCommand): Promise<{ picked: number; confidence?: Confidence } | 'left'> {
+  let ended = false;
+  void background?.done.then(async (result) => {
+    if (ended || background.reported) return;
+    const report = await reportResult(background, result);
+    if (ended || background.reported) return;
+    background.reported = true;
+    io.print(`\x07${report}`);
+  });
+
+  let picked: number | undefined;
+  while (picked === undefined) {
+    const read = new AbortController();
+    const key = await io.readKey(read.signal);
+    if (key === 'q' || key === undefined) {
+      ended = true;
+      io.print(`Attempt ${number} left open. Resume with: kin train ${id}`);
+      return 'left';
+    }
+    if (key === 's' && background) io.print(await backgroundStatus(background));
+    const choice = Number(key);
+    if (Number.isInteger(choice) && choice >= 1 && choice <= indices.length) picked = indices[choice - 1]!;
+  }
+  ended = true;
+
+  io.print('How sure were you? [1] guessing   [2] fairly sure   [3] certain   [any other key] skip');
+  const sure = await io.readKey(new AbortController().signal);
+  const confidence = CONFIDENCE_KEYS[sure ?? ''];
+  return { picked, ...(confidence ? { confidence } : {}) };
+}
+
+/** A Diagnosis's Attempt: the practice incident and the shuffled Causes, one answer, then the truth and what the wrong answer would have looked like. */
+async function runDiagnosis(session: TrainingSession, io: TrainIo, { resumed, background }: { resumed: boolean; background?: BackgroundCommand }): Promise<TrainResult> {
+  const { record } = session.workout;
+  const { explanation } = record.diagnosis!;
+  const shown = session.diagnosisCauses();
+  const number = session.attempt.record.number;
+  const keys = `[1]-[${shown.length}] answer   [q] quit${background ? `   [s] \`${background.command}\`` : ''}`;
+  io.print(
+    [
+      `${record.title} (${record.id}), attempt ${number}${resumed ? ', resumed' : ''}`,
+      '',
+      PRACTICE_INCIDENT,
+      '',
+      incidentOf(record),
+      '',
+      'What explains it?',
+      ...shown.map(({ cause }, i) => `  [${i + 1}] ${cause.text.trim()}`),
+      '',
+      keys,
+    ].join('\n'),
+  );
+
+  const answer = await readAnswer(io, shown.map(({ index }) => index), record.id, number, background);
+  if (answer === 'left') return { status: 'left-pending', workoutId: record.id, attempt: number };
+
+  const { outcome, chosen, truth } = await session.diagnose(answer.picked);
+  const reveal =
+    outcome === 'completed'
+      ? [`Right: ${truth.text.trim()}`]
+      : [`Not quite. The cause: ${truth.text.trim()}`, `Your answer would have shown up differently: ${chosen.symptom.trim()}`];
+  const anchors = record.sourceAnchors.map((a) => `  ${a.path}:${a.startLine}-${a.endLine}: ${a.explanation}`);
+  io.print([...reveal, '', explanation.trim(), '', 'Where this lives:', ...anchors].join('\n'));
+  if (outcome === 'abandoned') {
+    io.print('[d] the code difference behind the true cause   [any other key] continue');
+    if ((await io.readKey(new AbortController().signal)) === 'd') {
+      io.print(`The code was changed like this to cause the incident:\n${await session.variantDiff(truth)}`);
+    }
+  }
+  return closeAttempt(session, io, outcome, answer.confidence);
+}
+
 /** A Prediction's Attempt: the Scenario and the shuffled options, one answer, then the truth and why. */
 async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, background }: { resumed: boolean; background?: BackgroundCommand }): Promise<TrainResult> {
   const { record } = session.workout;
@@ -262,34 +342,9 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
     ].join('\n'),
   );
 
-  let ended = false;
-  void background?.done.then(async (result) => {
-    if (ended || background.reported) return;
-    const report = await reportResult(background, result);
-    if (ended || background.reported) return;
-    background.reported = true;
-    io.print(`\x07${report}`);
-  });
-
-  let picked: number | undefined;
-  while (picked === undefined) {
-    const read = new AbortController();
-    const key = await io.readKey(read.signal);
-    if (key === 'q' || key === undefined) {
-      ended = true;
-      io.print(`Attempt ${number} left open. Resume with: kin train ${record.id}`);
-      return { status: 'left-pending', workoutId: record.id, attempt: number };
-    }
-    if (key === 's' && background) io.print(await backgroundStatus(background));
-    const choice = Number(key);
-    if (Number.isInteger(choice) && choice >= 1 && choice <= shown.length) picked = shown[choice - 1]!.index;
-  }
-  ended = true;
-
-  // Asked before the reveal, so it is about the answer, not the outcome (§11.12).
-  io.print('How sure were you? [1] guessing   [2] fairly sure   [3] certain   [any other key] skip');
-  const sure = await io.readKey(new AbortController().signal);
-  const confidence = CONFIDENCE_KEYS[sure ?? ''];
+  const answer = await readAnswer(io, shown.map(({ index }) => index), record.id, number, background);
+  if (answer === 'left') return { status: 'left-pending', workoutId: record.id, attempt: number };
+  const { picked, confidence } = answer;
 
   const { outcome, chosen, truth } = await session.answer(picked);
   // In a Prediction from a commit, why the old behaviour is wrong is known for a fact: Kintsugi says it.

@@ -1,6 +1,7 @@
+import { NOUN, type WorkoutKind } from '../synthesis/schema.ts';
 import type { Confidence } from '../workouts/attempts.ts';
 import type { DirEntry, FileEntry, FileState, MapReport, Suggestion } from './map.ts';
-import { MIN_ANSWERS, type PredictionStats, type Tally } from './stats.ts';
+import { MIN_ANSWERS, type AnswerStats, type Tally } from './stats.ts';
 
 const MARKS: Record<FileState, string> = { red: '●', amber: '◐', green: '✓', grey: '·' };
 const CODES: Record<FileState, string> = { red: '31', amber: '33', green: '32', grey: '2' };
@@ -90,22 +91,24 @@ function command(suggestion: Suggestion): string {
 }
 
 /** Workout ids start with their kind. */
-const noun = (workoutId: string) => (workoutId.startsWith('kata_') ? 'Kata' : 'Drill');
+const noun = (workoutId: string) => NOUN[(Object.keys(NOUN) as WorkoutKind[]).find((kind) => workoutId.startsWith(`${kind}_`)) ?? 'drill'];
 
 const basename = (path: string) => path.split('/').pop() ?? path;
 
 const LEVELS: Record<Confidence, string> = { guessing: 'Guessing', 'fairly-sure': 'Fairly sure', certain: 'Certain' };
 
 /** `kin stats`: accuracy, calibration, trend, the weakest directories, and Blind Spots. A rate needs MIN_ANSWERS answers. */
-export function renderStats(stats: PredictionStats, { color }: RenderOptions): string {
+export function renderStats(stats: AnswerStats, { color }: RenderOptions): string {
   const dim = (text: string) => (color ? `\x1b[2m${text}\x1b[0m` : text);
   const red = (text: string) => (color ? `\x1b[31m${text}\x1b[0m` : text);
   const pct = (t: Tally) => (t.answers >= MIN_ANSWERS ? `${Math.round((100 * t.right) / t.answers)}%` : '—');
   const of = (t: Tally) => `${t.right} of ${t.answers}`;
   const where = stats.scope ? ` in ${stats.scope}` : '';
-  if (stats.overall.answers === 0) return `No Predictions answered${where} yet. Ask for one with: kin predict${stats.scope ? ` ${stats.scope}` : ''}`;
+  if (stats.overall.answers === 0) return `Nothing answered${where} yet. Ask for a Prediction with: kin predict${stats.scope ? ` ${stats.scope}` : ''}`;
 
-  const lines = [`Your Predictions${where}: ${pct(stats.overall)} right (${of(stats.overall)}, first answers only)`, ''];
+  const lines = [`Your answers${where}: ${pct(stats.overall)} right (${of(stats.overall)}, first answers only)`];
+  if (stats.byKind.length > 1) for (const k of stats.byKind) lines.push(`  ${(k.kind === 'prediction' ? 'Predictions' : 'Diagnoses').padEnd(12)} ${pct(k).padStart(4)}  (${of(k)})`);
+  lines.push('');
   const rated = stats.calibration.filter((c) => c.answers > 0);
   if (rated.length > 0) {
     lines.push('How sure you were, and how often you were right:');

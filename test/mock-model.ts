@@ -1,5 +1,5 @@
 import { MockLanguageModelV4 } from 'ai/test';
-import type { AnyWorkoutOutput, CommitPredictionOutput, DrillOutput, KataOutput, PredictionOutput, PredictionSeriesOutput, SeriesQuestion } from '../src/synthesis/schema.ts';
+import type { AnyWorkoutOutput, CommitPredictionOutput, DiagnosisOutput, DrillOutput, KataOutput, PredictionOutput, PredictionSeriesOutput, SeriesQuestion } from '../src/synthesis/schema.ts';
 
 export interface ScriptedModel {
   model: MockLanguageModelV4;
@@ -231,4 +231,43 @@ export function goodSeries(questions: SeriesQuestion[]): PredictionSeriesOutput 
 export function tieQuestion(overrides: Partial<SeriesQuestion> = {}): SeriesQuestion {
   const { slug, title, estimatedMinutes, scenario, options, explanation, testSuiteCode } = goodPrediction();
   return { slug, title, estimatedMinutes, scenario, options, explanation, testSuiteCode, ...overrides };
+}
+
+/** Tests pinning each Cause's Symptom on one queue; the healthy code runs "early", so none passes against it. */
+export const TS_DIAGNOSIS_TESTS = `import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { pickNext } from './kata.ts';
+
+const jobs = [{ id: 'late', priority: 3, at: 2 }, { id: 'low', priority: 1, at: 0 }, { id: 'early', priority: 3, at: 1 }];
+
+describe('what users see', () => {
+  it('runs the late job', () => assert.equal(pickNext(jobs), 'late'));
+  it('runs the low-priority job', () => assert.equal(pickNext(jobs), 'low'));
+  it('runs no job', () => assert.equal(pickNext(jobs), undefined));
+  it('reports the queue as full', () => assert.equal(pickNext(jobs), 'queue-full'));
+});
+`;
+
+/** A Diagnosis that passes the Verified gate with the TypeScript profile: why a later job went first. */
+export function goodDiagnosis(overrides: Partial<DiagnosisOutput> = {}): DiagnosisOutput {
+  return {
+    worthPracticing: true,
+    notWorthReason: '',
+    slug: 'late-job-first',
+    title: 'A later job went first',
+    pillar: 'algorithm',
+    estimatedMinutes: 3,
+    sourceAnchors: [{ startLine: 3, endLine: 9, explanation: 'The scheduler picks the next job here.' }],
+    causes: [
+      { text: 'Ties in priority go to the most recently submitted job.', symptom: 'Two jobs had the same priority, and the one submitted later ran first.', testName: 'runs the late job', correct: true, variant: { original: 'job.at < best.at', changed: 'job.at > best.at' } },
+      { text: 'A lower priority number is treated as more urgent.', symptom: 'The job with the lowest priority of three ran first.', testName: 'runs the low-priority job', correct: false, variant: { original: 'job.priority > best.priority', changed: 'job.priority < best.priority' } },
+      { text: 'A tie in priority clears the choice of job.', symptom: 'With three jobs waiting, nothing ran at all.', testName: 'runs no job', correct: false, variant: { original: ' best = job;', changed: ' best = best && job.priority === best.priority ? undefined : job;' } },
+      { text: 'Queues of more than two jobs are refused.', symptom: 'With three jobs waiting, users were told the queue is full.', testName: 'reports the queue as full', correct: false, variant: { original: 'return best?.id;', changed: "return jobs.length > 2 ? 'queue-full' : best?.id;" } },
+    ],
+    explanation: 'When priorities tie, the arrival times decide; compared the wrong way round, the newest job wins.',
+    referenceSolution: TS_REFERENCE,
+    testSuiteCode: TS_DIAGNOSIS_TESTS,
+    originalDefect: NO_DEFECT,
+    ...overrides,
+  };
 }

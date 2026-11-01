@@ -20,8 +20,8 @@ export const DEFAULTS = {
   model: 'claude-opus-5-5',
 } as const satisfies Partial<ResolvedConfig>;
 
-/** The kinds commits can become and `kin quick` can favour (Katas are made on request only). */
-export const KindsSchema = z.array(z.enum(['drill', 'prediction'])).min(1);
+/** The kinds `kin quick` can favour and commits can become (Katas are made on request only; commits never become Diagnoses). */
+export const KindsSchema = z.array(z.enum(['drill', 'prediction', 'diagnosis'])).min(1);
 export type PreferredKind = z.infer<typeof KindsSchema>[number];
 
 /** `.kintsugi/config.json`: lives inside the repo, so it must never hold secrets. */

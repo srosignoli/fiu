@@ -22,7 +22,7 @@ import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { averageSpend, listWorkouts, loadWorkout, readState } from '../src/workouts/store.ts';
 import { workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
-import { goodDrill, goodKata, goodPrediction, scriptedModel, TS_REFERENCE } from './mock-model.ts';
+import { goodDiagnosis, goodDrill, goodKata, goodPrediction, scriptedModel, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -136,7 +136,7 @@ describe('checkPlan', () => {
     const candidates = await shortlist(repo, 'src/core', profiles());
     const files = ['src/core/store.ts', 'src/core/queue.ts', 'src/core/worker.ts'];
     assert.deepEqual(checkPlan(plan(files, [], ['prediction', 'drill', 'kata']), candidates), []);
-    assert.deepEqual(checkPlan(plan(files), candidates), ['every step is a drill: use at least two kinds of prediction, drill, kata.']);
+    assert.deepEqual(checkPlan(plan(files), candidates), ['every step is a drill: use at least two kinds of prediction, diagnosis, drill, kata.']);
     assert.deepEqual(checkPlan(plan(files, [], ['prediction', 'kata', 'kata']), candidates, ['prediction']), [
       "src/core/queue.ts is a kata, which this Track doesn't allow: use prediction.",
       "src/core/worker.ts is a kata, which this Track doesn't allow: use prediction.",
@@ -155,10 +155,11 @@ describe('averageSpend by kind', () => {
 });
 
 describe('trackKinds', () => {
-  it('mixes all three by default, Predictions only for someone who reads no code, or what --kinds says', () => {
-    assert.deepEqual(trackKinds(['drill']), ['prediction', 'drill', 'kata']);
-    assert.deepEqual(trackKinds(['prediction', 'drill']), ['prediction', 'drill', 'kata']);
+  it('mixes all four by default, only no-code kinds for someone who reads no code, or what --kinds says', () => {
+    assert.deepEqual(trackKinds(['drill']), ['prediction', 'diagnosis', 'drill', 'kata']);
+    assert.deepEqual(trackKinds(['prediction', 'drill']), ['prediction', 'diagnosis', 'drill', 'kata']);
     assert.deepEqual(trackKinds(['prediction']), ['prediction']);
+    assert.deepEqual(trackKinds(['diagnosis', 'prediction']), ['prediction', 'diagnosis']);
     assert.deepEqual(trackKinds(['prediction'], ['kata', 'drill']), ['drill', 'kata']);
   });
 
@@ -238,6 +239,16 @@ describe(`kin explore (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.doesNotMatch(prompts[1]!, /This is a Series/);
     const readme = await readFile(join(workspacePaths(repo).workoutsDir, result.track.steps[0]!.workoutId, 'README.md'), 'utf8');
     assert.match(readme, /\*Part of the Track "The job scheduler": src\/core\/store\.ts is what the rest builds on\.\*/);
+  });
+
+  it('makes a Diagnosis as a Track step', async () => {
+    const repo = await repoWithModule(MODULE);
+    const { result } = await run(repo, [plan(three, [], ['prediction', 'diagnosis', 'kata']), goodPrediction(), goodDiagnosis(), goodKata()], { kinds: undefined });
+    assert.equal(result.status, 'saved', JSON.stringify(result));
+    if (result.status !== 'saved') return;
+    assert.deepEqual(result.track.steps.map((s) => s.kind), ['prediction', 'diagnosis', 'kata']);
+    const readme = await readFile(join(workspacePaths(repo).workoutsDir, result.track.steps[1]!.workoutId, 'README.md'), 'utf8');
+    assert.match(readme, /\*Part of the Track "The job scheduler": [^]*Practice incident/);
   });
 
   it('falls back to a Drill on the same file when a step of another kind fails and no alternate is left', async () => {

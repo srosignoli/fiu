@@ -44,7 +44,7 @@ program
 function trackKindList(value: string): WorkoutKind[] {
   const kinds = value.split(',').map((k) => k.trim()).filter(Boolean);
   const unknown = kinds.filter((k) => !(k in NOUN));
-  if (kinds.length === 0 || unknown.length > 0) throw new Error(`--kinds takes drill, kata, and prediction, comma-separated, not "${value}".`);
+  if (kinds.length === 0 || unknown.length > 0) throw new Error(`--kinds takes drill, kata, prediction, and diagnosis, comma-separated, not "${value}".`);
   return kinds as WorkoutKind[];
 }
 
@@ -87,7 +87,9 @@ function generationCommand(kind: WorkoutKind) {
               ? [`Read the incident report: ${join(workoutDir, 'README.md')}`, `Fix the bug in:           ${join(workoutDir, record.files.code)}`]
               : kind === 'kata'
                 ? [`Read the brief:           ${join(workoutDir, 'README.md')}`, `Fill in the gap in:       ${join(workoutDir, record.files.code)}`]
-                : [`Read the Scenario:        ${join(workoutDir, 'README.md')}`]
+                : kind === 'diagnosis'
+                  ? [`Read the incident:        ${join(workoutDir, 'README.md')}`]
+                  : [`Read the Scenario:        ${join(workoutDir, 'README.md')}`]
             )
               .concat(`Then train with:          kin train ${record.id}`)
               .join('\n'),
@@ -135,6 +137,15 @@ program
     if (options.questions !== undefined && options.questions > 1) throw new Error('A Prediction from a commit asks one question: leave out --questions.');
     await runRefill({ ...options, background: false, kinds: ['prediction'] });
   });
+
+program
+  .command('diagnose')
+  .description('Generate a Diagnosis: a practice incident in plain English and four possible Causes, each measured. No code to read.')
+  .argument('[target]', 'a source file (optionally #symbol), or a directory to pick a file from (default: the whole repository)')
+  .option('--no-train', 'only save the Diagnosis, without opening the runner')
+  .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
+  .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
+  .action(generationCommand('diagnosis'));
 
 program
   .command('mcp')
@@ -249,7 +260,7 @@ program
   .description('Build a Track for a module: 3 to 5 Drills, each from a different file, foundations first.')
   .argument('[path]', 'the module directory')
   .option('--about <goal>', 'choose the module by what you want to learn, through the Atlas, instead of a path')
-  .option('--kinds <list>', 'the kinds of step to use, e.g. drill,kata (default: prediction, drill, and kata; Predictions only if your kinds setting is prediction only)', trackKindList)
+  .option('--kinds <list>', 'the kinds of step to use, e.g. drill,kata (default: all four; only no-code kinds if your kinds setting lists only those)', trackKindList)
   .option('-y, --yes', 'consent to sending code and to the estimated cost without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
   .option('--no-train', 'only build the Track, without opening its first step')
@@ -445,15 +456,15 @@ atlas
 
 program
   .command('stats')
-  .description('How often your Predictions are right, how well your confidence matches, and your Blind Spots: local and free.')
+  .description('How often your Predictions and Diagnoses are right, how well your confidence matches, and your Blind Spots: local and free.')
   .argument('[path]', 'a directory or file to look into')
   .option('--json', 'print the stats as JSON')
   .action(async (path: string | undefined, options: { json?: boolean }) => {
-    const { predictionStats } = await import('./map/stats.ts');
+    const { answerStats } = await import('./map/stats.ts');
     const { renderStats } = await import('./map/render.ts');
     const repoRoot = await findRepoRoot(process.cwd());
     const scope = path ? join(process.cwd(), path).slice(repoRoot.length).replace(/^\/+|\/+$/g, '') : '';
-    const stats = await predictionStats(process.cwd(), scope);
+    const stats = await answerStats(process.cwd(), scope);
     console.log(options.json ? JSON.stringify(stats, null, 2) : renderStats(stats, { color: process.stdout.isTTY === true && !process.env.NO_COLOR }));
   });
 

@@ -159,7 +159,9 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
       return permanently(`${target.path} already has a queued Workout from a commit`);
     }
 
-    const kinds = options.kinds ?? config.kinds;
+    // Commits don't become Diagnoses yet (§11.13): someone who only wants those gets the other no-code kind.
+    const wanted = (options.kinds ?? config.kinds).filter((k) => k !== 'diagnosis');
+    const kinds = wanted.length > 0 ? wanted : (['prediction'] as const);
     // A Prediction offers the old behaviour as a wrong option, so it needs the file as it was.
     const before = kinds.includes('prediction') ? await fileBefore(repoRoot, commitSha, target.path) : undefined;
     /** Background runs stay within the daily limit, a fallback's attempts included. */

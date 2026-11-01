@@ -16,7 +16,7 @@ import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
 import { goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
-import { goodSeries, tieQuestion, urgentQuestion } from './mock-model.ts';
+import { goodDiagnosis, goodSeries, tieQuestion, urgentQuestion } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
   async (s) => (await s.dispose(), true),
@@ -272,6 +272,18 @@ describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     assert.equal(second.generator, 'agent');
   });
 
+  it('verifies and saves a Diagnosis when asked for one', async () => {
+    const { call } = await connect(await repoWithSources('queue.ts'));
+    const { json: prepared } = await call('prepare_drill', { target: 'src/queue.ts', kind: 'diagnosis' });
+    assert.equal(prepared.kind, 'diagnosis');
+    assert.match(prepared.instructions, /You create Diagnoses/);
+    assert.ok(prepared.workoutSchema.properties.causes, 'the schema asks for Causes');
+    const { json: saved } = await call('submit_drill', { generationId: prepared.generationId, workout: goodDiagnosis() });
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    assert.match(saved.workoutId, /^diagnosis_\d{8}_late-job-first$/);
+    assert.equal((await readJson(join(saved.workoutDir, 'workout.json'))).diagnosis.causes.length, 4);
+  });
+
   it('asks several questions of Predictions only', async () => {
     const { call } = await connect(await repoWithSources('queue.ts'));
     assert.match((await call('prepare_drill', { target: 'src/queue.ts', questions: 3 })).text, /Only a Prediction can ask several questions/);
@@ -441,7 +453,7 @@ describe(`Tracks in agent mode (${sandboxWorks ? 'sandboxed' : 'skipped: no sand
     const { json: track } = await call('prepare_track', { module: 'src/core' });
     assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId })).text, /needs `why`/);
     assert.match((await call('prepare_drill', { target: 'src/core/store.ts', trackId: 'track_nope', why: 'x' })).text, /Unknown track id/);
-    assert.deepEqual(track.kinds, ['prediction', 'drill', 'kata']);
+    assert.deepEqual(track.kinds, ['prediction', 'diagnosis', 'drill', 'kata']);
     assert.match(track.rules, /Use at least two different kinds/);
     assert.equal((await call('prepare_drill', { target: 'src/core/store.ts', trackId: track.trackId, why: 'x', kind: 'kata' })).json.kind, 'kata');
     await writeFile(join(repo, 'src', 'core', 'new.ts'), TS_REFERENCE);

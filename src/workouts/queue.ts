@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { QUICK, type WorkoutKind } from '../synthesis/schema.ts';
+import { answersOnly, QUICK, type WorkoutKind } from '../synthesis/schema.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 import type { WorkoutRecord } from './save.ts';
 import { listWorkouts, type StoredWorkout } from './store.ts';
@@ -9,8 +9,8 @@ import { listWorkouts, type StoredWorkout } from './store.ts';
 /** A Workout fits a short wait: Quick by its own numbers, however it was requested. */
 export async function isQuick(workout: { record: WorkoutRecord; dir: string }): Promise<boolean> {
   if (workout.record.estimatedMinutes > QUICK.maxMinutes) return false;
-  // A Prediction shows no code, so only its minutes count.
-  if (workout.record.kind === 'prediction') return true;
+  // A Prediction or Diagnosis shows no code, so only its minutes count.
+  if (answersOnly(workout.record.kind)) return true;
   const code = await readFile(join(workout.dir, workout.record.files.code), 'utf8').catch(() => undefined);
   return code !== undefined && code.replace(/\n$/, '').split('\n').length <= QUICK.maxStartingCodeLines;
 }

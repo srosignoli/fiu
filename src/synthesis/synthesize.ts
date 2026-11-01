@@ -117,6 +117,7 @@ export async function synthesizeDrill({
             testSuiteCode: generated.output.testSuiteCode,
             regressionTestName: generated.output.regressionTestName,
             options: generated.output.options,
+            causes: generated.output.causes,
             source: target.source,
             lineComment: profile.lineComment,
             previous: generated.output.previous,

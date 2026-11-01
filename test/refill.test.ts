@@ -265,6 +265,15 @@ describe(`Predictions from commits (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'
     assert.equal(await readFile(join(workout!.dir, '.solution', 'previous.ts'), 'utf8'), TS_BEFORE_COMMIT);
   });
 
+  it('never makes a Diagnosis from a commit, whatever kinds says', async () => {
+    const skipped = await repoWithBehaviourChange(['diagnosis', 'drill']);
+    await run(skipped.repo, {}, [goodDrill()]);
+    assert.equal((await listWorkouts(workspacePaths(skipped.repo)))[0]!.record.kind, 'drill');
+    const only = await repoWithBehaviourChange(['diagnosis']);
+    await run(only.repo, {}, [goodCommitPrediction()]);
+    assert.equal((await listWorkouts(workspacePaths(only.repo)))[0]!.record.kind, 'prediction');
+  });
+
   it('falls back to the next kind when the commit changed no behaviour', async () => {
     const { repo } = await repoWithBehaviourChange(['prediction', 'drill']);
     const result = await run(repo, {}, [{ ...goodCommitPrediction(), worthPracticing: false, notWorthReason: 'Only comments changed.' }, goodDrill()]);

@@ -73,9 +73,12 @@ export function findOriginalDefect(
     reported.endLine <= sourceLineCount
       ? reported
       : undefined;
-  const match = kind === 'drill' ? matchSource(workout, source, lineComment) : undefined;
+  // A Diagnosis's bug is its true Cause's Variant.
+  const trueCause = kind === 'diagnosis' ? workout.causes?.find((c) => c.correct) : undefined;
+  const bug = trueCause ? { referenceSolution: workout.referenceSolution, startingCode: workout.referenceSolution.replace(trueCause.variant.original, () => trueCause.variant.changed) } : workout;
+  const match = kind === 'drill' || trueCause ? matchSource(bug, source, lineComment) : undefined;
   if (match) {
-    const description = model?.description.trim() || workout.injectedBugDescription?.trim() || '';
+    const description = model?.description.trim() || workout.injectedBugDescription?.trim() || trueCause?.text.trim() || '';
     return { ...match, description, evidence: model ? 'both' : 'source' };
   }
   if (model) return { startLine: model.startLine, endLine: model.endLine, description: model.description.trim(), evidence: 'model' };

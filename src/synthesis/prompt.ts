@@ -1,5 +1,5 @@
 import type { LanguageProfile } from '../languages/profile.ts';
-import { NOUN, PREDICTION_OPTIONS, QUICK, type WorkoutKind } from './schema.ts';
+import { answersOnly, NOUN, PREDICTION_OPTIONS, QUICK, type WorkoutKind } from './schema.ts';
 
 export interface DrillTarget {
   /** Path relative to the repository root, as shown to the model. */
@@ -124,6 +124,34 @@ ${profile.promptRules
   .join('\n')}${commitRules}`;
 }
 
+/** The rules for a Diagnosis: which Cause explains a practice incident, for people who never read code. */
+export function diagnosisSystemPrompt(profile: LanguageProfile): string {
+  return `You create Diagnoses: short exercises in which people who never read code (engineering managers, architects, developers who let agents write their code) read a practice incident about their own system and choose what caused it, so they can reason about real incidents.
+
+A Diagnosis takes one real unit of code from the repository, makes it self-contained, and offers ${PREDICTION_OPTIONS} possible Causes. Every link is measured: the referenceSolution is the healthy code, and each Cause is a Variant (a small change to it) with a test that asserts the Cause's Symptom. Kintsugi runs the tests against all five versions to prove it.
+
+How to build the Diagnosis:
+- Extract the unit whose behaviour matters most to the people relying on it: business rules, limits and caps, ordering, state transitions, what is skipped, deferred, retried, or kept. If a symbol is named, use it.
+- Make it self-contained in a single code file. Replace infrastructure the original touches (databases, network, filesystem, clocks, queues, loggers) with small inline fakes or parameters. Keep the behaviour faithful to the original: the referenceSolution must do what the original does. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect. Otherwise leave originalDefect empty.
+- causes: exactly ${PREDICTION_OPTIONS}, each a realistic way this system could go wrong, one marked correct. Write them as explanations of similar length and style, in plain English with no names from the code (functions, variables, classes); product words a user knows are fine. The true one must not stand out.
+- Each Cause has a variant: { original, changed }, where original is text that occurs exactly once in referenceSolution (at most 3 lines) and changed replaces it so the code really has that Cause. The true Cause has one too. All ${PREDICTION_OPTIONS} are different changes.
+- Each Cause has a symptom: what users would see if it were real, in plain English with concrete values ("a job cancelled at 9 o'clock still ran at 10"). The correct Cause's symptom is the incident the human reads, so it says what happened and never why. Each Cause's symptom differs from the others'.
+- testSuiteCode: exactly ${PREDICTION_OPTIONS} tests, one per Cause, each named in testName and asserting that Cause's Symptom. Against the referenceSolution, every test fails by assertion: the healthy code shows no Symptom. Against each Variant, only that Cause's test passes and the others fail by assertion, never by an unexpected exception.
+- explanation: why the true Cause produces the incident, in plain English. Shown after answering.
+- title names what users saw, never the Cause.
+- sourceAnchors point at the line ranges of the source file the Diagnosis was derived from, using the line numbers shown, each explained as neutral documentation of what that region does. Shown after answering.
+- estimatedMinutes is 2 to 5.
+
+If no user would ever notice how the file behaves (pure algorithms, plumbing, configuration, declarations only), set worthPracticing to false, explain why in notWorthReason, and leave the other fields empty.
+
+Rules for this language (${profile.id}):
+- The code file is named ${profile.codeFilename} and the test file ${profile.testFilename}.
+${profile.promptRules
+  .split('\n')
+  .map((rule) => `- ${rule}`)
+  .join('\n')}`;
+}
+
 /** Appended to the Prediction rules for a Series of `count` questions. */
 export function seriesRules(count: number): string {
   return `
@@ -143,7 +171,7 @@ Write ${needed} replacement question(s), as a Series whose \`questions\` holds o
 }
 
 export const systemPromptFor = (kind: WorkoutKind, profile: LanguageProfile, options: { quick?: boolean; fromCommit?: boolean } = {}) =>
-  kind === 'drill' ? drillSystemPrompt(profile, options) : kind === 'kata' ? kataSystemPrompt(profile, options) : predictionSystemPrompt(profile, options);
+  kind === 'drill' ? drillSystemPrompt(profile, options) : kind === 'kata' ? kataSystemPrompt(profile, options) : kind === 'diagnosis' ? diagnosisSystemPrompt(profile) : predictionSystemPrompt(profile, options);
 
 export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'): string {
   const noun = NOUN[kind];
@@ -158,7 +186,7 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
       ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"). Build the ${noun} around behaviour the commit changed. The source below is the file as of that commit; the file before it follows the diff.`
       : target.change
         ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"). Build the ${noun} around the code that changed, so the developer practises understanding it. The source below is the file as of that commit.`
-      : kind === 'prediction'
+      : answersOnly(kind)
         ? 'Pick the unit in this file whose behaviour matters most to the people relying on it.'
         : 'Pick the unit in this file whose logic is most worth practicing.';
   const before = target.change?.before !== undefined ? `\n\n<source-before-commit>\n${target.change.before.replace(/\n$/, '')}\n</source-before-commit>` : '';

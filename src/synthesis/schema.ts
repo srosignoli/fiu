@@ -2,12 +2,15 @@ import { z } from 'zod';
 import { bugComments } from '../verify/defect.ts';
 import { diffLines } from '../verify/diff.ts';
 
-export type WorkoutKind = 'drill' | 'kata' | 'prediction';
+export type WorkoutKind = 'drill' | 'kata' | 'prediction' | 'diagnosis';
 
-export const NOUN: Record<WorkoutKind, string> = { drill: 'Drill', kata: 'Kata', prediction: 'Prediction' };
+export const NOUN: Record<WorkoutKind, string> = { drill: 'Drill', kata: 'Kata', prediction: 'Prediction', diagnosis: 'Diagnosis' };
+
+/** The kinds for people who don't read code: one answer, no code to work on, every one Quick. */
+export const answersOnly = (kind: WorkoutKind) => kind === 'prediction' || kind === 'diagnosis';
 
 /** What a Workout's Source Anchors must stay silent about before it is solved. */
-const SECRET: Record<WorkoutKind, string> = { drill: 'bug', kata: 'missing code', prediction: 'answer' };
+const SECRET: Record<WorkoutKind, string> = { drill: 'bug', kata: 'missing code', prediction: 'answer', diagnosis: 'cause' };
 
 /**
  * The fields every Workout output has. Kept to types, enums, and descriptions: providers' structured
@@ -20,7 +23,7 @@ function baseFields(kind: WorkoutKind) {
     worthPracticing: z
       .boolean()
       .describe(
-        kind === 'prediction'
+        answersOnly(kind)
           ? 'False if no user would ever notice how the target behaves (pure algorithms, plumbing, configuration). When false, explain in notWorthReason and leave every other field empty.'
           : 'False if the target is trivial CRUD, configuration, or glue code. When false, explain in notWorthReason and leave every other field empty.',
       ),
@@ -28,13 +31,13 @@ function baseFields(kind: WorkoutKind) {
     slug: z.string().describe('URL-safe short slug in kebab-case, e.g. "edf-tie-breaker".'),
     title: z.string().describe(`A short human title for the ${noun}.`),
     pillar: z.enum(['algorithm', 'pattern', 'library']),
-    estimatedMinutes: z.number().describe(kind === 'prediction' ? 'How long reading and answering takes: 2 to 5.' : `How long the ${noun} takes a competent developer: 2 to 15.`),
+    estimatedMinutes: z.number().describe(answersOnly(kind) ? 'How long reading and answering takes: 2 to 5.' : `How long the ${noun} takes a competent developer: 2 to 15.`),
     sourceAnchors: z
       .array(
         z.object({
           startLine: z.number().describe(`First line in the source file (1-based) this ${noun} is derived from.`),
           endLine: z.number().describe('Last line in the source file (inclusive).'),
-          explanation: z.string().describe(`What this region does in the original file. Shown ${kind === 'prediction' ? 'after answering' : 'to the developer before solving'}: neutral, silent about the ${SECRET[kind]}.`),
+          explanation: z.string().describe(`What this region does in the original file. Shown ${answersOnly(kind) ? 'after answering' : 'to the developer before solving'}: neutral, silent about the ${SECRET[kind]}.`),
         }),
       )
       .describe(`At least one region of the source file the ${noun} is derived from.`),
@@ -78,9 +81,19 @@ const solutionFields = (kind: WorkoutKind) => ({
     .describe(
       kind === 'prediction'
         ? 'The complete code file, faithful to the original: its behaviour is the true outcome.'
+        : kind === 'diagnosis'
+          ? 'The complete code file, faithful to the original: the healthy code, which shows no Symptom.'
         : `The complete, correct code file. Identical to startingCode except for the ${kind === 'drill' ? 'bug' : 'gap'}.`,
     ),
-  testSuiteCode: z.string().describe(kind === 'prediction' ? 'The complete test file: exactly one test per option, each asserting that option\'s outcome.' : 'The complete test file: 3 to 5 tests.'),
+  testSuiteCode: z
+    .string()
+    .describe(
+      kind === 'prediction'
+        ? 'The complete test file: exactly one test per option, each asserting that option\'s outcome.'
+        : kind === 'diagnosis'
+          ? 'The complete test file: exactly one test per Cause, each asserting that Cause\'s Symptom.'
+          : 'The complete test file: 3 to 5 tests.',
+    ),
   originalDefect: OriginalDefectSchema,
 });
 
@@ -136,6 +149,29 @@ export const CommitPredictionOutputSchema = PredictionOutputSchema.extend({
   previous: z.string().describe('The same unit extracted from the file before the commit, made self-contained the same way: the complete code file whose behaviour is the old-behaviour option.'),
 });
 export type CommitPredictionOutput = z.infer<typeof CommitPredictionOutputSchema>;
+
+/** One of a Diagnosis's four Causes. Every Cause has a Variant, the true one included: the Reference Solution is the healthy code. */
+export const DiagnosisCauseSchema = z.object({
+  text: z.string().describe('The possible cause, in plain English for someone who never reads code: no names from the code.'),
+  symptom: z.string().describe('What users would see if this Cause were real, in plain English with concrete values and no names from the code. The true Cause\'s Symptom is the incident shown; never name the Cause in it.'),
+  testName: z.string().describe('The exact name of the one test that asserts this Symptom.'),
+  correct: z.boolean().describe('True for exactly one Cause: the one behind the incident shown.'),
+  variant: z
+    .object({
+      original: z.string().describe('Text that occurs exactly once in referenceSolution, at most 3 lines.'),
+      changed: z.string().describe('What replaces it, so the code has this Cause.'),
+    })
+    .describe('The small change that makes this Cause real.'),
+});
+export type DiagnosisCause = z.infer<typeof DiagnosisCauseSchema>;
+
+export const DiagnosisOutputSchema = z.object({
+  ...baseFields('diagnosis'),
+  causes: z.array(DiagnosisCauseSchema).describe('Exactly 4 Causes, one true.'),
+  explanation: z.string().describe('Shown after answering: why the true Cause produces the incident, in plain English.'),
+  ...solutionFields('diagnosis'),
+});
+export type DiagnosisOutput = z.infer<typeof DiagnosisOutputSchema>;
 
 /** A Series asks at most this many questions about one unit. */
 export const MAX_SERIES_QUESTIONS = 5;
@@ -209,13 +245,14 @@ export const AnyWorkoutOutputSchema = z.object({
   scenario: z.string().optional().describe('Predictions only: the plain-English situation.'),
   options: z.array(PredictionOptionSchema.extend({ previous: z.boolean().optional() })).optional().describe('Predictions only: exactly 4 options.'),
   previous: z.string().optional().describe('Predictions from a commit only: the unit before the commit.'),
-  explanation: z.string().optional().describe('Predictions only: why the true option is true, shown after answering.'),
+  explanation: z.string().optional().describe('Predictions and Diagnoses: why the truth is true, shown after answering.'),
+  causes: z.array(DiagnosisCauseSchema).optional().describe('Diagnoses only: exactly 4 Causes, one true.'),
   originalDefect: OriginalDefectSchema.optional(),
 });
 export type AnyWorkoutOutput = z.infer<typeof AnyWorkoutOutputSchema>;
 
 export const outputSchemaFor = (kind: WorkoutKind, { fromCommit = false } = {}) =>
-  kind === 'drill' ? DrillOutputSchema : kind === 'kata' ? KataOutputSchema : fromCommit ? CommitPredictionOutputSchema : PredictionOutputSchema;
+  kind === 'drill' ? DrillOutputSchema : kind === 'kata' ? KataOutputSchema : kind === 'diagnosis' ? DiagnosisOutputSchema : fromCommit ? CommitPredictionOutputSchema : PredictionOutputSchema;
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -242,8 +279,8 @@ export function checkWorkoutOutput(
   };
   if (!SLUG.test(output.slug) || output.slug.length > 48) problems.push(`slug "${output.slug}" must be kebab-case, at most 48 characters.`);
   if (output.title.trim() === '') problems.push('title is empty.');
-  // Every Prediction is Quick: reading a Scenario and four options is a short wait's work.
-  const maxMinutes = kind === 'prediction' ? QUICK.maxMinutes : 15;
+  // Every Prediction and Diagnosis is Quick: reading a Scenario and four options is a short wait's work.
+  const maxMinutes = answersOnly(kind) ? QUICK.maxMinutes : 15;
   if (!(output.estimatedMinutes >= 2 && output.estimatedMinutes <= maxMinutes)) {
     problems.push(`estimatedMinutes must be between 2 and ${maxMinutes}, not ${output.estimatedMinutes}.`);
   }
@@ -259,6 +296,7 @@ export function checkWorkoutOutput(
   empty('referenceSolution', output.referenceSolution);
   empty('testSuiteCode', output.testSuiteCode);
   if (kind === 'prediction') return [...problems, ...predictionProblems(output, fromCommit)];
+  if (kind === 'diagnosis') return [...problems, ...diagnosisProblems(output)];
 
   if (quick) {
     if (output.estimatedMinutes > QUICK.maxMinutes) problems.push(`a Quick ${noun} takes at most ${QUICK.maxMinutes} minutes, not ${output.estimatedMinutes}.`);
@@ -337,6 +375,42 @@ function predictionProblems(output: AnyWorkoutOutput, fromCommit: boolean): stri
   for (const [where, text] of shown) {
     const words = (text.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) ?? []).filter((w) => vocabulary.has(w));
     if (words.length > 0) problems.push(`${where} uses names from the code (${[...new Set(words)].join(', ')}): describe the behaviour in plain English.`);
+  }
+  return problems;
+}
+
+function diagnosisProblems(output: AnyWorkoutOutput): string[] {
+  const problems: string[] = [];
+  const causes = output.causes ?? [];
+  if (!output.explanation?.trim()) problems.push('explanation is empty.');
+  if (causes.length !== PREDICTION_OPTIONS) problems.push(`causes must contain exactly ${PREDICTION_OPTIONS} Causes, not ${causes.length}.`);
+  const correct = causes.filter((c) => c.correct).length;
+  if (correct !== 1) problems.push(`exactly one Cause must be correct, not ${correct}.`);
+
+  const testNames = new Set<string>();
+  const symptoms = new Set<string>();
+  causes.forEach((cause, i) => {
+    const which = `Cause ${i + 1}`;
+    if (!cause.text.trim()) problems.push(`${which}'s text is empty.`);
+    if (!cause.symptom.trim()) problems.push(`${which}'s symptom is empty.`);
+    else if (symptoms.has(normalised(cause.symptom))) problems.push(`${which}'s symptom is the same as another Cause's: each Cause shows up differently.`);
+    symptoms.add(normalised(cause.symptom));
+    if (!cause.testName.trim()) problems.push(`${which}'s testName is empty.`);
+    else if (testNames.has(cause.testName)) problems.push(`${which}'s testName "${cause.testName}" is used by another Cause: each Cause has its own test.`);
+    testNames.add(cause.testName);
+    const { original, changed } = cause.variant;
+    const found = original ? output.referenceSolution.split(original).length - 1 : 0;
+    if (!original) problems.push(`${which}'s variant.original is empty: every Cause needs a Variant, the true one too.`);
+    else if (found !== 1) problems.push(`${which}'s variant.original occurs ${found} times in referenceSolution; it must occur exactly once.`);
+    if (original && original === changed) problems.push(`${which}'s variant changes nothing.`);
+  });
+
+  // The Causes and Symptoms are for people who never read code.
+  const vocabulary = codeVocabulary(output.referenceSolution);
+  const shown = causes.flatMap((c, i): [string, string][] => [[`Cause ${i + 1}'s text`, c.text], [`Cause ${i + 1}'s symptom`, c.symptom]]);
+  for (const [where, text] of shown) {
+    const words = (text.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) ?? []).filter((w) => vocabulary.has(w));
+    if (words.length > 0) problems.push(`${where} uses names from the code (${[...new Set(words)].join(', ')}): describe it in plain English.`);
   }
   return problems;
 }

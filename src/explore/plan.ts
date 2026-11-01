@@ -4,16 +4,16 @@ import { usageOf, type ModelUsage } from '../cost/usage.ts';
 import type { ProviderOptions } from '../synthesis/model.ts';
 import type { Atlas } from '../atlas/store.ts';
 import type { Candidate } from './shortlist.ts';
-import { NOUN, type WorkoutKind } from '../synthesis/schema.ts';
+import { answersOnly, NOUN, type WorkoutKind } from '../synthesis/schema.ts';
 import type { PreferredKind } from '../config.ts';
 
 /**
- * The kinds a Track may use: those given (`kin explore --kinds`), else Predictions only for someone whose
- * \`kinds\` setting lists only Predictions (they don't read code), else all three.
+ * The kinds a Track may use: those given (`kin explore --kinds`), else exactly the no-code kinds for someone
+ * whose \`kinds\` setting lists only those (they don't read code), else all four.
  */
 export function trackKinds(preferred: readonly PreferredKind[], override?: readonly WorkoutKind[]): WorkoutKind[] {
   if (override && override.length > 0) return TRACK_KINDS.filter((k) => override.includes(k));
-  return preferred.length > 0 && preferred.every((k) => k === 'prediction') ? ['prediction'] : [...TRACK_KINDS];
+  return preferred.length > 0 && preferred.every(answersOnly) ? TRACK_KINDS.filter((k) => (preferred as readonly WorkoutKind[]).includes(k)) : [...TRACK_KINDS];
 }
 
 export const MIN_STEPS = 3;
@@ -22,7 +22,7 @@ export const MAX_ALTERNATES = 3;
 
 const StepSchema = z.object({
   path: z.string().describe('One of the candidate paths, exactly as listed.'),
-  kind: z.enum(['prediction', 'drill', 'kata']).describe('How this step is practised: one of the allowed kinds.'),
+  kind: z.enum(['prediction', 'diagnosis', 'drill', 'kata']).describe('How this step is practised: one of the allowed kinds.'),
   pillar: z.enum(['algorithm', 'pattern', 'library']),
   why: z.string().describe('One line: why understanding this file matters for the module.'),
 });
@@ -36,10 +36,11 @@ export type TrackPlan = z.infer<typeof TrackPlanSchema>;
 export type PlannedStep = z.infer<typeof StepSchema>;
 
 /** Every kind a Track step can be, in the order a Track usually uses them. */
-export const TRACK_KINDS: WorkoutKind[] = ['prediction', 'drill', 'kata'];
+export const TRACK_KINDS: WorkoutKind[] = ['prediction', 'diagnosis', 'drill', 'kata'];
 
 const KIND_LINES: Record<WorkoutKind, string> = {
   prediction: 'prediction: a plain-English Scenario about what the file does, with four outcomes to choose from, no code to read. Good for opening a Track: what the module does before how.',
+  diagnosis: 'diagnosis: a practice incident in plain English, with four possible causes to choose from, no code to read. Good after a Prediction: reasoning from what went wrong to why.',
   drill: 'drill: a realistic bug injected into the file, to find and fix. Good for the foundations: the core data structures and algorithms.',
   kata: 'kata: one piece of the file removed, to rebuild from a brief. Good for closing a Track: the file that ties the module together.',
 };
@@ -51,7 +52,7 @@ const KIND_LINES: Record<WorkoutKind, string> = {
 export function trackRules(kinds: readonly WorkoutKind[] = TRACK_KINDS): string {
   const mix =
     kinds.length > 1
-      ? `Use at least two different kinds across the steps. A good arc opens with a Prediction, puts Drills on the foundations, and closes with a Kata, when those kinds are allowed and the files suit them.`
+      ? `Use at least two different kinds across the steps. A good arc opens with a Prediction, then uses Diagnoses or Drills on the foundations, and closes with a Kata, when those kinds are allowed and the files suit them.`
       : `Every step is a ${NOUN[kinds[0]!]}.`;
   return `You design Tracks: short learning paths that teach a newcomer one module of a codebase through a few exercises, one per file.
 

@@ -20,6 +20,7 @@ import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox, type Sandbox } from '../sandbox/sandbox.ts';
 import { drillUserPrompt, MAX_SOURCE_LINES, seriesRetryPrompt, seriesRules, systemPromptFor } from '../synthesis/prompt.ts';
 import {
+  answersOnly,
   checkWorkoutOutput,
   expandSeries,
   MAX_SERIES_QUESTIONS,
@@ -270,8 +271,8 @@ export class AgentDrills {
     // Check the sandbox and toolchain (and warm its cache) before the agent spends effort on a Drill.
     await preflight(await this.#openSandbox(), profile, this.#options.cacheRoot);
 
-    // Every Prediction is Quick by its own rules; the flag only shapes Drills and Katas.
-    if (kind === 'prediction') quick = false;
+    // Every Prediction and Diagnosis is Quick by its own rules; the flag only shapes Drills and Katas.
+    if (answersOnly(kind)) quick = false;
     const generationId = randomUUID();
     this.#generations.set(generationId, {
       paths,
@@ -364,6 +365,7 @@ export class AgentDrills {
         testSuiteCode: workout.testSuiteCode,
         regressionTestName: workout.regressionTestName,
         options: workout.options,
+        causes: workout.causes,
         source: generation.source,
         lineComment: generation.profile.lineComment,
       },

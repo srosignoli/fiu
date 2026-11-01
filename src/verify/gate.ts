@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import type { LanguageProfile, TestResult, TestRun } from '../languages/profile.ts';
 import { runTests } from '../languages/run.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
-import type { PredictionOption, WorkoutKind } from '../synthesis/schema.ts';
+import type { DiagnosisCause, PredictionOption, WorkoutKind } from '../synthesis/schema.ts';
 import { matchSource, unanchoredRegions } from './defect.ts';
 import { diffLines, type Hunk } from './diff.ts';
 
@@ -21,7 +21,9 @@ export interface Candidate {
   regressionTestName?: string;
   /** Prediction only: its four options, each pinned by its own test. */
   options?: PredictionOption[];
-  /** Prediction only: the source file, where a Variant must not be found (it would be what the code really does). */
+  /** Diagnosis only: its four Causes, each a Variant with a test for its Symptom. */
+  causes?: DiagnosisCause[];
+  /** Prediction and Diagnosis: the source file, where a Variant must not be found (it would be what the code really does). */
   source?: string;
   lineComment?: string;
   /** Prediction from a commit only: the unit before the commit, the old-behaviour option's code. */
@@ -66,6 +68,7 @@ export async function verify(
   { cacheRoot }: VerifyOptions = {},
 ): Promise<Verification> {
   if (candidate.kind === 'prediction') return verifyPrediction(candidate, profile, sandbox, cacheRoot);
+  if (candidate.kind === 'diagnosis') return verifyDiagnosis(candidate, profile, sandbox, cacheRoot);
   const referenceRun = await runInTempWorkout(candidate.referenceSolution, candidate.testSuiteCode, profile, sandbox, cacheRoot);
   const startingRun = await runInTempWorkout(candidate.startingCode ?? '', candidate.testSuiteCode, profile, sandbox, cacheRoot);
 
@@ -182,7 +185,7 @@ export function checkMinimalDiff(candidate: Candidate): CheckFailure[] {
   return [];
 }
 
-/** A wrong option's Variant: the Reference Solution with its one snippet replaced. */
+/** A Variant: the Reference Solution with its one snippet replaced. */
 export function buildVariant(referenceSolution: string, variant: PredictionOption['variant']): string {
   return referenceSolution.replace(variant.original, () => variant.changed);
 }
@@ -215,8 +218,52 @@ async function verifyPrediction(candidate: Candidate, profile: LanguageProfile, 
   return failures.length === 0 ? { verified: true, referenceRun, variantRuns } : { verified: false, failures };
 }
 
+/**
+ * A Diagnosis's gate: against the healthy Reference Solution no Symptom test passes, and against each
+ * Cause's Variant only that Cause's test passes; every other test fails by assertion. Each Variant is one
+ * small region, distinct from the others. A wrong Cause isn't what the source does; the true one may be,
+ * which is the notice that the bug may be real (§11.7).
+ */
+async function verifyDiagnosis(candidate: Candidate, profile: LanguageProfile, sandbox: Sandbox, cacheRoot: string | undefined): Promise<Verification> {
+  const causes = candidate.causes ?? [];
+  const run = (code: string) => runInTempWorkout(code, candidate.testSuiteCode, profile, sandbox, cacheRoot);
+  const referenceRun = await run(candidate.referenceSolution);
+  const codes = causes.map((cause) => buildVariant(candidate.referenceSolution, cause.variant));
+  const variantRuns: TestRun[] = [];
+  for (const code of codes) variantRuns.push(await run(code));
+
+  const failures = [
+    ...checkOptionTests(causes, referenceRun),
+    ...checkNoSymptom(causes, referenceRun),
+    ...causes.flatMap((_, i) => checkOutcomes(causes, i, `Cause ${i + 1}'s Variant`, variantRuns[i]!)),
+    // The source check below is the Diagnosis's own: a true Cause found in the source isn't a failure.
+    ...codes.flatMap((code, i) =>
+      checkVariantDiff({ ...candidate, source: undefined }, i, code, codes.slice(0, i).map((earlier, index) => ({ index, code: earlier }))),
+    ),
+    ...codes.flatMap((code, i): CheckFailure[] =>
+      !causes[i]!.correct && candidate.source !== undefined && matchSource({ referenceSolution: candidate.referenceSolution, startingCode: code }, candidate.source, candidate.lineComment)
+        ? [{ check: 'real-variant', message: `Cause ${i + 1} is what the source does, so it can't be a wrong Cause: the Reference Solution must behave like the healthy code, and if the source has this bug, say so in originalDefect.` }]
+        : [],
+    ),
+  ];
+  return failures.length === 0 ? { verified: true, referenceRun, variantRuns } : { verified: false, failures };
+}
+
+/** Against the healthy code, every Symptom test fails by assertion. */
+function checkNoSymptom(causes: DiagnosisCause[], run: TestRun): CheckFailure[] {
+  const fail = (message: string): CheckFailure[] => [{ check: 'outcomes', message, output: run.output }];
+  if (!run.ran) return fail('The tests did not run against the Reference Solution.');
+  const problems: string[] = [];
+  causes.forEach((cause, i) => {
+    const [test] = findTests(cause.testName, run.tests);
+    if (test?.outcome === 'pass') problems.push(`Cause ${i + 1}'s test passes`);
+    else if (test?.outcome === 'error') problems.push(`Cause ${i + 1}'s test crashes`);
+  });
+  return problems.length === 0 ? [] : fail(`The Reference Solution is the healthy code, so every Symptom test must fail against it by assertion: ${problems.join('; ')}.`);
+}
+
 /** Each option names exactly one test, and every test belongs to an option. */
-export function checkOptionTests(options: PredictionOption[], run: TestRun): CheckFailure[] {
+export function checkOptionTests(options: Pick<PredictionOption, 'testName'>[], run: TestRun): CheckFailure[] {
   if (!run.ran) return [];
   const fail = (message: string): CheckFailure[] => [{ check: 'option-tests', message }];
   const known = run.tests.map((t) => t.name).join(', ');
@@ -229,12 +276,12 @@ export function checkOptionTests(options: PredictionOption[], run: TestRun): Che
     else claimed.add(matches[0]!.name);
   });
   const extra = run.tests.filter((t) => !claimed.has(t.name));
-  if (problems.length === 0 && extra.length > 0) problems.push(`these tests belong to no option: ${describe(extra)}; a Prediction has exactly one test per option`);
+  if (problems.length === 0 && extra.length > 0) problems.push(`these tests belong to no option: ${describe(extra)}; there is exactly one test per option`);
   return problems.length === 0 ? [] : fail(`${problems.join('; ')}. The tests are: ${known}.`);
 }
 
 /** Against one version of the code, only the expected option's test passes; the others fail by assertion. */
-export function checkOutcomes(options: PredictionOption[], expected: number, label: string, run: TestRun): CheckFailure[] {
+export function checkOutcomes(options: Pick<PredictionOption, 'testName'>[], expected: number, label: string, run: TestRun): CheckFailure[] {
   const fail = (message: string): CheckFailure[] => [{ check: 'outcomes', message, output: run.output }];
   if (!run.ran) return fail(`The tests did not run against ${label}.`);
   const problems: string[] = [];

@@ -13,7 +13,7 @@ import { createModel as createModelDefault } from '../synthesis/model.ts';
 import { generateWorkout, type GenerationResult } from '../synthesis/generate.ts';
 import { shortlist } from '../explore/shortlist.ts';
 import { practiceByFile } from '../map/map.ts';
-import { NOUN, type WorkoutKind } from '../synthesis/schema.ts';
+import { answersOnly, NOUN, type WorkoutKind } from '../synthesis/schema.ts';
 import { sourceRevision } from '../workouts/save.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from '../workspace.ts';
 
@@ -24,7 +24,7 @@ export interface DrillCommandOptions {
   sandbox: boolean;
   /** --quick: a Drill that fits a short wait. */
   quick?: boolean;
-  /** `kin kata` and `kin predict`: a Kata or a Prediction instead of a Drill. */
+  /** `kin kata`, `kin predict`, and `kin diagnose`: another kind instead of a Drill. */
   kind?: WorkoutKind;
   /** `kin predict --questions`: how many questions the Series asks (default: the `predictionQuestions` setting). */
   questions?: number;
@@ -52,7 +52,7 @@ export class DrillTargetError extends Error {}
 /** `kin drill <file>[#symbol]` (and `kin kata`, `kin predict`): generate a Workout, verify it, and save it. */
 export async function drill(
   cwd: string,
-  /** A file, optionally `#symbol`. For a Prediction also a directory, or undefined for the repository root. */
+  /** A file, optionally `#symbol`. For a Prediction or Diagnosis also a directory, or undefined for the repository root. */
   target: string | undefined,
   options: DrillCommandOptions,
   ui: DrillUi,
@@ -68,7 +68,7 @@ export async function drill(
   const repoConfig = await loadRepoConfig(paths.configFile);
   const userConfig = await loadUserConfig(configEnv);
   const config = resolveConfig(repoConfig, userConfig);
-  const directory = kind === 'prediction' ? directoryTarget(cwd, repoRoot, target) : undefined;
+  const directory = answersOnly(kind) ? directoryTarget(cwd, repoRoot, target) : undefined;
   if (directory !== undefined) {
     target = await pickUnpractised(repoRoot, directory, config.profiles, paths);
     ui.step(`Asking about ${target}`);
@@ -114,8 +114,8 @@ export async function drill(
       createModel,
       target: { path: sourcePath, source: await readFile(file, 'utf8'), symbol },
       revision: await sourceRevision(repoRoot, sourcePath),
-      // Every Prediction is Quick by its own rules; the flag only shapes Drills and Katas.
-      quick: kind !== 'prediction' && (options.quick ?? false),
+      // Every Prediction and Diagnosis is Quick by its own rules; the flag only shapes Drills and Katas.
+      quick: !answersOnly(kind) && (options.quick ?? false),
       kind,
       ...(kind === 'prediction' ? { questions: options.questions ?? config.predictionQuestions } : {}),
       origin: 'manual',

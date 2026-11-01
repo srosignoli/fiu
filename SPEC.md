@@ -41,6 +41,7 @@ The long-term product has several workflows (see §11). **v1 ships exactly one:*
 | `kin init` | Creates `.kintsugi/`, appends `.kintsugi/` to `.git/info/exclude`, runs the sandbox canary (§7), prints a tip on disabling AI completions inside `.kintsugi/` in your editor. |
 | `kin drill <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill (Quick with `--quick`) from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
 | `kin kata <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Like `kin drill`, but generates a Kata: one piece of the unit removed, rebuilt from a brief (§11.5). |
+| `kin diagnose [<file>[#symbol] \| <dir>] [--no-train] [--yes] [--no-sandbox]` | Generate a Diagnosis: a practice incident and four possible Causes, each measured (§11.13). |
 | `kin explore <path> [--yes] [--no-sandbox] [--no-train] [--kinds <list>]` / `kin explore --about "<goal>"` | Build a Track for a module directory (§11.3.1), or for the module a goal is about, found through the Atlas (§11.10). |
 | `kin track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
 | `kin share [<id>...] [--atlas] [--remote <name>]` / `kin fetch [--remote <name>] [--no-sandbox]` | Share Workouts, Tracks, or the Atlas with the team on the `kintsugi/workouts` branch, or bring in theirs, Workouts re-verified (§11.3.2, §11.10). |
@@ -439,7 +440,7 @@ Kintsugi now **notices such a bug and reports it after the Attempt**. It doesn't
 - **Prompt rule** (Drills and Katas): *"Keep the Reference Solution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect."* A Drill may still use that defect as its bug, as the dogfooded one did. A Kata whose removed region fixes the original gets only the model report, since its Starting Code is a placeholder.
 - **No comments in the bug** (Drills, enforced from now on; the prompt already forbade them). Comparing the two sides of the changed region by their trailing comments (via `lineComment`), a comment on a buggy line that the fixed side doesn't have is `[schema]` retry feedback: *"The bug region carries a comment that points at the bug; remove it."*
 - **Agent mode:** `originalDefect` is part of the schema `submit_drill` accepts, and the agent gets the same prompt rule. `list_workouts` doesn't report it.
-- **Not in v3.4:** choosing targets for suspected defects (see §11.13); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
+- **Not in v3.4:** choosing targets for suspected defects (see §11.14); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
 
 ### 11.8 v4.0: Predictions (implemented)
 
@@ -621,13 +622,42 @@ For the people Predictions serve, the dangerous state isn't not knowing how the 
 - **`kin stats [<path>] [--json]`:** overall Prediction accuracy; the calibration table (answers and hit rate per level, against the expected rate); the last 30 days against before; accuracy per directory, worst first; the Blind Spots. A rate is shown only with at least 3 answers behind it.
 - **Yours only.** Like the map, it never leaves the machine (ADR 0004); `--json` is there for anyone who wants to share their own. A team view would make honest answers costly, and the numbers worthless.
 
-**Not in v4.4:** confidence for Drills and Katas; spaced repetition of Blind Spots (§11.13).
+**Not in v4.4:** confidence for Drills and Katas; spaced repetition of Blind Spots (§11.14).
 
-### 11.13 Later (not yet designed)
+### 11.13 v5.0: Diagnosis
+
+Predictions ask what the system does; incidents ask the opposite: something happened, why? A **Diagnosis** gives someone who doesn't read code a practice incident in plain English and four possible causes, and every link between a cause and a Symptom is measured. It follows [ADR 0007](./docs/adr/0007-answers-are-measured-never-asserted.md).
+
+- **Shape.** One unit of the repository, made self-contained and treated as healthy (the Reference Solution). Four **Causes**, each a plain-English explanation with a small Variant of the code (at most 3 lines, one region), a test, and a **Symptom**: what users would see if that Cause were real. One Cause is true: the incident shown is its Symptom.
+- **`kin diagnose [<file>[#symbol] | <dir>] [--no-train] [--yes] [--no-sandbox]`.** A directory or no path picks a file as `kin predict` does (§11.8). Agent mode: `prepare_drill` with kind `diagnosis`.
+
+**Verified, measured five times:**
+
+1. Against the Reference Solution, every Symptom test fails by assertion: the healthy code shows no Symptom.
+2. Against each Cause's Variant, only that Cause's test passes; the others fail by assertion, and none crashes.
+3. Exactly one test per Cause, no others; the Variants are one small region each, all different.
+4. A wrong Cause's Variant isn't what the source already does. The true Cause's may be: see below.
+5. Causes and Symptoms use no names from the code, and no two Symptoms are the same text.
+
+The gate proves that among these four, only the true Cause produces the incident's measured behaviour. That the English says what the tests assert is the model's word, as for Predictions.
+
+**Answering.**
+
+- Kintsugi, not the model, opens with *Practice incident: this didn't happen. The code here was changed on purpose.* Readers who can't see the code could otherwise believe production has this bug.
+- One answer, Causes shuffled per Attempt, then *How sure were you?* (§11.12). Right is Completed; wrong is Abandoned.
+- The reveal: the true Cause and why it produces the Symptom; for a wrong answer, what the chosen Cause would have shown up as instead; where this lives; after a wrong answer, `[d]` for the code difference behind the true Cause.
+- **When the bug might be real.** If the true Cause's changed lines are already in the source, or the model reports a defect in the original, the §11.7 notice follows the Attempt.
+
+**With the rest.** Quick by its own rules, so `kin quick` serves it. It counts toward `kin stats`, which becomes *Your answers*, split by kind, and toward Blind Spots. It can be a Track step (§11.11). `kinds` accepts `diagnosis`: `kin quick` honours it first, commit generation skips it, and a personal `kinds` of only no-code kinds (`prediction`, `diagnosis`) makes a Track of exactly those. Shared and re-verified on fetch like any Workout.
+
+**Not in v5.0:** a Series of Diagnoses; Diagnoses from commits or in the background; running diagnostic checks before answering (§11.14).
+
+### 11.14 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 
 - **End-of-task Predictions in agent mode:** what the agent just changed, before it's committed (§11.9).
+- **Diagnostic checks:** letting someone answering a Diagnosis run a check first ("what happens if you retry it?"), measured, to rule Causes out as in a real incident (§11.13).
 - **Distinct from what's saved:** checking a new Prediction or Series against Predictions already saved for the same file (§11.11).
 - **Aiming at real bugs:** preferring units with suspected defects when choosing what to drill, if `defectConfirmed` (§11.7) shows the reports are mostly right.
 - **Socratic coach:** LLM-powered hints on `[h]` that read the human's current code.

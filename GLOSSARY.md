@@ -26,6 +26,10 @@ _Avoid_: Chaos kata, chaos drill, mutant debugging, incident
 A Workout where the human reads a Scenario and predicts which of four outcomes the system produces, without reading code. Each outcome is measured by running code, never asserted by the model.
 _Avoid_: Quiz, question, scenario (as the umbrella term)
 
+**Diagnosis**:
+A Workout where the human reads a practice incident and chooses which of four Causes explains it, without reading code. Each Cause's link to its Symptom is measured by running code, never asserted by the model.
+_Avoid_: Triage, root-cause quiz, incident (the incident is what it shows)
+
 **Series**:
 Several Predictions about the same unit of code, generated together and answered one after another. Each question is its own Prediction, Verified and attempted on its own. A Series is not itself a Workout.
 _Avoid_: Quiz, question set, batch
@@ -67,6 +71,14 @@ _Avoid_: Old code, before-version, baseline
 For one wrong option of a Prediction: the Reference Solution with a single small region changed to model a plausible misunderstanding. What it does is that option's outcome.
 _Avoid_: Mutant, distractor, decoy
 
+**Cause**:
+One of a Diagnosis's four possible explanations: plain English, with a Variant of the code. Exactly one is true for the incident shown.
+_Avoid_: Option, answer, root cause
+
+**Symptom**:
+What users would see if a Cause were real, measured by its test: that test passes against the Cause's Variant and fails against the healthy code and every other Variant. The true Cause's Symptom is the incident shown.
+_Avoid_: Incident report (that's a Drill's README), error
+
 **Hint**:
 One of a fixed, ordered set of nudges prepared with a Workout and revealed to the human one at a time on request.
 _Avoid_: Clue, tip
@@ -87,7 +99,7 @@ _Avoid_: Provider, mode, backend
 The test in a Drill that specifically exposes the injected bug.
 
 **Verified**:
-A Workout is Verified when its Reference Solution passes every test; its Starting Code runs but fails at least one test by assertion while passing at least one other (for a Drill, the failures include the Regression Test); and its Starting Code differs from the Reference Solution by a single small region (the injected bug, or the gap). A Prediction is Verified when, against the Reference Solution, only the true option's test passes; against each Variant, only that option's test passes; every other test fails by assertion; and each Variant differs from the Reference Solution by a single small region. A Prediction from a commit must also pass against its Previous Version in the same way, and that version's changed lines must be found in the file before the commit.
+A Workout is Verified when its Reference Solution passes every test; its Starting Code runs but fails at least one test by assertion while passing at least one other (for a Drill, the failures include the Regression Test); and its Starting Code differs from the Reference Solution by a single small region (the injected bug, or the gap). A Prediction is Verified when, against the Reference Solution, only the true option's test passes; against each Variant, only that option's test passes; every other test fails by assertion; and each Variant differs from the Reference Solution by a single small region. A Prediction from a commit must also pass against its Previous Version in the same way, and that version's changed lines must be found in the file before the commit. A Diagnosis is Verified when, against the Reference Solution, no Symptom test passes; against each Cause's Variant, only that Cause's test passes; every other test fails by assertion; and each Variant differs from the Reference Solution by a single small region.
 _Avoid_: Valid, checked
 
 ### Languages
@@ -99,11 +111,11 @@ _Avoid_: Adapter, language plugin, runtime
 ### Progress
 
 **Completed**:
-An Attempt is Completed when the human's code passes every one of the Workout's original tests (editing the tests to pass doesn't count). An Attempt at a Prediction is Completed when its one answer is the true option.
+An Attempt is Completed when the human's code passes every one of the Workout's original tests (editing the tests to pass doesn't count). An Attempt at a Prediction or Diagnosis is Completed when its one answer is the true one.
 _Avoid_: Solved, passed, mastered
 
 **Abandoned**:
-An Attempt is Abandoned when the human gives up and reveals the Reference Solution before Completing it. An Attempt at a Prediction is Abandoned when its one answer is wrong: the truth is then revealed.
+An Attempt is Abandoned when the human gives up and reveals the Reference Solution before Completing it. An Attempt at a Prediction or Diagnosis is Abandoned when its one answer is wrong: the truth is then revealed.
 _Avoid_: Skipped, failed, given up
 
 **Practised**:
@@ -115,7 +127,7 @@ Practice on a file is Stale when the file has changed substantially since the co
 _Avoid_: Outdated, expired (expiry is for queued Workouts)
 
 **Blind Spot**:
-A file where the human's most recent first answer to a Prediction was certain and wrong: a confident, wrong picture of what the code does. A later right answer on that file clears it.
+A file where the human's most recent first answer to a Prediction or Diagnosis was certain and wrong: a confident, wrong picture of what the code does. A later right answer on that file clears it.
 _Avoid_: Weak spot, gap, debt (that's the map's word for unpractised code)
 
 **Discarded**:

@@ -624,7 +624,9 @@ For the people Predictions serve, the dangerous state isn't not knowing how the 
 
 **Not in v4.4:** confidence for Drills and Katas; spaced repetition of Blind Spots (§11.14).
 
-### 11.13 v5.0: Diagnosis
+### 11.13 v5.0: Diagnosis (implemented)
+
+*v5.0.0 was tagged on 2026-11-01, package still private. Verified for real in agent mode, with headless Claude Code calling Kintsugi's tools through a test harness (API mode has no key here; covered by mock-model tests). The first pass made 4 Diagnoses (`queue.ts`, `refill.ts`, `commits.ts` as a Track step, and the SSTorytime copy's `NormalizeContext`), each Verified on the first submission for about $0.40 of agent spend, but they were too easy: only one Cause shared words with the incident, or the incident held a comparison pointing at it, so they could be answered without any picture of the system. No mechanical check can see this, so the prompt now requires wrong Causes a reasonable person would suspect from the incident, and incidents written as users report them; 3 regenerated Diagnoses were clearly harder and still Verified first time ($0.45 to $0.65). On `NormalizeContext` the model reported the file's real bug (§11.7), though the Diagnosis was about something else. The Track on `src/background` came out as a Prediction, a Diagnosis, and a Kata. Not yet done: `kin diagnose` through the API, and real people answering, which is what will show whether these are the right difficulty.*
 
 Predictions ask what the system does; incidents ask the opposite: something happened, why? A **Diagnosis** gives someone who doesn't read code a practice incident in plain English and four possible causes, and every link between a cause and a Symptom is measured. It follows [ADR 0007](./docs/adr/0007-answers-are-measured-never-asserted.md).
 

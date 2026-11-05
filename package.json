@@ -1,6 +1,6 @@
 {
   "name": "fiutsu",
-  "version": "5.1.0",
+  "version": "6.0.0",
   "private": true,
   "description": "A nose for code you never typed: real code from the repository, turned into small, verified practice Workouts.",
   "license": "MIT",

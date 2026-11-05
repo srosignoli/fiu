@@ -5,7 +5,7 @@ import { after } from 'node:test';
 import { execa } from 'execa';
 
 export async function tempDir(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'kintsugi-test-'));
+  const dir = await mkdtemp(join(tmpdir(), 'fiutsu-test-'));
   after(() => rm(dir, { recursive: true, force: true }));
   return dir;
 }

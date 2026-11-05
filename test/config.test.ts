@@ -20,12 +20,12 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 }
 
 describe('userConfigPath', () => {
-  it('defaults to ~/.config/kintsugi', () => {
-    assert.equal(userConfigPath({ env: {}, home: '/home/u' }), '/home/u/.config/kintsugi/config.json');
+  it('defaults to ~/.config/fiutsu', () => {
+    assert.equal(userConfigPath({ env: {}, home: '/home/u' }), '/home/u/.config/fiutsu/config.json');
   });
 
   it('honours XDG_CONFIG_HOME', () => {
-    assert.equal(userConfigPath({ env: { XDG_CONFIG_HOME: '/xdg' }, home: '/home/u' }), '/xdg/kintsugi/config.json');
+    assert.equal(userConfigPath({ env: { XDG_CONFIG_HOME: '/xdg' }, home: '/home/u' }), '/xdg/fiutsu/config.json');
   });
 });
 
@@ -83,7 +83,7 @@ describe('resolveApiKey', () => {
 
   it('reads the key from the user config', async () => {
     const home = await tempDir();
-    await writeJson(join(home, '.config', 'kintsugi', 'config.json'), { apiKeys: { anthropic: 'from-file' } });
+    await writeJson(join(home, '.config', 'fiutsu', 'config.json'), { apiKeys: { anthropic: 'from-file' } });
     const user = await loadUserConfig({ env: {}, home });
     assert.equal(resolveApiKey('anthropic', user, configEnv({})), 'from-file');
   });
@@ -97,7 +97,7 @@ describe('resolveApiKey', () => {
     assert.throws(() => resolveApiKey('google', {}, configEnv({})), (error: Error) => {
       assert.ok(error instanceof MissingApiKeyError);
       assert.match(error.message, /GOOGLE_GENERATIVE_AI_API_KEY/);
-      assert.match(error.message, /\/home\/u\/\.config\/kintsugi\/config\.json/);
+      assert.match(error.message, /\/home\/u\/\.config\/fiutsu\/config\.json/);
       return true;
     });
   });

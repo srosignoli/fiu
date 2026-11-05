@@ -4,22 +4,30 @@ import { join } from 'node:path';
 import { execa } from 'execa';
 
 /** The branch teammates share Workouts on (ADR 0006). */
-export const SHARED_BRANCH = 'kintsugi/workouts';
-/** Kintsugi's private copy of the remote branch: no local branch appears in `git branch`. */
-export const SHARED_REF = 'refs/kintsugi/workouts';
+export const SHARED_BRANCH = 'fiutsu/workouts';
+/** Fiutsu's private copy of the remote branch: no local branch appears in `git branch`. */
+export const SHARED_REF = 'refs/fiutsu/workouts';
+/** The shared branch's name up to v5.1, when Fiutsu was called Kintsugi: still read, never written. */
+export const LEGACY_SHARED_BRANCH = 'kintsugi/workouts';
 
 const git = (repo: string, args: string[], options: { env?: Record<string, string>; input?: string } = {}) =>
   execa('git', args, { cwd: repo, reject: false, ...options });
 
 export class SharingError extends Error {}
 
-/** Fetches the shared branch into SHARED_REF; returns its commit, or undefined when nothing has been shared yet. */
+/**
+ * Fetches the shared branch into SHARED_REF; returns its commit, or undefined when nothing has been shared yet.
+ * A remote that only has the branch from before the rename (Kintsugi) is read from that one, so the next
+ * share continues its history on SHARED_BRANCH.
+ */
 export async function fetchShared(repo: string, remote: string): Promise<string | undefined> {
-  const listed = await git(repo, ['ls-remote', '--heads', remote, SHARED_BRANCH]);
+  const listed = await git(repo, ['ls-remote', '--heads', remote, SHARED_BRANCH, LEGACY_SHARED_BRANCH]);
   if (listed.exitCode !== 0) throw new SharingError(`Can't reach the remote "${remote}": ${listed.stderr.trim().split('\n')[0]}`);
-  if (listed.stdout.trim() === '') return undefined;
-  const fetched = await git(repo, ['fetch', '--no-tags', '--quiet', remote, `+refs/heads/${SHARED_BRANCH}:${SHARED_REF}`]);
-  if (fetched.exitCode !== 0) throw new SharingError(`Couldn't fetch ${SHARED_BRANCH} from "${remote}": ${fetched.stderr.trim().split('\n')[0]}`);
+  const heads = listed.stdout.split('\n').map((line) => line.split('\t')[1]);
+  const branch = heads.includes(`refs/heads/${SHARED_BRANCH}`) ? SHARED_BRANCH : heads.includes(`refs/heads/${LEGACY_SHARED_BRANCH}`) ? LEGACY_SHARED_BRANCH : undefined;
+  if (!branch) return undefined;
+  const fetched = await git(repo, ['fetch', '--no-tags', '--quiet', remote, `+refs/heads/${branch}:${SHARED_REF}`]);
+  if (fetched.exitCode !== 0) throw new SharingError(`Couldn't fetch ${branch} from "${remote}": ${fetched.stderr.trim().split('\n')[0]}`);
   return (await git(repo, ['rev-parse', SHARED_REF])).stdout.trim();
 }
 
@@ -52,7 +60,7 @@ export async function hashFile(repo: string, path: string): Promise<string> {
  * the user's own index, working tree, and current branch are never touched.
  */
 export async function commitWith(repo: string, parent: string | undefined, additions: Map<string, string>, message: string): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'kintsugi-index-'));
+  const dir = await mkdtemp(join(tmpdir(), 'fiutsu-index-'));
   const env = { GIT_INDEX_FILE: join(dir, 'index') };
   try {
     if (parent) await execa('git', ['read-tree', parent], { cwd: repo, env });

@@ -20,7 +20,7 @@ export interface SkeletonFile {
   lines: number;
   /** Source worth describing: not a test, generated, or vendored file. */
   described: boolean;
-  /** Over the 3,000 lines Kintsugi generates Workouts from. */
+  /** Over the 3,000 lines Fiutsu generates Workouts from. */
   tooLong: boolean;
   /** The file's logic score, when it has one (§11.4). */
   score?: number;
@@ -48,7 +48,7 @@ export const blobHash = (content: Buffer) => createHash('sha1').update(`blob ${c
 
 const parentOf = (path: string) => (dirname(path) === '.' ? '' : dirname(path));
 
-/** The Atlas's structure: the files `kin map` shows, their symbols, and the folders that hold them. */
+/** The Atlas's structure: the files `fiu map` shows, their symbols, and the folders that hold them. */
 export async function buildSkeleton(repoRoot: string, profiles: readonly LanguageProfile[]): Promise<Skeleton> {
   const { stdout } = await execa('git', ['ls-files', '-z'], { cwd: repoRoot });
   const files = new Map<string, SkeletonFile>();
@@ -117,5 +117,5 @@ export function atlasScope(repoRoot: string, cwd: string, path: string | undefin
   if (scope.startsWith('..')) throw new AtlasTargetError(`${path} is outside the repository at ${repoRoot}.`);
   if (scope === '' || skeleton.folders.has(scope)) return scope;
   if (skeleton.files.has(scope)) throw new AtlasTargetError(`${path} is a file: the Atlas is built a folder at a time. Build its folder instead.`);
-  throw new AtlasTargetError(`${path} holds no source files Kintsugi recognises.`);
+  throw new AtlasTargetError(`${path} holds no source files Fiutsu recognises.`);
 }

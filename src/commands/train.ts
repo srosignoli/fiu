@@ -18,7 +18,7 @@ import { incidentOf, PRACTICE_INCIDENT, WHAT_IF_LIMITS, whatIfLines, type Workou
 import { listWorkouts, loadWorkout, nextInSeries, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 
-/** The terminal, as `kin train` sees it. */
+/** The terminal, as `fiu train` sees it. */
 export interface TrainIo {
   print(text: string): void;
   /** The next key pressed; undefined if the read was aborted. */
@@ -44,7 +44,7 @@ export interface TrainDependencies {
   cacheRoot?: string;
   /** Quiet period before a save triggers a run (tests shorten it). */
   debounceMs?: number;
-  /** `kin quick --while`: the user's command running alongside, announced when it ends and shown on [s]. */
+  /** `fiu quick --while`: the user's command running alongside, announced when it ends and shown on [s]. */
   background?: BackgroundCommand;
 }
 
@@ -56,7 +56,7 @@ export type TrainResult =
 
 export class UnknownProfileError extends Error {}
 
-/** `kin quick`: straight into the queue's best Quick Workout, no picker, no prompts. */
+/** `fiu quick`: straight into the queue's best Quick Workout, no picker, no prompts. */
 export async function quick(
   cwd: string,
   options: TrainOptions,
@@ -72,14 +72,14 @@ export async function quick(
   return train(cwd, next.record.id, options, io, dependencies);
 }
 
-/** The kinds `kin quick` serves first: the repository's `kinds`, else yours. */
+/** The kinds `fiu quick` serves first: the repository's `kinds`, else yours. */
 async function preferredKinds(repoConfig: RepoConfig, configEnv: ConfigEnv = { env: process.env, home: homedir() }) {
   return resolveConfig(repoConfig, await loadUserConfig(configEnv)).kinds;
 }
 
 export const KEYS_HELP = '[h] hint   [g] give up   [q] quit';
 
-/** `kin train [id]`: run a Workout's tests on every save until it is Completed, Abandoned, or left for later. */
+/** `fiu train [id]`: run a Workout's tests on every save until it is Completed, Abandoned, or left for later. */
 export async function train(
   cwd: string,
   id: string | undefined,
@@ -133,7 +133,7 @@ export async function train(
       io.print(`[n] next question (${next.record.series!.index} of ${next.record.series!.of})   [any other key] stop here`);
       const read = new AbortController();
       if ((await io.readKey(read.signal)) !== 'n') {
-        io.print(`The rest of the Series waits in the queue: kin train ${next.record.id}`);
+        io.print(`The rest of the Series waits in the queue: fiu train ${next.record.id}`);
         return result;
       }
       workout = next;
@@ -226,7 +226,7 @@ async function runSession(
 
   const number = attempt.record.number;
   if (outcome === 'quit') {
-    io.print(`Attempt ${number} left open. Resume with: kin train ${record.id}`);
+    io.print(`Attempt ${number} left open. Resume with: fiu train ${record.id}`);
     return { status: 'left-pending', workoutId: record.id, attempt: number };
   }
   io.print(outcome === 'completed' ? 'Completed. Well mended.' : 'Abandoned.');
@@ -267,7 +267,7 @@ async function readAnswer(io: TrainIo, indices: number[], id: string, number: nu
     const key = await io.readKey(read.signal);
     if (key === 'q' || key === undefined) {
       ended = true;
-      io.print(`Attempt ${number} left open. Resume with: kin train ${id}`);
+      io.print(`Attempt ${number} left open. Resume with: fiu train ${id}`);
       return 'left';
     }
     if (key === 's' && background) io.print(await backgroundStatus(background));
@@ -349,7 +349,7 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
 
   const { outcome, chosen, truth } = await session.answer(picked);
   if (record.whatIf) return revealWhatIf(session, io, { outcome, chosen, truth, confidence });
-  // In a Prediction from a commit, why the old behaviour is wrong is known for a fact: Kintsugi says it.
+  // In a Prediction from a commit, why the old behaviour is wrong is known for a fact: Fiutsu says it.
   const old = record.prediction!.options.find((o) => o.previous);
   const commit = record.commit ? `commit ${record.commit.sha.slice(0, 12)}` : 'the commit';
   const why = chosen.previous ? `That was true until ${commit}.` : chosen.misunderstanding.trim();
@@ -445,7 +445,7 @@ async function backgroundStatus(background: BackgroundCommand): Promise<string> 
 export type QuickWhileResult = { status: 'nothing-ready' } | { status: 'ran'; result: CommandResult };
 
 /**
- * `kin quick --while "<cmd>"`: the user's command runs in the background while they solve Quick
+ * `fiu quick --while "<cmd>"`: the user's command runs in the background while they solve Quick
  * Workouts. Returns how the command ended; with no Quick Workout ready it starts nothing, and the
  * caller runs the command in the foreground instead.
  */
@@ -478,8 +478,8 @@ export async function quickWhile(
       if (key !== 'y') break;
     }
   } catch (error) {
-    // Kintsugi failing must not cost the user their command: report it, and keep waiting.
-    io.print(`Kintsugi stopped: ${error instanceof Error ? error.message : String(error)}`);
+    // Fiutsu failing must not cost the user their command: report it, and keep waiting.
+    io.print(`Fiutsu stopped: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   if (!background.result) {

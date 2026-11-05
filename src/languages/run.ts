@@ -22,7 +22,7 @@ export const PREFLIGHT_TIMEOUT_MS = 60_000;
  * run starts with a warm cache. Throws ToolchainMissingError if it fails.
  */
 export async function preflight(sandbox: Sandbox, profile: LanguageProfile, cacheRoot = userCacheDir()): Promise<void> {
-  const cwd = await mkdtemp(join(tmpdir(), 'kintsugi-preflight-'));
+  const cwd = await mkdtemp(join(tmpdir(), 'fiutsu-preflight-'));
   try {
     if (profile.warmup) {
       for (const [name, content] of Object.entries({ ...profile.supportFiles, ...profile.warmup })) {

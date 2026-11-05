@@ -57,7 +57,7 @@ describe('first answers and Blind Spots', () => {
   });
 });
 
-describe('kin stats', () => {
+describe('fiu stats', () => {
   it('tallies accuracy, calibration, the trend, and directories, and renders rates only with enough answers', async () => {
     const { dir, answer } = await repo();
     await answer('core/queue.ts', true, 'certain', '2026-09-01T10:00:00.000Z');
@@ -77,7 +77,7 @@ describe('kin stats', () => {
     assert.match(text, /Guessing {8}— right {2}\(1 of 1; expected about 25%\)\n/);
     assert.match(text, /Certain {7}67% right {2}\(2 of 3; expected about 95%\) {2}overconfident/);
     assert.match(text, /Last 30 days: 67% \(2 of 3\); before: — \(2 of 2\)/);
-    assert.match(text, /⚠ Blind Spots: you were certain, and wrong\n {2}core\/store\.ts {3}check again: kin predict core\/store\.ts/);
+    assert.match(text, /⚠ Blind Spots: you were certain, and wrong\n {2}core\/store\.ts {3}check again: fiu predict core\/store\.ts/);
 
     const web = await answerStats(dir, 'web');
     assert.deepEqual(web.overall, { answers: 2, right: 2 });
@@ -85,11 +85,11 @@ describe('kin stats', () => {
 
   it('says how to start when nothing is answered', async () => {
     const { dir } = await repo();
-    assert.equal(renderStats(await answerStats(dir), { color: false }), 'Nothing answered yet. Ask for a Prediction with: kin predict');
+    assert.equal(renderStats(await answerStats(dir), { color: false }), 'Nothing answered yet. Ask for a Prediction with: fiu predict');
   });
 });
 
-describe('Blind Spots in kin map', () => {
+describe('Blind Spots in fiu map', () => {
   it('marks the file, counts it in its directory, and suggests checking it first', async () => {
     const { dir, answer } = await repo();
     await answer('core/store.ts', false, 'certain', '2026-10-20T10:00:00.000Z');
@@ -99,7 +99,7 @@ describe('Blind Spots in kin map', () => {
     const text = renderMap(report, { color: false });
     assert.match(text, /⚠ Blind Spot: you were certain, and wrong/);
     assert.match(text, /core +.*⚠1/);
-    assert.match(text, /kin predict core\/store\.ts {3}\(you were certain about it, and wrong: check your picture again\)/);
+    assert.match(text, /fiu predict core\/store\.ts {3}\(you were certain about it, and wrong: check your picture again\)/);
     assert.match(renderMap(await buildMap(dir, 'core', { configEnv }), { color: false }), /store\.ts +⚠ /);
   });
 });

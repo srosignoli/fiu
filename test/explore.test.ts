@@ -146,7 +146,7 @@ describe('checkPlan', () => {
 
 describe('averageSpend by kind', () => {
   it('prices a kind from the Workouts of that kind only', () => {
-    const entry = (workoutId: string, usd: number) => ({ at: '2026-10-31T00:00:00.000Z', origin: 'manual' as const, generator: 'kintsugi' as const, source: 'a.ts', result: 'verified' as const, workoutId, generationAttempts: 1, cost: { usage: [], usd, unpricedModels: [], pricesAsOf: '2026-10' } });
+    const entry = (workoutId: string, usd: number) => ({ at: '2026-10-31T00:00:00.000Z', origin: 'manual' as const, generator: 'fiutsu' as const, source: 'a.ts', result: 'verified' as const, workoutId, generationAttempts: 1, cost: { usage: [], usd, unpricedModels: [], pricesAsOf: '2026-10' } });
     const spend = [entry('drill_1', 0.4), entry('prediction_1', 0.2), entry('kata_1', 0.6)];
     assert.equal(averageSpend(spend, 10, 'prediction')?.usd, 0.2);
     assert.equal(averageSpend(spend, 10, 'kata')?.usd, 0.6);
@@ -170,7 +170,7 @@ describe('trackKinds', () => {
   });
 });
 
-describe(`kin explore (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
+describe(`fiu explore (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
   const three = ['src/core/store.ts', 'src/core/queue.ts', 'src/core/worker.ts'];
 
   it('builds a Track: steps in the planned order, each a Drill with its why', async () => {
@@ -268,7 +268,7 @@ describe(`kin explore (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.match(prompts[1]!, /tiny\.ts is not one of the candidate files/);
   });
 
-  it('keeps Track Drills out of kin quick and the background queue cap', async () => {
+  it('keeps Track Drills out of fiu quick and the background queue cap', async () => {
     const repo = await repoWithModule(MODULE);
     await run(repo, [plan(three), goodDrill({ slug: 'a', estimatedMinutes: 4 }), goodDrill({ slug: 'b', estimatedMinutes: 4 }), goodDrill({ slug: 'c', estimatedMinutes: 4 })]);
     const paths = workspacePaths(repo);
@@ -276,7 +276,7 @@ describe(`kin explore (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.equal(countsTowardQueueCap(await listWorkouts(paths)), 0);
   });
 
-  it('kin track opens the next step and reports a finished Track', async () => {
+  it('fiu track opens the next step and reports a finished Track', async () => {
     const repo = await repoWithModule(MODULE);
     const { result } = await run(repo, [plan(three), goodDrill({ slug: 'a' }), goodDrill({ slug: 'b' }), goodDrill({ slug: 'c' })]);
     const track = result.status === 'saved' ? result.track : assert.fail();

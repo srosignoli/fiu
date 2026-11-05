@@ -39,7 +39,7 @@ export async function shortlist(repoRoot: string, modulePath: string, profiles: 
   const absolute = join(repoRoot, modulePath);
   const info = await stat(absolute).catch(() => undefined);
   if (!info) throw new ExploreTargetError(`${modulePath} does not exist.`);
-  if (!info.isDirectory()) throw new ExploreTargetError(`${modulePath} is a file: explore a module directory, or drill one file with \`kin drill ${modulePath}\`.`);
+  if (!info.isDirectory()) throw new ExploreTargetError(`${modulePath} is a file: explore a module directory, or drill one file with \`fiu drill ${modulePath}\`.`);
 
   // Tracked files only: what the team shares, not local build output.
   const { stdout } = await execa('git', ['ls-files', '-z', '--', modulePath || '.'], { cwd: repoRoot });
@@ -70,7 +70,7 @@ export async function shortlist(repoRoot: string, modulePath: string, profiles: 
 /**
  * How much logic a source file holds: branching constructs per line, gently favouring bigger files (a
  * 40-line helper and a 600-line module can tie on density alone). Undefined for files too short or too
- * long to drill. Shared by `kin explore` and `kin map`.
+ * long to drill. Shared by `fiu explore` and `fiu map`.
  */
 export function logicScore(source: string): { lines: number; score: number } | undefined {
   const lines = source.split('\n').length;

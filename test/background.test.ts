@@ -10,7 +10,7 @@ const start = async (command: string) => {
   return BackgroundCommand.start(command, { cwd: dir, logFile: join(dir, 'while', 'last.log'), shell: '/bin/sh' });
 };
 
-describe('background commands (kin quick --while)', () => {
+describe('background commands (fiu quick --while)', () => {
   it('runs through the shell in the given directory, logging stdout and stderr, stdin closed', async () => {
     const command = await start('pwd; echo out && echo err >&2; cat; echo "stdin closed"');
     const result = await command.done;

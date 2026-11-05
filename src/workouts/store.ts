@@ -50,8 +50,8 @@ export const CostSchema = z.object({
 export const SpendSchema = z.object({
   at: z.iso.datetime(),
   origin: z.enum(['manual', 'agent-task', 'commit', 'explore']),
-  /** Entries from before agent mode are all `kintsugi`. */
-  generator: z.enum(['kintsugi', 'agent']).default('kintsugi'),
+  /** Entries from before agent mode are all `fiutsu`; those from before the rename say `kintsugi`. */
+  generator: z.preprocess((value) => (value === 'kintsugi' ? 'fiutsu' : value), z.enum(['fiutsu', 'agent']).default('fiutsu')),
   /** The source file, relative to the repository root. */
   source: z.string(),
   /**
@@ -63,7 +63,7 @@ export const SpendSchema = z.object({
   /** For a Prediction Series: every question it saved (`workoutId` is the first). */
   workoutIds: z.array(z.string()).optional(),
   generationAttempts: z.number().int().nonnegative(),
-  /** Null when the user's agent generated it: Kintsugi can't see its usage. */
+  /** Null when the user's agent generated it: Fiutsu can't see its usage. */
   cost: CostSchema.nullable(),
 });
 export type Spend = z.infer<typeof SpendSchema>;
@@ -81,7 +81,7 @@ const StateSchema = z.object({
       processed: z.array(z.string()).default([]),
       /** Commits that arrived while a generator was running (newest last). */
       backlog: z.array(z.object({ sha: z.string(), at: z.iso.datetime() })).default([]),
-      /** The last background failure a `kin quick`/`kin train` summary has already shown. */
+      /** The last background failure a `fiu quick`/`fiu train` summary has already shown. */
       failuresSeenAt: z.iso.datetime().optional(),
     })
     .default({ processed: [], backlog: [] }),
@@ -116,13 +116,13 @@ export function averageSpend(spend: Spend[], last = 10, kind?: WorkoutKind): { u
 
 export class WorkoutNotFoundError extends Error {
   constructor(id: string) {
-    super(`No Workout "${id}". Run \`kin train\` with no argument to pick one.`);
+    super(`No Workout "${id}". Run \`fiu train\` with no argument to pick one.`);
   }
 }
 
 export class WorkoutDiscardedError extends Error {
   constructor(id: string) {
-    super(`Workout "${id}" is discarded. Bring it back with \`kin restore ${id}\`.`);
+    super(`Workout "${id}" is discarded. Bring it back with \`fiu restore ${id}\`.`);
   }
 }
 
@@ -139,7 +139,7 @@ export interface StoredWorkout {
   status: WorkoutStatus;
 }
 
-/** Every Workout in .kintsugi/workouts/, newest first. */
+/** Every Workout in .fiutsu/workouts/, newest first. */
 export async function listWorkouts(paths: WorkspacePaths): Promise<StoredWorkout[]> {
   if (!existsSync(paths.workoutsDir)) return [];
   const state = await readState(paths);
@@ -189,7 +189,7 @@ export async function nextInSeries(paths: WorkspacePaths, record: WorkoutRecord)
   return open.find((w) => w.record.series!.index > record.series!.index) ?? open[0];
 }
 
-/** `kin discard <series-id>`: discards the Series' questions nobody has answered yet. Returns their ids. */
+/** `fiu discard <series-id>`: discards the Series' questions nobody has answered yet. Returns their ids. */
 export async function discardSeries(paths: WorkspacePaths, seriesId: string, now = new Date()): Promise<string[]> {
   const questions = await seriesQuestions(paths, seriesId);
   if (questions.length === 0) throw new WorkoutNotFoundError(seriesId);
@@ -217,5 +217,5 @@ export async function recordOutcome(paths: WorkspacePaths, outcome: Outcome): Pr
 /** v1 moved finished Workouts to done/; they can't be redone (their Starting Code was edited in place). */
 export function legacyDoneNotice(paths: WorkspacePaths): string | undefined {
   if (!existsSync(paths.doneDir)) return undefined;
-  return `Workouts finished with Kintsugi v1 stay in ${paths.doneDir} and aren't listed.`;
+  return `Workouts finished with Fiutsu v1 stay in ${paths.doneDir} and aren't listed.`;
 }

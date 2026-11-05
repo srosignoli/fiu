@@ -85,7 +85,7 @@ export interface MapOptions {
   now?: Date;
 }
 
-/** `kin map [<path>]`: your comprehension debt, by directory. Local and free: git history, your Attempts, logic scores. */
+/** `fiu map [<path>]`: your comprehension debt, by directory. Local and free: git history, your Attempts, logic scores. */
 export async function buildMap(cwd: string, scopePath = '', { configEnv = { env: process.env, home: homedir() }, now = new Date() }: MapOptions = {}): Promise<MapReport> {
   const repo = await findRepoRoot(cwd);
   const paths = workspacePaths(repo);

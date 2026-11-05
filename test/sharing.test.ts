@@ -10,7 +10,7 @@ import { profiles } from '../src/languages/registry.ts';
 import { listTracks, saveTrack } from '../src/explore/tracks.ts';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
-import { SHARED_REF } from '../src/sharing/git.ts';
+import { fetchShared, SHARED_REF } from '../src/sharing/git.ts';
 import { fetchWorkouts, fingerprint, NotShareableError, share } from '../src/sharing/share.ts';
 import type { DrillOutput } from '../src/synthesis/schema.ts';
 import { saveDrill, sourceRevision, type WorkoutRecord } from '../src/workouts/save.ts';
@@ -66,7 +66,7 @@ async function drillIn(repo: string, overrides: Partial<DrillOutput> = {}, dirty
 const fetchFor = async (repo: string) => fetchWorkouts(repo, { sandbox: sandboxWorks }, () => {}, { configEnv: { env: {}, home: await tempDir() }, cacheRoot: await tempDir() });
 
 describe(`team sharing (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
-  it('shares a Workout on the kintsugi/workouts branch without touching the checkout, and a teammate fetches it', async () => {
+  it('shares a Workout on the fiutsu/workouts branch without touching the checkout, and a teammate fetches it', async () => {
     const { origin, alice, bob } = await team();
     const workout = await drillIn(alice);
     const branchBefore = await git(alice, 'rev-parse', '--abbrev-ref', 'HEAD');
@@ -76,8 +76,8 @@ describe(`team sharing (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.deepEqual(report.warnings, []);
     assert.equal(await git(alice, 'rev-parse', '--abbrev-ref', 'HEAD'), branchBefore);
     assert.equal(await git(alice, 'status', '--porcelain'), '');
-    assert.equal(await git(alice, 'branch', '--list', 'kintsugi/*'), '', 'no local branch appears');
-    const files = await git(origin, 'ls-tree', '-r', '--name-only', 'kintsugi/workouts');
+    assert.equal(await git(alice, 'branch', '--list', 'fiutsu/*'), '', 'no local branch appears');
+    const files = await git(origin, 'ls-tree', '-r', '--name-only', 'fiutsu/workouts');
     assert.match(files, new RegExp(`^workouts/${workout.id}/\\.solution/kata\\.ts$`, 'm'));
     assert.doesNotMatch(files, /attempts|state\.json|config\.json/);
 
@@ -148,7 +148,7 @@ describe(`team sharing (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     await share(alice, [fromAlice.id]);
     // Bob never fetched Alice's push: his share must fetch, combine, and push again.
     await share(bob, [fromBob.id]);
-    const files = await git(origin, 'ls-tree', '-r', '--name-only', 'kintsugi/workouts');
+    const files = await git(origin, 'ls-tree', '-r', '--name-only', 'fiutsu/workouts');
     assert.match(files, new RegExp(`workouts/${fromAlice.id}/workout\\.json`));
     assert.match(files, new RegExp(`workouts/${fromBob.id}/workout\\.json`));
   });
@@ -188,7 +188,7 @@ describe(`team sharing (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     const workout = await drillIn(alice);
     await share(alice, [workout.id]);
     // Tamper with the shared Reference Solution so the tests fail against it.
-    await git(alice, 'fetch', '-q', 'origin', `+refs/heads/kintsugi/workouts:${SHARED_REF}`);
+    await git(alice, 'fetch', '-q', 'origin', `+refs/heads/fiutsu/workouts:${SHARED_REF}`);
     const tampered = (await git(alice, 'show', `${SHARED_REF}:workouts/${workout.id}/.solution/kata.ts`)).replace('job.at < best.at', 'job.at > best.at');
     const blob = (await execa('git', ['hash-object', '-w', '--stdin'], { cwd: alice, input: tampered })).stdout;
     const index = join(await tempDir(), 'index');
@@ -197,7 +197,7 @@ describe(`team sharing (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     await execa('git', ['update-index', '--cacheinfo', `100644,${blob},workouts/${workout.id}/.solution/kata.ts`], { cwd: alice, env });
     const tree = (await execa('git', ['write-tree'], { cwd: alice, env })).stdout;
     const commit = await git(alice, 'commit-tree', tree, '-p', SHARED_REF, '-m', 'tamper');
-    await git(alice, 'push', '-q', 'origin', `${commit}:refs/heads/kintsugi/workouts`);
+    await git(alice, 'push', '-q', 'origin', `${commit}:refs/heads/fiutsu/workouts`);
 
     const fetched = await fetchFor(bob);
     assert.deepEqual(fetched.imported, []);
@@ -267,7 +267,7 @@ describe('sharing the Atlas', () => {
     await writeAtlas(workspacePaths(alice), await describeQueue(alice, 'Picks jobs.'));
     const report = await share(alice, [], { atlas: true });
     assert.deepEqual(report.atlas, { entries: 2, changed: true });
-    assert.match(await git(origin, 'ls-tree', '-r', '--name-only', 'kintsugi/workouts'), /^atlas\.json$/m);
+    assert.match(await git(origin, 'ls-tree', '-r', '--name-only', 'fiutsu/workouts'), /^atlas\.json$/m);
     assert.deepEqual((await share(alice, [], { atlas: true })).atlas, { entries: 2, changed: false });
 
     await git(bob, 'pull', '-q');
@@ -306,7 +306,7 @@ describe('sharing the Atlas', () => {
     atlas.files['worker.ts'] = { hash: skeleton.files.get('worker.ts')!.hash, text: 'Runs jobs.', writtenAt: '2026-10-30T11:00:00.000Z', functions: {} };
     await writeAtlas(workspacePaths(bob), atlas);
     await share(bob, [], { atlas: true });
-    const shared = JSON.parse(await git(origin, 'show', 'kintsugi/workouts:atlas.json'));
+    const shared = JSON.parse(await git(origin, 'show', 'fiutsu/workouts:atlas.json'));
     assert.deepEqual(Object.keys(shared.files).sort(), ['queue.ts', 'worker.ts']);
   });
 
@@ -314,5 +314,18 @@ describe('sharing the Atlas', () => {
     const { alice } = await team();
     await assert.rejects(share(alice, []), NotShareableError);
     await assert.rejects(share(alice, [], { atlas: true }), /There is no Atlas to share yet/);
+  });
+});
+
+describe('the branch from before the rename', () => {
+  it('is read when the remote has no fiutsu/workouts yet, and fiutsu/workouts wins once it exists', async () => {
+    const { alice, bob } = await team();
+    const head = await git(alice, 'rev-parse', 'HEAD');
+    await git(alice, 'push', '-q', 'origin', `${head}:refs/heads/kintsugi/workouts`);
+    assert.equal(await fetchShared(bob, 'origin'), head);
+
+    const newer = await git(alice, 'commit-tree', `${head}^{tree}`, '-p', head, '-m', 'shared with Fiutsu');
+    await git(alice, 'push', '-q', 'origin', `${newer}:refs/heads/fiutsu/workouts`);
+    assert.equal(await fetchShared(bob, 'origin'), newer);
   });
 });

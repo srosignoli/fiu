@@ -20,11 +20,11 @@ export const DEFAULTS = {
   model: 'claude-opus-5-5',
 } as const satisfies Partial<ResolvedConfig>;
 
-/** The kinds `kin quick` can favour and commits can become (Katas are made on request only; commits never become Diagnoses). */
+/** The kinds `fiu quick` can favour and commits can become (Katas are made on request only; commits never become Diagnoses). */
 export const KindsSchema = z.array(z.enum(['drill', 'prediction', 'diagnosis'])).min(1);
 export type PreferredKind = z.infer<typeof KindsSchema>[number];
 
-/** `.kintsugi/config.json`: lives inside the repo, so it must never hold secrets. */
+/** `.fiutsu/config.json`: lives inside the repo, so it must never hold secrets. */
 export const RepoConfigSchema = z.strictObject({
   provider: ProviderSchema.optional(),
   model: z.string().min(1).optional(),
@@ -38,9 +38,9 @@ export const RepoConfigSchema = z.strictObject({
   prices: z.record(z.string(), ModelPriceSchema).optional(),
   /** Overrides the user's `kinds` for this repository. */
   kinds: KindsSchema.optional(),
-  /** Team sharing: the remote the `kintsugi/workouts` branch lives on (default `origin`). */
+  /** Team sharing: the remote the `fiutsu/workouts` branch lives on (default `origin`). */
   share: z.strictObject({ remote: z.string().min(1).optional() }).optional(),
-  /** Background generation from commits (`kin auto on`): its consent and caps. */
+  /** Background generation from commits (`fiu auto on`): its consent and caps. */
   auto: z
     .strictObject({
       enabled: z.boolean(),
@@ -55,16 +55,16 @@ export const RepoConfigSchema = z.strictObject({
 });
 export type RepoConfig = z.infer<typeof RepoConfigSchema>;
 
-/** `~/.config/kintsugi/config.json`: the only file allowed to hold API keys. */
+/** `~/.config/fiutsu/config.json`: the only file allowed to hold API keys. */
 export const UserConfigSchema = z.strictObject({
   provider: ProviderSchema.optional(),
   model: z.string().min(1).optional(),
   apiKeys: z.partialRecord(ProviderSchema, z.string().min(1)).optional(),
   profiles: z.array(UserProfileSchema).optional(),
   prices: z.record(z.string(), ModelPriceSchema).optional(),
-  /** What you'd rather practise, first choice first: commits become the first kind that fits, and `kin quick` serves it first. */
+  /** What you'd rather practise, first choice first: commits become the first kind that fits, and `fiu quick` serves it first. */
   kinds: KindsSchema.optional(),
-  /** How many questions `kin predict` asks about a unit: a Series (§11.11). */
+  /** How many questions `fiu predict` asks about a unit: a Series (§11.11). */
   predictionQuestions: z.number().int().min(1).max(MAX_SERIES_QUESTIONS).optional(),
 });
 export type UserConfig = z.infer<typeof UserConfigSchema>;
@@ -78,7 +78,7 @@ export interface ResolvedConfig {
   prices: Record<string, ModelPrice>;
   /** Preferred kinds, first choice first: a preference with fallbacks, never a filter. Repo over user. */
   kinds: PreferredKind[];
-  /** Questions per `kin predict`: the user's setting, else DEFAULT_PREDICTION_QUESTIONS. */
+  /** Questions per `fiu predict`: the user's setting, else DEFAULT_PREDICTION_QUESTIONS. */
   predictionQuestions: number;
 }
 
@@ -96,12 +96,12 @@ const processConfigEnv = (): ConfigEnv => ({ env: process.env, home: homedir() }
 
 export function userConfigPath({ env, home }: ConfigEnv = processConfigEnv()): string {
   const base = env.XDG_CONFIG_HOME || join(home, '.config');
-  return join(base, 'kintsugi', 'config.json');
+  return join(base, 'fiutsu', 'config.json');
 }
 
 export function userCacheDir({ env, home }: ConfigEnv = processConfigEnv()): string {
   const base = env.XDG_CACHE_HOME || join(home, '.cache');
-  return join(base, 'kintsugi');
+  return join(base, 'fiutsu');
 }
 
 export async function loadRepoConfig(configFile: string): Promise<RepoConfig> {

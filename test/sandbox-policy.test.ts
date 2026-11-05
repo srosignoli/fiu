@@ -5,7 +5,7 @@ import { filesystemPolicy, scrubbedEnv } from '../src/sandbox/policy.ts';
 describe('filesystemPolicy', () => {
   it('denies secrets and the repository, and allows only the listed writable paths', () => {
     const policy = filesystemPolicy(
-      { writable: ['/repo/.kintsugi/workouts/w1', '/cache/go'], denyRead: ['/extra'] },
+      { writable: ['/repo/.fiutsu/workouts/w1', '/cache/go'], denyRead: ['/extra'] },
       { home: '/home/u', repoRoot: '/repo' },
     );
     assert.deepEqual(policy.denyRead, [
@@ -17,7 +17,7 @@ describe('filesystemPolicy', () => {
       '/repo',
       '/extra',
     ]);
-    assert.deepEqual(policy.allowWrite, ['/repo/.kintsugi/workouts/w1', '/cache/go']);
+    assert.deepEqual(policy.allowWrite, ['/repo/.fiutsu/workouts/w1', '/cache/go']);
     // Re-allows the Workout directory inside the otherwise-denied repo.
     assert.deepEqual(policy.allowRead, policy.allowWrite);
   });

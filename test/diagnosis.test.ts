@@ -156,7 +156,7 @@ describe('answering a Diagnosis', () => {
     assert.match(io.text, /⚠ This bug may be real: queue\.ts:\d+/);
   });
 
-  it('is Quick by its own rules, and counts toward kin stats and Blind Spots', async () => {
+  it('is Quick by its own rules, and counts toward fiu stats and Blind Spots', async () => {
     const { repo, record, paths } = await repoWithDiagnosis();
     assert.equal((await nextQuickWorkout(paths, ['diagnosis']))?.record.id, record.id);
     await answer(repo, record.id, 'Queues of more than two', '3', 'x');
@@ -167,7 +167,7 @@ describe('answering a Diagnosis', () => {
   });
 });
 
-describe('kin diagnose', () => {
+describe('fiu diagnose', () => {
   it('generates, verifies, and saves a Diagnosis, picking a file from a directory', async () => {
     const repo = await tempGitRepo();
     const padded = `${TS_REFERENCE}${Array.from({ length: 10 }, (_, i) => `export const pad${i} = (x: number) => (x > ${i} ? x : ${i});`).join('\n')}\n`;

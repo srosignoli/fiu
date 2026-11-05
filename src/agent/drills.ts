@@ -42,7 +42,7 @@ import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths,
 /** At most this many queued Workouts from agent tasks, so an agent finishing many tasks can't flood the queue. */
 export const AGENT_TASK_QUEUE_CAP = 3;
 
-/** A refusal the agent should read and act on (as opposed to a bug in Kintsugi). */
+/** A refusal the agent should read and act on (as opposed to a bug in Fiutsu). */
 export class AgentRequestError extends Error {}
 
 interface Generation {
@@ -83,7 +83,7 @@ export interface PreparedTrack {
   module: string;
   minSteps: number;
   maxSteps: number;
-  /** How to choose, order, and pick a kind for the steps: the same rules Kintsugi's own planning uses. */
+  /** How to choose, order, and pick a kind for the steps: the same rules Fiutsu's own planning uses. */
   rules: string;
   /** The kinds the steps may be: pass each step's kind to prepare_drill. */
   kinds: WorkoutKind[];
@@ -119,7 +119,7 @@ export interface Prepared {
   kind: WorkoutKind;
   quick: boolean;
   maxSubmissions: number;
-  /** The rules for writing the Workout: the same system prompt Kintsugi's own generation uses. */
+  /** The rules for writing the Workout: the same system prompt Fiutsu's own generation uses. */
   instructions: string;
   /** The source file with numbered lines (for sourceAnchors), and the unit to build around if one was pinned. */
   source: string;
@@ -133,7 +133,7 @@ export type Submitted =
   | { status: 'not-worth-practicing'; reason: string };
 
 export interface AgentDrillsOptions {
-  /** Where the agent works: Kintsugi only acts inside the git repository containing it. */
+  /** Where the agent works: Fiutsu only acts inside the git repository containing it. */
   cwd: string;
   configEnv?: ConfigEnv;
   cacheRoot?: string;
@@ -141,8 +141,8 @@ export interface AgentDrillsOptions {
 }
 
 /**
- * Agent mode: the user's coding agent writes the Drill, Kintsugi verifies and saves it. The same
- * prompt, schema, Verified gate, and sandbox as Kintsugi's own generation; the retry loop runs in the
+ * Agent mode: the user's coding agent writes the Drill, Fiutsu verifies and saves it. The same
+ * prompt, schema, Verified gate, and sandbox as Fiutsu's own generation; the retry loop runs in the
  * agent, capped at the same number of submissions. Workout code never runs unsandboxed here.
  */
 export class AgentDrills {
@@ -164,7 +164,7 @@ export class AgentDrills {
     const repoRoot = await this.repository();
     const module = repoRelativeDir(repoRoot, resolve(repoRoot, modulePath));
     if (module.startsWith('..')) throw new AgentRequestError(`${modulePath} is outside the repository at ${repoRoot}.`);
-    if (module.split('/')[0] === '.kintsugi') throw new AgentRequestError('Explore the repository\'s own code, not the Kintsugi workspace.');
+    if (module.split('/')[0] === '.fiutsu') throw new AgentRequestError('Explore the repository\'s own code, not the Fiutsu workspace.');
     const paths = workspacePaths(repoRoot);
     await ensureWorkspace(paths);
     await excludeWorkspaceFromGit(repoRoot);
@@ -210,7 +210,7 @@ export class AgentDrills {
         target: targetOf({ path, symbol }),
         ...(text ? { atlas: stale ? `${text} (written before the code last changed)` : text } : {}),
         practice: state === 'green' ? 'practised' : state === 'amber' ? 'out of date or AI-changed' : state === 'red' ? 'complex, never practised' : 'never practised',
-        ...(tooLong ? { tooLong: 'in a file over 3,000 lines: Kintsugi can\'t make a Workout from it' } : {}),
+        ...(tooLong ? { tooLong: 'in a file over 3,000 lines: Fiutsu can\'t make a Workout from it' } : {}),
       })),
     };
   }
@@ -239,7 +239,7 @@ export class AgentDrills {
       };
     }
     await saveTrack(pending.paths, { id, title: title.trim(), module: pending.module, createdAt: this.#now().toISOString(), generator: 'agent', steps: pending.steps });
-    return { status: 'saved', trackId: id, title: title.trim(), steps: pending.steps, dropped: pending.dropped, next: `The user starts it with: kin track ${id}` };
+    return { status: 'saved', trackId: id, title: title.trim(), steps: pending.steps, dropped: pending.dropped, next: `The user starts it with: fiu track ${id}` };
   }
 
   async prepare({ target, kind = 'drill', quick = false, origin = 'manual', trackId: forTrack, why, questions = 1, whatIf }: PrepareRequest): Promise<Prepared> {
@@ -497,7 +497,8 @@ export class AgentDrills {
       source: record.source.path,
       estimatedMinutes: record.estimatedMinutes,
       origin: record.origin ?? 'manual',
-      generator: record.generator ?? 'kintsugi',
+      // Records from before the rename say `kintsugi`.
+      generator: record.generator === 'agent' ? 'agent' : 'fiutsu',
     }));
   }
 

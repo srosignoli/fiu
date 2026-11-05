@@ -78,7 +78,7 @@ export function blindSpots(answers: FirstAnswer[]): BlindSpot[] {
 
 const tally = (answers: FirstAnswer[]): Tally => ({ answers: answers.length, right: answers.filter((a) => a.right).length });
 
-/** `kin stats [<path>]`: how often the human's answers are right, how well their confidence matches, and their Blind Spots. */
+/** `fiu stats [<path>]`: how often the human's answers are right, how well their confidence matches, and their Blind Spots. */
 export async function answerStats(cwd: string, scope = '', now = new Date()): Promise<AnswerStats> {
   const paths = workspacePaths(await findRepoRoot(cwd));
   const inScope = (path: string) => scope === '' || path === scope || path.startsWith(`${scope}/`);

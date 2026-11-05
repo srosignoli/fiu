@@ -11,24 +11,24 @@ const run = async (cwd: string, ...args: string[]) =>
     cwd,
     reject: false,
     // Keep the sandbox canary's cache out of the real ~/.cache.
-    env: { XDG_CACHE_HOME: await tempDir() },
+    env: { XDG_CACHE_HOME: await tempDir(), XDG_CONFIG_HOME: await tempDir() },
   });
 
 describe('cli', () => {
-  it('kin init sets up the workspace', async () => {
+  it('fiu init sets up the workspace', async () => {
     const repo = await tempGitRepo();
     const { exitCode, stdout, stderr } = await run(repo, 'init');
-    assert.match(stdout, /Created .*\.kintsugi/);
+    assert.match(stdout, /Created .*\.fiutsu/);
     // Whether the sandbox works depends on the machine; either way the outcome is reported.
     if (exitCode === 0) assert.match(stdout, /Sandbox check passed/);
     else assert.match(stderr, /No working sandbox is available/);
     assert.match(stdout, /Tip: disable AI completions/);
-    assert.ok(existsSync(join(repo, '.kintsugi', 'state.json')));
+    assert.ok(existsSync(join(repo, '.fiutsu', 'state.json')));
   });
 
   it('fails cleanly outside a git repository', async () => {
     const { exitCode, stderr } = await run(await tempDir(), 'init');
     assert.equal(exitCode, 1);
-    assert.match(stderr, /^kintsugi: .* is not inside a git repository/);
+    assert.match(stderr, /^fiutsu: .* is not inside a git repository/);
   });
 });

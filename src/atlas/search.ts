@@ -87,5 +87,5 @@ export function searchAtlas(goal: string, skeleton: Skeleton, atlas: Atlas, stat
   return results.sort((a, b) => b.score - a.score || Number(b.callable) - Number(a.callable) || RANK[a.state] - RANK[b.state] || Number(!!b.text) - Number(!!a.text) || a.path.localeCompare(b.path) || (a.symbol ?? '').localeCompare(b.symbol ?? ''));
 }
 
-/** The target to hand to `kin drill`, `kin kata`, or `kin predict`. */
+/** The target to hand to `fiu drill`, `fiu kata`, or `fiu predict`. */
 export const targetOf = (result: Pick<SearchResult, 'path' | 'symbol'>) => (result.symbol ? `${result.path}#${result.symbol}` : result.path);

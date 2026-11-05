@@ -35,14 +35,14 @@ export interface KinMcpServerOptions {
   home?: string;
 }
 
-/** `kin mcp`: Kintsugi's tools for the user's coding agent. */
+/** `fiu mcp`: Fiutsu's tools for the user's coding agent. */
 export function createMcpServer(drills: AgentDrills, { version, home = homedir() }: KinMcpServerOptions): McpServer {
-  const server = new McpServer({ name: 'kintsugi', version }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: 'fiutsu', version }, { instructions: SERVER_INSTRUCTIONS });
 
   server.registerTool(
     'prepare_drill',
     {
-      title: 'Prepare a Kintsugi Drill, Kata, Prediction, or Diagnosis',
+      title: 'Prepare a Fiutsu Drill, Kata, Prediction, or Diagnosis',
       description: PREPARE_DESCRIPTION,
       inputSchema: {
         target: z.string().describe('A source file in this repository, relative to its root, optionally followed by #symbol.'),
@@ -69,7 +69,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'submit_drill',
     {
-      title: 'Submit a Kintsugi Drill, Kata, Prediction, or Diagnosis',
+      title: 'Submit a Fiutsu Drill, Kata, Prediction, or Diagnosis',
       description: SUBMIT_DESCRIPTION,
       // A Series (prepared with questions) has its own shape: the shared unit, then the questions.
       inputSchema: { generationId: z.string(), workout: z.union([AnyWorkoutOutputSchema, PredictionSeriesOutputSchema]) },
@@ -77,14 +77,14 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
     ({ generationId, workout }) =>
       respond(async () => {
         const result = await drills.submit(generationId, workout);
-        return result.status === 'saved' ? { ...result, next: `The user starts it with: kin train ${result.workoutId}${result.series ? ' (the runner offers the next question after each answer)' : ''}` } : result;
+        return result.status === 'saved' ? { ...result, next: `The user starts it with: fiu train ${result.workoutId}${result.series ? ' (the runner offers the next question after each answer)' : ''}` } : result;
       }),
   );
 
   server.registerTool(
     'prepare_track',
     {
-      title: 'Prepare a Kintsugi Track',
+      title: 'Prepare a Fiutsu Track',
       description: PREPARE_TRACK_DESCRIPTION,
       inputSchema: { module: z.string().describe('A module directory in this repository, relative to its root.') },
     },
@@ -94,7 +94,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'finish_track',
     {
-      title: 'Finish a Kintsugi Track',
+      title: 'Finish a Fiutsu Track',
       description: FINISH_TRACK_DESCRIPTION,
       inputSchema: { trackId: z.string(), title: z.string().describe('A short title naming what the module does.') },
     },
@@ -104,7 +104,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'prepare_atlas',
     {
-      title: 'Prepare the next folder of the Kintsugi Atlas',
+      title: 'Prepare the next folder of the Fiutsu Atlas',
       description: PREPARE_ATLAS_DESCRIPTION,
       inputSchema: { dir: z.string().optional().describe('A folder in this repository, relative to its root; the whole repository when left out.') },
     },
@@ -114,7 +114,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'submit_atlas',
     {
-      title: 'Submit Kintsugi Atlas entries for a folder',
+      title: 'Submit Fiutsu Atlas entries for a folder',
       description: SUBMIT_ATLAS_DESCRIPTION,
       inputSchema: {
         folder: z.string().describe('The folder prepare_atlas returned ("" for the repository root).'),
@@ -128,14 +128,14 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'search_atlas',
     {
-      title: 'Search the Kintsugi Atlas',
+      title: 'Search the Fiutsu Atlas',
       description: SEARCH_ATLAS_DESCRIPTION,
       inputSchema: { goal: z.string().describe('What the user wants to learn, in their words.') },
     },
     ({ goal }) => respond(() => drills.searchAtlas(goal)),
   );
 
-  server.registerTool('list_workouts', { title: 'List Kintsugi Workouts', description: LIST_DESCRIPTION }, () =>
+  server.registerTool('list_workouts', { title: 'List Fiutsu Workouts', description: LIST_DESCRIPTION }, () =>
     respond(async () => ({ repository: await drills.repository(), workouts: await drills.list() })),
   );
 
@@ -154,5 +154,5 @@ async function respond(work: () => Promise<unknown>) {
 async function staleInstallNotice(home: string, repoRoot: string, version: string): Promise<string | undefined> {
   const installed = await installedVersion(home, repoRoot);
   if (!installed || compareVersions(installed, version) >= 0) return undefined;
-  return `The Kintsugi skill installed for this agent is from version ${installed}; Kintsugi is now ${version}. Tell the user to run \`kin agent install claude\` again.`;
+  return `The Fiutsu skill installed for this agent is from version ${installed}; Fiutsu is now ${version}. Tell the user to run \`fiu agent install claude\` again.`;
 }

@@ -26,11 +26,11 @@ export interface DrillCommandOptions {
   sandbox: boolean;
   /** --quick: a Drill that fits a short wait. */
   quick?: boolean;
-  /** `kin kata`, `kin predict`, and `kin diagnose`: another kind instead of a Drill. */
+  /** `fiu kata`, `fiu predict`, and `fiu diagnose`: another kind instead of a Drill. */
   kind?: WorkoutKind;
-  /** `kin predict --questions`: how many questions the Series asks (default: the `predictionQuestions` setting). */
+  /** `fiu predict --questions`: how many questions the Series asks (default: the `predictionQuestions` setting). */
   questions?: number;
-  /** `kin predict --what-if`: a sentence to model, or true to have the model propose a change. */
+  /** `fiu predict --what-if`: a sentence to model, or true to have the model propose a change. */
   whatIf?: string | true;
 }
 
@@ -53,7 +53,7 @@ export type DrillCommandResult = GenerationResult;
 
 export class DrillTargetError extends Error {}
 
-/** `kin drill <file>[#symbol]` (and `kin kata`, `kin predict`): generate a Workout, verify it, and save it. */
+/** `fiu drill <file>[#symbol]` (and `fiu kata`, `fiu predict`): generate a Workout, verify it, and save it. */
 export async function drill(
   cwd: string,
   /** A file, optionally `#symbol`. For a Prediction or Diagnosis also a directory, or undefined for the repository root. */
@@ -88,7 +88,7 @@ export async function drill(
     apiKey = resolveApiKey(config.provider, userConfig, configEnv);
   } catch (error) {
     if (!(error instanceof MissingApiKeyError)) throw error;
-    error.message += `\nOr generate it with your coding agent instead: run \`kin agent install claude\`, then ask it to \`/kin-drill ${sourcePath}${kind === 'drill' ? '' : ` ${kind}`}\`.`;
+    error.message += `\nOr generate it with your coding agent instead: run \`fiu agent install claude\`, then ask it to \`/fiu-drill ${sourcePath}${kind === 'drill' ? '' : ` ${kind}`}\`.`;
     throw error;
   }
 
@@ -103,7 +103,7 @@ export async function drill(
       if (!options.yes) {
         if (!ui.confirm) throw new ConsentRequiredError(config.provider);
         const granted = await ui.confirm(
-          `Kintsugi will send ${sourcePath} to ${config.provider} (${config.model}) to generate the ${noun}. Send code from this repository to ${config.provider}?`,
+          `Fiutsu will send ${sourcePath} to ${config.provider} (${config.model}) to generate the ${noun}. Send code from this repository to ${config.provider}?`,
         );
         if (!granted) throw new ConsentDeclinedError();
       }
@@ -137,22 +137,22 @@ export async function drill(
 async function closestTo(sentence: string, repoRoot: string, directory: string, options: DrillCommandOptions, ui: DrillUi, configEnv: ConfigEnv): Promise<string> {
   const { results } = await searchAtlasCommand(repoRoot, sentence, { configEnv });
   const best = results.find((r) => directory === '' || r.path.startsWith(`${directory}/`));
-  if (!best) throw new DrillTargetError(`Nothing${directory ? ` in ${directory}` : ''} matches "${sentence}". Name the file: kin predict <file> --what-if "${sentence}"`);
+  if (!best) throw new DrillTargetError(`Nothing${directory ? ` in ${directory}` : ''} matches "${sentence}". Name the file: fiu predict <file> --what-if "${sentence}"`);
   const target = targetOf(best);
   if (options.yes) return target;
-  if (!ui.confirm) throw new DrillTargetError(`The closest match is ${target}. Name it to go ahead: kin predict ${target} --what-if "${sentence}"`);
-  if (!(await ui.confirm(`The closest match for "${sentence}" is ${target}. Model the change there?`))) throw new DrillTargetError(`Nothing generated. Name the file: kin predict <file> --what-if "${sentence}"`);
+  if (!ui.confirm) throw new DrillTargetError(`The closest match is ${target}. Name it to go ahead: fiu predict ${target} --what-if "${sentence}"`);
+  if (!(await ui.confirm(`The closest match for "${sentence}" is ${target}. Model the change there?`))) throw new DrillTargetError(`Nothing generated. Name the file: fiu predict <file> --what-if "${sentence}"`);
   return target;
 }
 
-/** For `kin predict`: the directory to choose a file from (repository-relative), or undefined when the target is a file. */
+/** For `fiu predict`: the directory to choose a file from (repository-relative), or undefined when the target is a file. */
 function directoryTarget(cwd: string, repoRoot: string, target: string | undefined): string | undefined {
   if (target === undefined) return '';
   const path = resolve(cwd, target);
   if (!existsSync(path) || !statSync(path).isDirectory()) return undefined;
   const dir = relative(repoRoot, path);
   if (dir.startsWith('..')) throw new DrillTargetError(`${target} is outside the repository at ${repoRoot}.`);
-  if (dir.split(sep)[0] === '.kintsugi') throw new DrillTargetError('Ask about your own code, not a Workout.');
+  if (dir.split(sep)[0] === '.fiutsu') throw new DrillTargetError('Ask about your own code, not a Workout.');
   return dir.split(sep).join('/');
 }
 
@@ -163,7 +163,7 @@ export async function pickUnpractised(repoRoot: string, directory: string, profi
   const pick = candidates.find((c) => !practised.has(c.path));
   const where = directory || 'the repository';
   if (candidates.length === 0) throw new DrillTargetError(`${where} has no source files worth asking about.`);
-  if (!pick) throw new DrillTargetError(`You have practised every file Kintsugi would pick in ${where}. Name a file, or a smaller directory.`);
+  if (!pick) throw new DrillTargetError(`You have practised every file Fiutsu would pick in ${where}. Name a file, or a smaller directory.`);
   return pick.path;
 }
 
@@ -182,6 +182,6 @@ export function parseTarget(cwd: string, target: string): { file: string; symbol
 export function repoRelative(repoRoot: string, file: string): string {
   const path = relative(repoRoot, file);
   if (path.startsWith('..') || path === '') throw new DrillTargetError(`${file} is outside the repository at ${repoRoot}.`);
-  if (path.split(sep)[0] === '.kintsugi') throw new DrillTargetError('Drill your own code, not a Workout.');
+  if (path.split(sep)[0] === '.fiutsu') throw new DrillTargetError('Drill your own code, not a Workout.');
   return path.split(sep).join('/');
 }

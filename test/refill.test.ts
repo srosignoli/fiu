@@ -50,8 +50,8 @@ async function repoWithChange(trailer = ''): Promise<{ repo: string; sha: string
 }
 
 async function configure(repo: string, config: Record<string, unknown>) {
-  await mkdir(join(repo, '.kintsugi'), { recursive: true });
-  await writeFile(join(repo, '.kintsugi', 'config.json'), JSON.stringify(config));
+  await mkdir(join(repo, '.fiutsu'), { recursive: true });
+  await writeFile(join(repo, '.fiutsu', 'config.json'), JSON.stringify(config));
 }
 const backgroundReady = { consent: { provider: 'anthropic', grantedAt: new Date().toISOString() }, auto: { enabled: true } };
 
@@ -112,7 +112,7 @@ describe('commit selection', () => {
   });
 });
 
-describe(`kin refill (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
+describe(`fiu refill (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
   it('turns the latest commit into a Quick Drill built around its change', async () => {
     const { repo, sha } = await repoWithChange('Co-Authored-By: Claude <noreply@anthropic.com>');
     const result = await run(repo, {});
@@ -233,7 +233,7 @@ describe(`kin refill (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     await configure(repo, backgroundReady);
     await run(repo, { background: true }, [goodDrill({ startingCode: TS_REFERENCE })]);
     const paths = workspacePaths(repo);
-    assert.equal(await unseenFailureSummary(paths), '1 background Drill failed: see `kin log`.');
+    assert.equal(await unseenFailureSummary(paths), '1 background Drill failed: see `fiu log`.');
     assert.equal(await unseenFailureSummary(paths), undefined);
     assert.match(await readFile(join(paths.root, 'log'), 'utf8'), /"outcome":"failed"/);
   });

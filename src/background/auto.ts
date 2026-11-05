@@ -10,23 +10,23 @@ import type { WorkspacePaths } from '../workspace.ts';
 import { readLog, type LogEntry } from './log.ts';
 import { countsTowardQueueCap, generationsToday } from './refill.ts';
 
-const BEGIN = '# >>> kintsugi >>>';
-const END = '# <<< kintsugi <<<';
-/** Marks a hook file Kintsugi created, so `kin auto off` may delete it once its block is gone. */
-const CREATED_BY_KINTSUGI = '# Created by Kintsugi (kin auto on).';
+const BEGIN = '# >>> fiutsu >>>';
+const END = '# <<< fiutsu <<<';
+/** Marks a hook file Fiutsu created, so `fiu auto off` may delete it once its block is gone. */
+const CREATED_BY_FIUTSU = '# Created by Fiutsu (fiu auto on).';
 
 const quote = (word: string) => `'${word.replaceAll("'", `'\\''`)}'`;
 
 /**
- * The marked hook block: starts `kin refill --background` for the new commit, fully detached, so the
+ * The marked hook block: starts `fiu refill --background` for the new commit, fully detached, so the
  * commit never waits. Git sets variables during a commit (e.g. GIT_INDEX_FILE) that would confuse
- * Kintsugi's own git calls, so they're cleared first.
+ * Fiutsu's own git calls, so they're cleared first.
  */
-export function hookBlock(kinCommand: string[]): string {
-  const command = [...kinCommand, 'refill', '--background', '--commit'].map(quote).join(' ');
+export function hookBlock(fiuCommand: string[]): string {
+  const command = [...fiuCommand, 'refill', '--background', '--commit'].map(quote).join(' ');
   return [
     BEGIN,
-    '# Generates a Quick Drill from this commit in the background. `kin auto off` removes this block.',
+    '# Generates a Quick Drill from this commit in the background. `fiu auto off` removes this block.',
     `( unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_PREFIX GIT_OBJECT_DIRECTORY; nohup ${command} "$(git rev-parse HEAD)" </dev/null >/dev/null 2>&1 & )`,
     END,
   ].join('\n');
@@ -49,8 +49,8 @@ async function postCommitPath(repoRoot: string): Promise<string> {
 }
 
 /** Installs (or refreshes) the marked block in .git/hooks/post-commit, never touching the user's own lines. */
-export async function installHook(repoRoot: string, kinCommand: string[]): Promise<HookInstall> {
-  const block = hookBlock(kinCommand);
+export async function installHook(repoRoot: string, fiuCommand: string[]): Promise<HookInstall> {
+  const block = hookBlock(fiuCommand);
   const hooksPath = await hooksPathSetting(repoRoot);
   if (hooksPath) return { status: 'manual', hooksPath, snippet: block };
 
@@ -58,7 +58,7 @@ export async function installHook(repoRoot: string, kinCommand: string[]): Promi
   const existing = existsSync(path) ? await readFile(path, 'utf8') : undefined;
   const content =
     existing === undefined
-      ? `#!/bin/sh\n${CREATED_BY_KINTSUGI}\n\n${block}\n`
+      ? `#!/bin/sh\n${CREATED_BY_FIUTSU}\n\n${block}\n`
       : `${appendable(removeBlock(existing))}${block}\n`;
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content);
@@ -66,17 +66,39 @@ export async function installHook(repoRoot: string, kinCommand: string[]): Promi
   return { status: 'installed', path, created: existing === undefined };
 }
 
-/** Removes exactly the marked block; deletes the hook file only if Kintsugi created it and nothing else remains. */
+/** Removes exactly the marked block; deletes the hook file only if Fiutsu created it and nothing else remains. */
 export async function removeHook(repoRoot: string): Promise<{ removed: boolean; path: string }> {
   const path = await postCommitPath(repoRoot);
   if (!existsSync(path)) return { removed: false, path };
   const existing = await readFile(path, 'utf8');
   const remaining = removeBlock(existing);
   if (remaining === existing) return { removed: false, path };
-  const leftover = remaining.replace('#!/bin/sh', '').replace(CREATED_BY_KINTSUGI, '').trim();
-  if (existing.includes(CREATED_BY_KINTSUGI) && leftover === '') await rm(path);
+  const leftover = remaining.replace('#!/bin/sh', '').replace(CREATED_BY_FIUTSU, '').trim();
+  if (existing.includes(CREATED_BY_FIUTSU) && leftover === '') await rm(path);
   else await writeFile(path, remaining);
   return { removed: true, path };
+}
+
+/** The hook's markers up to v5.1, when Fiutsu was called Kintsugi. */
+const LEGACY_BEGIN = '# >>> kintsugi >>>';
+const LEGACY_END = '# <<< kintsugi <<<';
+const LEGACY_CREATED_BY = '# Created by Kintsugi (kin auto on).';
+
+/**
+ * Replaces a block installed before the rename (it starts the old command) with the current one, in
+ * place, never touching the user's own lines. Returns whether there was one to replace.
+ */
+export async function migrateLegacyHook(repoRoot: string, fiuCommand: string[]): Promise<boolean> {
+  if (await hooksPathSetting(repoRoot)) return false;
+  const path = await postCommitPath(repoRoot);
+  if (!existsSync(path)) return false;
+  const existing = await readFile(path, 'utf8');
+  const start = existing.indexOf(LEGACY_BEGIN);
+  const end = existing.indexOf(LEGACY_END);
+  if (start === -1 || end < start) return false;
+  const replaced = existing.slice(0, start) + hookBlock(fiuCommand) + existing.slice(end + LEGACY_END.length);
+  await writeFile(path, replaced.replace(LEGACY_CREATED_BY, CREATED_BY_FIUTSU));
+  return true;
 }
 
 export async function hookInstalled(repoRoot: string): Promise<boolean> {
@@ -93,7 +115,7 @@ function removeBlock(text: string): string {
 
 const appendable = (text: string) => (text === '' ? '' : text.endsWith('\n\n') ? text : text.endsWith('\n') ? `${text}\n` : `${text}\n\n`);
 
-/** Turns background generation on or off in .kintsugi/config.json, keeping every other setting (custom caps included). */
+/** Turns background generation on or off in .fiutsu/config.json, keeping every other setting (custom caps included). */
 export async function setAuto(configFile: string, enabled: boolean, caps: Partial<NonNullable<RepoConfig['auto']>> = {}, now = new Date()): Promise<void> {
   const raw = existsSync(configFile) ? JSON.parse(await readFile(configFile, 'utf8')) : {};
   raw.auto = { ...raw.auto, ...caps, enabled, ...(enabled ? { consentedAt: now.toISOString() } : {}) };
@@ -141,7 +163,7 @@ export async function autoStatus(paths: WorkspacePaths, repoConfig: RepoConfig, 
 
 export class AutoConsentRequiredError extends Error {
   constructor() {
-    super('Turning on background generation needs your consent: run `kin auto on` in a terminal, or pass --yes.');
+    super('Turning on background generation needs your consent: run `fiu auto on` in a terminal, or pass --yes.');
   }
 }
 
@@ -150,8 +172,8 @@ export interface EnableAutoOptions {
   repoConfig: RepoConfig;
   provider: Provider;
   model: string;
-  /** How to start this `kin` from the hook (absolute paths). */
-  kinCommand: string[];
+  /** How to start this `fiu` from the hook (absolute paths). */
+  fiuCommand: string[];
   caps?: Partial<Pick<NonNullable<RepoConfig['auto']>, 'queueCap' | 'dailyLimit' | 'aiOnly'>>;
   /** --yes: consent without asking. */
   yes: boolean;
@@ -161,7 +183,7 @@ export interface EnableAutoOptions {
 }
 
 /**
- * `kin auto on`: one explicit consent covering background spending and its caps (and sending code to
+ * `fiu auto on`: one explicit consent covering background spending and its caps (and sending code to
  * the provider), then the hook. Returns undefined when the user declines.
  */
 export async function enableAuto(options: EnableAutoOptions): Promise<HookInstall | undefined> {
@@ -171,7 +193,7 @@ export async function enableAuto(options: EnableAutoOptions): Promise<HookInstal
     if (!options.confirm) throw new AutoConsentRequiredError();
     const average = averageSpend((await readState(paths)).spend);
     const message = [
-      `After each of your commits, Kintsugi will send the most-changed source file to ${provider} (${model}) and generate a Quick Drill in the background, at your API key's expense.`,
+      `After each of your commits, Fiutsu will send the most-changed source file to ${provider} (${model}) and generate a Quick Drill in the background, at your API key's expense.`,
       `Limits: at most ${caps.queueCap} Workouts waiting in the queue, and at most ${caps.dailyLimit} generations a day (retries included)${caps.aiOnly ? ', only for AI-authored commits' : ''}.`,
       ...(average ? [`Your Drills have averaged ${formatUsd(average.usd)} (last ${average.count}).`] : []),
       'Turn background generation on?',
@@ -180,5 +202,5 @@ export async function enableAuto(options: EnableAutoOptions): Promise<HookInstal
   }
   await setAuto(paths.configFile, true, options.caps, options.now);
   if (repoConfig.consent?.provider !== provider) await recordConsent(paths.configFile, provider, options.now);
-  return installHook(paths.repoRoot, options.kinCommand);
+  return installHook(paths.repoRoot, options.fiuCommand);
 }

@@ -1,4 +1,4 @@
 import { readFileSync } from 'node:fs';
 
-/** Kintsugi's own version, from package.json (one level above both src/ and dist/). */
+/** Fiutsu's own version, from package.json (one level above both src/ and dist/). */
 export const VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;

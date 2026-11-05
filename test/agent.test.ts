@@ -35,7 +35,7 @@ async function repoWithSources(...names: string[]): Promise<string> {
   return repo;
 }
 
-/** An MCP client talking to Kintsugi's server in-process, as a coding agent would. */
+/** An MCP client talking to Fiutsu's server in-process, as a coding agent would. */
 async function connect(repo: string, home?: string) {
   home ??= await tempDir();
   const drills = new AgentDrills({ cwd: repo, cacheRoot: await tempDir(), configEnv: { env: {}, home } });
@@ -88,7 +88,7 @@ describe('the Atlas in agent mode', () => {
     assert.deepEqual((await call('submit_atlas', { folder: '', entries: entries('A job scheduler.\nsrc holds it.'), scope: '' })).json.pending, []);
     assert.deepEqual((await call('prepare_atlas')).json, { status: 'up-to-date', scope: '' });
 
-    const atlas = await readJson(join(repo, '.kintsugi', 'atlas.json'));
+    const atlas = await readJson(join(repo, '.fiutsu', 'atlas.json'));
     assert.equal(atlas.files['src/queue.ts'].functions.pickNext, 'Chooses the next job.');
   });
 
@@ -108,12 +108,12 @@ describe('the Atlas in agent mode', () => {
   });
 });
 
-describe('kin mcp', () => {
+describe('fiu mcp', () => {
   it('offers its tools and the rules for using them', async () => {
     const { client } = await connect(await repoWithSources('queue.ts'));
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map((t) => t.name).sort(), ['finish_track', 'list_workouts', 'prepare_atlas', 'prepare_drill', 'prepare_track', 'search_atlas', 'submit_atlas', 'submit_drill']);
-    assert.match(client.getInstructions() ?? '', /^Kintsugi turns code in this repository into Drills/);
+    assert.match(client.getInstructions() ?? '', /^Fiutsu turns code in this repository into Drills/);
     // The submit schema is the Workout schema itself (or a Series), so the client checks the shape.
     const submit = tools.find((t) => t.name === 'submit_drill')!;
     const workout = (submit.inputSchema.properties as Record<string, { anyOf?: { properties?: Record<string, unknown> }[] }>).workout!;
@@ -141,24 +141,24 @@ describe('kin mcp', () => {
     const outside = join(await tempDir(), 'x.ts');
     await writeFile(outside, '');
     assert.match((await call('prepare_drill', { target: outside })).text, /outside the repository/);
-    await mkdir(join(repo, '.kintsugi', 'workouts', 'w'), { recursive: true });
-    await writeFile(join(repo, '.kintsugi', 'workouts', 'w', 'kata.ts'), '');
-    assert.match((await call('prepare_drill', { target: '.kintsugi/workouts/w/kata.ts' })).text, /not a Workout/);
+    await mkdir(join(repo, '.fiutsu', 'workouts', 'w'), { recursive: true });
+    await writeFile(join(repo, '.fiutsu', 'workouts', 'w', 'kata.ts'), '');
+    assert.match((await call('prepare_drill', { target: '.fiutsu/workouts/w/kata.ts' })).text, /not a Workout/);
     assert.equal((await call('prepare_drill', { target: 'nope.ts' })).isError, true);
     assert.match((await call('submit_drill', { generationId: 'made-up', workout: goodDrill() })).text, /Unknown generation id/);
   });
 
-  it('warns when the installed skill is older than Kintsugi', async () => {
+  it('warns when the installed skill is older than Fiutsu', async () => {
     const home = await tempDir();
-    await mkdir(join(home, '.claude', 'skills', 'kintsugi'), { recursive: true });
-    await writeFile(join(home, '.claude', 'skills', 'kintsugi', 'SKILL.md'), '<!-- kintsugi-version: 1.1.9 -->');
+    await mkdir(join(home, '.claude', 'skills', 'fiutsu'), { recursive: true });
+    await writeFile(join(home, '.claude', 'skills', 'fiutsu', 'SKILL.md'), '<!-- fiutsu-version: 1.1.9 -->');
     const { call } = await connect(await repoWithSources('queue.ts'), home);
     const { json } = await call('prepare_drill', { target: 'src/queue.ts' });
-    assert.match(json.notice, /from version 1\.1\.9; Kintsugi is now 1\.2\.0\. Tell the user to run `kin agent install claude` again\./);
+    assert.match(json.notice, /from version 1\.1\.9; Fiutsu is now 1\.2\.0\. Tell the user to run `fiu agent install claude` again\./);
   });
 });
 
-describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandbox'})`, { skip: !sandboxWorks }, () => {
+describe(`fiu mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandbox'})`, { skip: !sandboxWorks }, () => {
   async function prepareAndSubmit(call: Awaited<ReturnType<typeof connect>>['call'], target: string, workouts: AnyWorkoutOutput[], extra = {}) {
     const { json: prepared } = await call('prepare_drill', { target, ...extra });
     const results = [];
@@ -171,7 +171,7 @@ describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     const { call } = await connect(repo);
     const [result] = await prepareAndSubmit(call, 'src/queue.ts', [goodDrill()]);
     assert.equal(result!.json.status, 'saved', result!.text);
-    assert.match(result!.json.next, /^The user starts it with: kin train drill_\d{8}_tie-breaker$/);
+    assert.match(result!.json.next, /^The user starts it with: fiu train drill_\d{8}_tie-breaker$/);
 
     const record: WorkoutRecord = await readJson(join(result!.json.workoutDir, 'workout.json'));
     assert.equal(record.generator, 'agent');
@@ -179,7 +179,7 @@ describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     assert.equal(record.cost, undefined);
     assert.match(await readFile(join(result!.json.workoutDir, 'README.md'), 'utf8'), /Generated by your coding agent \(cost not measured/);
 
-    const [entry] = (await readJson(join(repo, '.kintsugi', 'state.json'))).spend;
+    const [entry] = (await readJson(join(repo, '.fiutsu', 'state.json'))).spend;
     assert.equal(entry.generator, 'agent');
     assert.equal(entry.cost, null);
     assert.deepEqual((await costReport(repo)).byAgent, { requests: 1, workouts: 1 });
@@ -203,7 +203,7 @@ describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     assert.match(results[0]!.json.feedback, /\[minimal-diff\] The Starting Code is identical/);
     assert.match(results[1]!.json.feedback, /\[schema\] hints must contain exactly 2/);
     assert.match(results[3]!.text, /Unknown generation id/, 'a fourth submission must start over');
-    const [entry] = (await readJson(join(repo, '.kintsugi', 'state.json'))).spend;
+    const [entry] = (await readJson(join(repo, '.fiutsu', 'state.json'))).spend;
     assert.deepEqual([entry.result, entry.generationAttempts, entry.cost], ['not-verified', 3, null]);
   });
 
@@ -267,7 +267,7 @@ describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     assert.equal(saved.status, 'saved', JSON.stringify(saved));
     assert.deepEqual(saved.series.requested, 2);
     assert.equal(saved.series.workoutIds.length, 2);
-    const second = await readJson(join(repo, '.kintsugi', 'workouts', saved.series.workoutIds[1], 'workout.json'));
+    const second = await readJson(join(repo, '.fiutsu', 'workouts', saved.series.workoutIds[1], 'workout.json'));
     assert.deepEqual(second.series, { id: saved.series.id, index: 2, of: 2 });
     assert.equal(second.generator, 'agent');
   });
@@ -331,7 +331,7 @@ describe(`kin mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
   });
 });
 
-describe('kin agent install claude', () => {
+describe('fiu agent install claude', () => {
   function fakeClaude(available = true) {
     const calls: string[][] = [];
     const runClaude: ClaudeInstallOptions['runClaude'] = async (args) => {
@@ -340,25 +340,45 @@ describe('kin agent install claude', () => {
     };
     return { calls, runClaude };
   }
-  const base = { version: '1.2.0', kinCommand: ['/usr/bin/node', '/opt/kin/dist/cli.js'] };
+  const base = { version: '1.2.0', fiuCommand: ['/usr/bin/node', '/opt/fiu/dist/cli.js'] };
 
   it('installs the skill, the command, and the MCP server at user level', async () => {
     const home = await tempDir();
     const { calls, runClaude } = fakeClaude();
     const report = await installClaude({ ...base, scope: 'user', afterTasks: false, home, cwd: home, runClaude });
 
-    const skill = await readFile(join(home, '.claude', 'skills', 'kintsugi', 'SKILL.md'), 'utf8');
-    assert.match(skill, /^---\nname: kintsugi\ndescription: Creates Kintsugi Drills/);
-    assert.match(skill, /<!-- kintsugi-version: 1\.2\.0 -->/);
-    assert.match(await readFile(join(home, '.claude', 'commands', 'kin-drill.md'), 'utf8'), /Use the kintsugi skill to create a Drill for: \$ARGUMENTS/);
-    assert.match(await readFile(join(home, '.claude', 'commands', 'kin-atlas.md'), 'utf8'), /Use the kintsugi skill to build the Atlas for: \$ARGUMENTS/);
-    assert.match(skill, /# Building the Kintsugi Atlas/);
+    const skill = await readFile(join(home, '.claude', 'skills', 'fiutsu', 'SKILL.md'), 'utf8');
+    assert.match(skill, /^---\nname: fiutsu\ndescription: Creates Fiutsu Drills/);
+    assert.match(skill, /<!-- fiutsu-version: 1\.2\.0 -->/);
+    assert.match(await readFile(join(home, '.claude', 'commands', 'fiu-drill.md'), 'utf8'), /Use the fiutsu skill to create a Drill for: \$ARGUMENTS/);
+    assert.match(await readFile(join(home, '.claude', 'commands', 'fiu-atlas.md'), 'utf8'), /Use the fiutsu skill to build the Atlas for: \$ARGUMENTS/);
+    assert.match(skill, /# Building the Fiutsu Atlas/);
     assert.ok(!existsSync(join(home, '.claude', 'CLAUDE.md')), 'no end-of-task block unless asked');
     assert.deepEqual(calls, [
-      ['mcp', 'remove', '--scope', 'user', 'kintsugi'],
-      ['mcp', 'add', '--scope', 'user', 'kintsugi', '--', '/usr/bin/node', '/opt/kin/dist/cli.js', 'mcp'],
+      ['mcp', 'remove', '--scope', 'user', 'fiutsu'],
+      ['mcp', 'add', '--scope', 'user', 'fiutsu', '--', '/usr/bin/node', '/opt/fiu/dist/cli.js', 'mcp'],
     ]);
     assert.equal(report.manualMcpCommand, undefined);
+  });
+
+  it("replaces a Kintsugi installation: its stamped files, its block, and its MCP registration", async () => {
+    const home = await tempDir();
+    const claude = join(home, '.claude');
+    await mkdir(join(claude, 'skills', 'kintsugi'), { recursive: true });
+    await mkdir(join(claude, 'commands'), { recursive: true });
+    await writeFile(join(claude, 'skills', 'kintsugi', 'SKILL.md'), '<!-- kintsugi-version: 5.1.0 -->');
+    await writeFile(join(claude, 'commands', 'kin-drill.md'), '<!-- kintsugi-version: 5.1.0 -->');
+    await writeFile(join(claude, 'commands', 'kin-atlas.md'), 'my own command, no stamp');
+    await writeFile(join(claude, 'CLAUDE.md'), 'Mine.\n\n<!-- kintsugi:begin -->\nold\n<!-- kintsugi:end -->\n');
+    const { calls, runClaude } = fakeClaude();
+    await installClaude({ ...base, scope: 'user', afterTasks: false, home, cwd: home, runClaude });
+
+    assert.ok(!existsSync(join(claude, 'skills', 'kintsugi')));
+    assert.ok(!existsSync(join(claude, 'commands', 'kin-drill.md')));
+    assert.ok(existsSync(join(claude, 'commands', 'kin-atlas.md')), 'only files carrying the stamp');
+    assert.equal(await readFile(join(claude, 'CLAUDE.md'), 'utf8'), 'Mine.\n');
+    assert.deepEqual(calls[0], ['mcp', 'remove', '--scope', 'user', 'kintsugi']);
+    assert.ok(existsSync(join(claude, 'skills', 'fiutsu', 'SKILL.md')));
   });
 
   it("adds the end-of-task block to the user's CLAUDE.md once, and removes only that block", async () => {
@@ -371,43 +391,43 @@ describe('kin agent install claude', () => {
     await installClaude({ ...base, scope: 'user', afterTasks: true, home, cwd: home, runClaude });
     await installClaude({ ...base, scope: 'user', afterTasks: true, home, cwd: home, runClaude });
     const installed = await readFile(memory, 'utf8');
-    assert.equal(installed.match(/kintsugi:begin/g)?.length, 1);
-    assert.match(installed, /^# My rules\n\nUse tabs\.\n\n<!-- kintsugi:begin -->\n[\s\S]*afterTask: true[\s\S]*<!-- kintsugi:end -->\n$/);
+    assert.equal(installed.match(/fiutsu:begin/g)?.length, 1);
+    assert.match(installed, /^# My rules\n\nUse tabs\.\n\n<!-- fiutsu:begin -->\n[\s\S]*afterTask: true[\s\S]*<!-- fiutsu:end -->\n$/);
 
     await uninstallClaude({ scope: 'user', home, cwd: home, runClaude });
     assert.equal(await readFile(memory, 'utf8'), '# My rules\n\nUse tabs.\n');
-    assert.ok(!existsSync(join(home, '.claude', 'skills', 'kintsugi')));
-    assert.ok(!existsSync(join(home, '.claude', 'commands', 'kin-drill.md')));
-    assert.ok(!existsSync(join(home, '.claude', 'commands', 'kin-atlas.md')));
+    assert.ok(!existsSync(join(home, '.claude', 'skills', 'fiutsu')));
+    assert.ok(!existsSync(join(home, '.claude', 'commands', 'fiu-drill.md')));
+    assert.ok(!existsSync(join(home, '.claude', 'commands', 'fiu-atlas.md')));
   });
 
   it('prints the registration command when the claude CLI is missing', async () => {
     const home = await tempDir();
     const report = await installClaude({ ...base, scope: 'user', afterTasks: false, home, cwd: home, runClaude: fakeClaude(false).runClaude });
-    assert.equal(report.manualMcpCommand, 'claude mcp add --scope user kintsugi -- /usr/bin/node /opt/kin/dist/cli.js mcp');
+    assert.equal(report.manualMcpCommand, 'claude mcp add --scope user fiutsu -- /usr/bin/node /opt/fiu/dist/cli.js mcp');
   });
 
   it('installs into one repository untracked, registering the server for that project only', async () => {
     const repo = await repoWithSources('queue.ts');
     const { calls, runClaude } = fakeClaude();
     await installClaude({ ...base, scope: 'project', afterTasks: true, home: await tempDir(), cwd: join(repo, 'src'), runClaude });
-    assert.ok(existsSync(join(repo, '.claude', 'skills', 'kintsugi', 'SKILL.md')));
-    assert.match(await readFile(join(repo, 'CLAUDE.local.md'), 'utf8'), /kintsugi:begin/);
+    assert.ok(existsSync(join(repo, '.claude', 'skills', 'fiutsu', 'SKILL.md')));
+    assert.match(await readFile(join(repo, 'CLAUDE.local.md'), 'utf8'), /fiutsu:begin/);
     assert.equal((await execa('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo })).stdout, '');
-    assert.deepEqual(calls[1]!.slice(0, 5), ['mcp', 'add', '--scope', 'local', 'kintsugi']);
+    assert.deepEqual(calls[1]!.slice(0, 5), ['mcp', 'add', '--scope', 'local', 'fiutsu']);
   });
 
   it('never modifies a tracked file', async () => {
     const repo = await repoWithSources('queue.ts');
     await mkdir(join(repo, '.claude', 'commands'), { recursive: true });
-    await writeFile(join(repo, '.claude', 'commands', 'kin-drill.md'), 'team version\n');
+    await writeFile(join(repo, '.claude', 'commands', 'fiu-drill.md'), 'team version\n');
     await execa('git', ['add', '.'], { cwd: repo });
     await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'team command'], { cwd: repo });
     await assert.rejects(
       installClaude({ ...base, scope: 'project', afterTasks: false, home: await tempDir(), cwd: repo, runClaude: fakeClaude().runClaude }),
       TrackedFileError,
     );
-    assert.equal(await readFile(join(repo, '.claude', 'commands', 'kin-drill.md'), 'utf8'), 'team version\n');
+    assert.equal(await readFile(join(repo, '.claude', 'commands', 'fiu-drill.md'), 'utf8'), 'team version\n');
   });
 });
 
@@ -454,7 +474,7 @@ describe(`Tracks in agent mode (${sandboxWorks ? 'sandboxed' : 'skipped: no sand
     assert.equal(finished.status, 'saved', JSON.stringify(finished));
     assert.deepEqual(finished.steps.map((s: { path: string }) => s.path), ['src/core/worker.ts', 'src/core/store.ts', 'src/core/queue.ts']);
     assert.deepEqual(finished.dropped, ['src/core/extra.ts: no Verified Drill']);
-    assert.equal(finished.next, `The user starts it with: kin track ${track.trackId}`);
+    assert.equal(finished.next, `The user starts it with: fiu track ${track.trackId}`);
 
     const paths = workspacePaths(repo);
     const saved = JSON.parse(await readFile(join(paths.root, 'tracks', `${track.trackId}.json`), 'utf8'));
@@ -484,8 +504,8 @@ describe(`Tracks in agent mode (${sandboxWorks ? 'sandboxed' : 'skipped: no sand
   it('makes every step a Prediction for someone who reads no code', async () => {
     const repo = await repoWithModule();
     const home = await tempDir();
-    await mkdir(join(home, '.config', 'kintsugi'), { recursive: true });
-    await writeFile(join(home, '.config', 'kintsugi', 'config.json'), JSON.stringify({ kinds: ['prediction'] }));
+    await mkdir(join(home, '.config', 'fiutsu'), { recursive: true });
+    await writeFile(join(home, '.config', 'fiutsu', 'config.json'), JSON.stringify({ kinds: ['prediction'] }));
     const { call } = await connect(repo, home);
     const { json: track } = await call('prepare_track', { module: 'src/core' });
     assert.deepEqual(track.kinds, ['prediction']);
@@ -501,7 +521,7 @@ describe(`Tracks in agent mode (${sandboxWorks ? 'sandboxed' : 'skipped: no sand
     const { json: finished } = await call('finish_track', { trackId: track.trackId, title: 'Too short' });
     assert.equal(finished.status, 'not-enough');
     assert.equal(finished.workoutIds.length, 2);
-    assert.ok(!existsSync(join(repo, '.kintsugi', 'tracks', `${track.trackId}.json`)));
+    assert.ok(!existsSync(join(repo, '.fiutsu', 'tracks', `${track.trackId}.json`)));
   });
 });
 

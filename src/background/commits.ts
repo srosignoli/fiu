@@ -84,7 +84,7 @@ export async function chooseTarget(repoRoot: string, sha: string, profiles: read
   if (!best) return { skip: 'no changed source file in a supported language (only docs, config, tests, or generated code)' };
   if (best.changedLines < MIN_CHANGED_LINES) return { skip: `too small to drill (${best.changedLines} changed lines in ${best.path})` };
   if (best.changedLines > MAX_CHANGED_LINES) {
-    return { skip: `too large to be one focused change (${best.changedLines} changed lines in ${best.path}); drill a part of it with kin drill <file>#<symbol>` };
+    return { skip: `too large to be one focused change (${best.changedLines} changed lines in ${best.path}); drill a part of it with fiu drill <file>#<symbol>` };
   }
 
   const source = await execa('git', ['show', `${sha}:${best.path}`], { cwd: repoRoot, reject: false });

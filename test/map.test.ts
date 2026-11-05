@@ -74,7 +74,7 @@ async function practise(dir: string, path: string, outcome: 'completed' | 'aband
 const fileIn = (report: MapReport, path: string): FileEntry | undefined => report.dirs.flatMap((d) => d.files).find((f) => f.path === path);
 const options = async () => ({ configEnv: { env: {}, home: await tempDir() } });
 
-describe('kin map', () => {
+describe('fiu map', () => {
   it('records which kinds of Workout each file was practised with', async () => {
     const { dir } = await repo();
     await practise(dir, 'core/practised.ts');
@@ -132,8 +132,8 @@ describe('kin map', () => {
       { kind: 'explore', path: 'core', red: 2 },
     ]);
     const text = renderMap(report, { color: false });
-    assert.match(text, /kin train drill_\d{8}_waiting {3}\(a Drill is already waiting for core\/mid\.ts\)/);
-    assert.match(text, /kin explore core {3}\(2 complex files never practised\)/);
+    assert.match(text, /fiu train drill_\d{8}_waiting {3}\(a Drill is already waiting for core\/mid\.ts\)/);
+    assert.match(text, /fiu explore core {3}\(2 complex files never practised\)/);
     assert.doesNotMatch(text, /^ {2}. util/m, 'quiet directories fold into one line');
     assert.match(text, /… and 1 directory with nothing to worry about/);
   });

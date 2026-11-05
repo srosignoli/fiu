@@ -47,7 +47,7 @@ export function renderMap(report: MapReport, { color }: RenderOptions): string {
 
   if (report.atlas && report.atlas.staleFiles + report.atlas.staleFolders > 0) {
     const changed = [report.atlas.staleFiles > 0 ? `${report.atlas.staleFiles} file(s)` : '', report.atlas.staleFolders > 0 ? `${report.atlas.staleFolders} folder(s)` : ''].filter(Boolean).join(' and ');
-    lines.push('', paint('grey', `Atlas: ${changed} changed since described (≈): \`kin atlas build\` to refresh.`));
+    lines.push('', paint('grey', `Atlas: ${changed} changed since described (≈): \`fiu atlas build\` to refresh.`));
   }
 
   if (report.suggestions.length > 0) {
@@ -64,7 +64,7 @@ function counts(dir: DirEntry, paint: (state: FileState, text: string) => string
 }
 
 function describe(file: FileEntry): string {
-  const waiting = file.waitingWorkout ? ` (a ${noun(file.waitingWorkout)} is waiting: kin train ${file.waitingWorkout})` : '';
+  const waiting = file.waitingWorkout ? ` (a ${noun(file.waitingWorkout)} is waiting: fiu train ${file.waitingWorkout})` : '';
   switch (file.state) {
     case 'red':
       return `complex, never practised${waiting}`;
@@ -80,13 +80,13 @@ function describe(file: FileEntry): string {
 function command(suggestion: Suggestion): string {
   switch (suggestion.kind) {
     case 'check':
-      return `kin predict ${suggestion.path}   (you were certain about it, and wrong: check your picture again)`;
+      return `fiu predict ${suggestion.path}   (you were certain about it, and wrong: check your picture again)`;
     case 'train':
-      return `kin train ${suggestion.workoutId}   (a ${noun(suggestion.workoutId)} is already waiting for ${suggestion.path})`;
+      return `fiu train ${suggestion.workoutId}   (a ${noun(suggestion.workoutId)} is already waiting for ${suggestion.path})`;
     case 'explore':
-      return `kin explore ${suggestion.path || '.'}   (${suggestion.red} complex files never practised)`;
+      return `fiu explore ${suggestion.path || '.'}   (${suggestion.red} complex files never practised)`;
     case 'drill':
-      return `kin drill ${suggestion.path}   (or ask your agent: /kin-drill ${suggestion.path})`;
+      return `fiu drill ${suggestion.path}   (or ask your agent: /fiu-drill ${suggestion.path})`;
   }
 }
 
@@ -97,14 +97,14 @@ const basename = (path: string) => path.split('/').pop() ?? path;
 
 const LEVELS: Record<Confidence, string> = { guessing: 'Guessing', 'fairly-sure': 'Fairly sure', certain: 'Certain' };
 
-/** `kin stats`: accuracy, calibration, trend, the weakest directories, and Blind Spots. A rate needs MIN_ANSWERS answers. */
+/** `fiu stats`: accuracy, calibration, trend, the weakest directories, and Blind Spots. A rate needs MIN_ANSWERS answers. */
 export function renderStats(stats: AnswerStats, { color }: RenderOptions): string {
   const dim = (text: string) => (color ? `\x1b[2m${text}\x1b[0m` : text);
   const red = (text: string) => (color ? `\x1b[31m${text}\x1b[0m` : text);
   const pct = (t: Tally) => (t.answers >= MIN_ANSWERS ? `${Math.round((100 * t.right) / t.answers)}%` : '—');
   const of = (t: Tally) => `${t.right} of ${t.answers}`;
   const where = stats.scope ? ` in ${stats.scope}` : '';
-  if (stats.overall.answers === 0) return `Nothing answered${where} yet. Ask for a Prediction with: kin predict${stats.scope ? ` ${stats.scope}` : ''}`;
+  if (stats.overall.answers === 0) return `Nothing answered${where} yet. Ask for a Prediction with: fiu predict${stats.scope ? ` ${stats.scope}` : ''}`;
 
   const lines = [`Your answers${where}: ${pct(stats.overall)} right (${of(stats.overall)}, first answers only)`];
   if (stats.byKind.length > 1) for (const k of stats.byKind) lines.push(`  ${(k.kind === 'prediction' ? 'Predictions' : 'Diagnoses').padEnd(12)} ${pct(k).padStart(4)}  (${of(k)})`);
@@ -129,7 +129,7 @@ export function renderStats(stats: AnswerStats, { color }: RenderOptions): strin
   }
   if (stats.blindSpots.length > 0) {
     lines.push(red('⚠ Blind Spots: you were certain, and wrong'));
-    for (const spot of stats.blindSpots) lines.push(`  ${spot.path}   check again: kin predict ${spot.path}`);
+    for (const spot of stats.blindSpots) lines.push(`  ${spot.path}   check again: fiu predict ${spot.path}`);
   } else if (rated.length > 0) {
     lines.push('No Blind Spots: nothing you were certain of turned out wrong.');
   }

@@ -7,7 +7,7 @@ import { shellQuote } from './sandbox/process.ts';
 
 export class NotInteractiveError extends Error {
   constructor() {
-    super('kin train needs an interactive terminal.');
+    super('fiu train needs an interactive terminal.');
   }
 }
 
@@ -47,7 +47,7 @@ class KeyReader {
   }
 }
 
-/** The real terminal for `kin train`. Call `close()` when done to restore the terminal. */
+/** The real terminal for `fiu train`. Call `close()` when done to restore the terminal. */
 export function terminalTrainIo(): TrainIo & { close(): void } {
   if (!process.stdin.isTTY) throw new NotInteractiveError();
   let keys: KeyReader | undefined;

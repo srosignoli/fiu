@@ -9,22 +9,22 @@ import { loadRepoConfig } from '../src/config.ts';
 import { ensureWorkspace, workspacePaths } from '../src/workspace.ts';
 import { tempDir, tempGitRepo } from './helpers.ts';
 
-const KIN = ['/usr/bin/node', '/opt/kin/dist/cli.js'];
+const FIU = ['/usr/bin/node', '/opt/fiu/dist/cli.js'];
 const hookFile = (repo: string) => join(repo, '.git', 'hooks', 'post-commit');
 
 describe('the post-commit hook', () => {
-  it('is created executable, with a marked block that starts kin refill in the background', async () => {
+  it('is created executable, with a marked block that starts fiu refill in the background', async () => {
     const repo = await tempGitRepo();
-    const result = await installHook(repo, KIN);
+    const result = await installHook(repo, FIU);
     assert.deepEqual(result, { status: 'installed', path: hookFile(repo), created: true });
     const hook = await readFile(hookFile(repo), 'utf8');
     assert.match(hook, /^#!\/bin\/sh\n/);
-    assert.match(hook, /# >>> kintsugi >>>[\s\S]*nohup '\/usr\/bin\/node' '\/opt\/kin\/dist\/cli\.js' 'refill' '--background' '--commit' "\$\(git rev-parse HEAD\)"[\s\S]*# <<< kintsugi <<</);
+    assert.match(hook, /# >>> fiutsu >>>[\s\S]*nohup '\/usr\/bin\/node' '\/opt\/fiu\/dist\/cli\.js' 'refill' '--background' '--commit' "\$\(git rev-parse HEAD\)"[\s\S]*# <<< fiutsu <<</);
     assert.ok(statSync(hookFile(repo)).mode & 0o100, 'executable');
     assert.equal(await hookInstalled(repo), true);
 
     await removeHook(repo);
-    assert.ok(!existsSync(hookFile(repo)), 'a hook Kintsugi created goes away entirely');
+    assert.ok(!existsSync(hookFile(repo)), 'a hook Fiutsu created goes away entirely');
   });
 
   it("keeps the user's own hook lines, adding and removing only its block", async () => {
@@ -33,11 +33,11 @@ describe('the post-commit hook', () => {
     const mine = '#!/bin/sh\necho "my own post-commit"\n';
     await writeFile(hookFile(repo), mine, { mode: 0o755 });
 
-    await installHook(repo, KIN);
-    await installHook(repo, KIN);
+    await installHook(repo, FIU);
+    await installHook(repo, FIU);
     const hook = await readFile(hookFile(repo), 'utf8');
     assert.ok(hook.startsWith(mine));
-    assert.equal(hook.match(/# >>> kintsugi >>>/g)?.length, 1, 'reinstalling refreshes the block');
+    assert.equal(hook.match(/# >>> fiutsu >>>/g)?.length, 1, 'reinstalling refreshes the block');
 
     assert.deepEqual(await removeHook(repo), { removed: true, path: hookFile(repo) });
     assert.equal(await readFile(hookFile(repo), 'utf8'), mine);
@@ -46,7 +46,7 @@ describe('the post-commit hook', () => {
   it('is left to the user when core.hooksPath manages hooks', async () => {
     const repo = await tempGitRepo();
     await execa('git', ['config', 'core.hooksPath', '.husky'], { cwd: repo });
-    const result = await installHook(repo, KIN);
+    const result = await installHook(repo, FIU);
     assert.equal(result.status, 'manual');
     assert.match(result.status === 'manual' ? result.snippet : '', /refill' '--background'/);
     assert.ok(!existsSync(join(repo, '.husky')) && !existsSync(hookFile(repo)));
@@ -55,8 +55,8 @@ describe('the post-commit hook', () => {
   it('runs on a real commit without making it wait, with git’s commit-time variables cleared', async () => {
     const repo = await tempGitRepo();
     const marker = join(await tempDir(), 'ran.txt');
-    const fakeKin = join(await tempDir(), 'fake-kin.sh');
-    // Stands in for kin: records its arguments and the index variable, slowly.
+    const fakeKin = join(await tempDir(), 'fake-fiu.sh');
+    // Stands in for fiu: records its arguments and the index variable, slowly.
     await writeFile(fakeKin, `sleep 2\necho "$@ index=[$GIT_INDEX_FILE]" > '${marker}'\n`);
     await installHook(repo, ['/bin/sh', fakeKin]);
 
@@ -72,14 +72,14 @@ describe('the post-commit hook', () => {
   });
 });
 
-describe('kin auto on / off / status', () => {
+describe('fiu auto on / off / status', () => {
   async function workspace() {
     const repo = await tempGitRepo();
     const paths = workspacePaths(repo);
     await ensureWorkspace(paths);
     return { repo, paths };
   }
-  const base = { provider: 'anthropic' as const, model: 'claude-opus-5-5', kinCommand: KIN };
+  const base = { provider: 'anthropic' as const, model: 'claude-opus-5-5', fiuCommand: FIU };
 
   it('needs explicit consent', async () => {
     const { paths } = await workspace();

@@ -130,7 +130,7 @@ function startTraining(repo: string, id: string | undefined, io: ScriptedIo): Pr
 
 const readJson = async (path: string) => JSON.parse(await readFile(path, 'utf8'));
 
-describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
+describe(`fiu train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
   it('re-runs the tests on save and completes the Workout when they all pass', async () => {
     const { repo, paths, record, dir, attempt } = await repoWithDrill();
     const startingCode = await readFile(join(dir, 'kata.ts'), 'utf8');
@@ -309,7 +309,7 @@ describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     // Same content: no run. Then a real change.
     const code = join(attempt(), 'kata.ts');
     await writeFile(code, await readFile(code, 'utf8'));
-    // Kintsugi's own bookkeeping file never triggers a run.
+    // Fiutsu's own bookkeeping file never triggers a run.
     const bookkeeping = join(attempt(), 'attempt.json');
     await writeFile(bookkeeping, await readFile(bookkeeping, 'utf8'));
     await writeFile(code, `${await readFile(code, 'utf8')}\n// still buggy\n`);
@@ -319,7 +319,7 @@ describe(`kin train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     const result = await training;
     assert.deepEqual(result, { status: 'left-pending', workoutId: record.id, attempt: 1 });
     assert.equal(io.printed.filter((t) => /^Run \d/.test(t)).length, 1);
-    assert.match(io.transcript, /Attempt 1 left open\. Resume with: kin train/);
+    assert.match(io.transcript, /Attempt 1 left open\. Resume with: fiu train/);
   });
 
   it('abandons the Workout on give-up, showing what the solution changes', async () => {
@@ -457,7 +457,7 @@ describe(`Attempts (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     io.press('q');
     await startTraining(repo, undefined, io);
     assert.deepEqual(io.picked, [record.id, newer.id]);
-    await assert.rejects(startTraining(repo, third.id, new ScriptedIo()), /is discarded\. Bring it back with `kin restore/);
+    await assert.rejects(startTraining(repo, third.id, new ScriptedIo()), /is discarded\. Bring it back with `fiu restore/);
 
     await restoreWorkout(paths, third.id);
     assert.equal((await listWorkouts(paths)).find((w) => w.record.id === third.id)?.status, 'queued');
@@ -509,7 +509,7 @@ describe('watchForChanges', () => {
   });
 });
 
-describe(`kin quick (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
+describe(`fiu quick (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
   /** Saves a Drill into an existing repo; `seconds` orders them by creation time. */
   async function addDrill(repo: string, slug: string, seconds: number, overrides: Partial<DrillOutput> = {}, origin: Origin = 'manual') {
     return saveDrill({
@@ -706,7 +706,7 @@ describe('a Prediction Series', () => {
     await io.waitFor(/\[n\] next question/);
     io.press('x');
     assert.equal((await training).status, 'abandoned');
-    assert.match(io.transcript, new RegExp(`The rest of the Series waits in the queue: kin train ${records[1]!.id}`));
+    assert.match(io.transcript, new RegExp(`The rest of the Series waits in the queue: fiu train ${records[1]!.id}`));
   });
 
   it('is one row in the picker, and discarded by its id', async () => {

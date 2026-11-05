@@ -34,7 +34,7 @@ export async function trackListing(cwd: string): Promise<TrackListing> {
 
 export type TrackResult = TrainResult | { status: 'track-complete'; track: TrackRecord };
 
-/** `kin track <id>`: show the Track's progress and open its next step (resuming one in progress). */
+/** `fiu track <id>`: show the Track's progress and open its next step (resuming one in progress). */
 export async function continueTrack(cwd: string, id: string, options: TrainOptions, io: TrainIo, deps: TrainDependencies = {}): Promise<TrackResult> {
   const paths = workspacePaths(await findRepoRoot(cwd));
   const track = await loadTrack(paths, id);

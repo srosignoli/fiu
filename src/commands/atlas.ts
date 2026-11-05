@@ -75,7 +75,7 @@ function lighter(options: ProviderOptions): ProviderOptions {
   return anthropic?.effort ? { ...options, anthropic: { ...anthropic, effort: 'low' } } : options;
 }
 
-/** `kin atlas build [<dir>]`: describe what is missing or stale in the Atlas, bottom up, after a cost confirmation. */
+/** `fiu atlas build [<dir>]`: describe what is missing or stale in the Atlas, bottom up, after a cost confirmation. */
 export async function buildAtlas(
   cwd: string,
   path: string | undefined,
@@ -102,7 +102,7 @@ export async function buildAtlas(
     apiKey = resolveApiKey(config.provider, userConfig, configEnv);
   } catch (error) {
     if (!(error instanceof MissingApiKeyError)) throw error;
-    error.message += `\nOr build the Atlas with your coding agent instead: run \`kin agent install claude\`, then ask it to \`/kin-atlas${scope ? ` ${scope}` : ''}\`.`;
+    error.message += `\nOr build the Atlas with your coding agent instead: run \`fiu agent install claude\`, then ask it to \`/fiu-atlas${scope ? ` ${scope}` : ''}\`.`;
     throw error;
   }
 
@@ -113,7 +113,7 @@ export async function buildAtlas(
     if (!options.yes) {
       if (!ui.confirm) throw new ConsentRequiredError(config.provider);
       const granted = await ui.confirm(
-        `Kintsugi will send the declarations and key functions of ${fileCount} file(s) in ${where} to ${config.provider} (${config.model}). Send code from this repository to ${config.provider}?`,
+        `Fiutsu will send the declarations and key functions of ${fileCount} file(s) in ${where} to ${config.provider} (${config.model}). Send code from this repository to ${config.provider}?`,
       );
       if (!granted) throw new ConsentDeclinedError();
     }
@@ -152,7 +152,7 @@ export async function buildAtlas(
       await recordSpend(paths, {
         at: now().toISOString(),
         origin: 'manual',
-        generator: 'kintsugi',
+        generator: 'fiutsu',
         source: call.folder.path || '.',
         result: 'atlas',
         generationAttempts: 1,
@@ -171,7 +171,7 @@ export async function buildAtlas(
   return { status: 'built', ...described, failed, cost: estimateCost(mergeByModel(usage), config.prices) };
 }
 
-/** `kin atlas search "<goal>"`: files and symbols for a goal, local and free, with the map state of each. */
+/** `fiu atlas search "<goal>"`: files and symbols for a goal, local and free, with the map state of each. */
 export async function searchAtlasCommand(cwd: string, goal: string, { configEnv = { env: process.env, home: homedir() } }: Pick<AtlasDependencies, 'configEnv'> = {}) {
   const repoRoot = await findRepoRoot(cwd);
   const paths = workspacePaths(repoRoot);
@@ -183,7 +183,7 @@ export async function searchAtlasCommand(cwd: string, goal: string, { configEnv 
   return { results: searchAtlas(goal, skeleton, atlas, states), described: Object.keys(atlas.files).length > 0 };
 }
 
-/** `kin atlas [<path>]`: what the Atlas holds for the repository or one folder. */
+/** `fiu atlas [<path>]`: what the Atlas holds for the repository or one folder. */
 export async function atlasView(cwd: string, path: string | undefined, { configEnv = { env: process.env, home: homedir() } }: Pick<AtlasDependencies, 'configEnv'> = {}): Promise<AtlasView> {
   const repoRoot = await findRepoRoot(cwd);
   const paths = workspacePaths(repoRoot);

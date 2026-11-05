@@ -36,7 +36,7 @@ export class SandboxUnavailableError extends Error {
   readonly reasons: string[];
   constructor(reasons: string[]) {
     super(
-      ['No working sandbox is available, so Kintsugi will not run Workout code:', ...reasons.map((r) => `  - ${r}`), installHint()]
+      ['No working sandbox is available, so Fiutsu will not run Workout code:', ...reasons.map((r) => `  - ${r}`), installHint()]
         .filter(Boolean)
         .join('\n'),
     );
@@ -51,7 +51,7 @@ function installHint(): string {
   if (process.platform === 'darwin') {
     return 'Install the sandbox dependencies (`brew install ripgrep`), or pass --no-sandbox to run this once without isolation.';
   }
-  return 'Kintsugi supports Linux and macOS (on Windows, use WSL). Pass --no-sandbox to run this once without isolation.';
+  return 'Fiutsu supports Linux and macOS (on Windows, use WSL). Pass --no-sandbox to run this once without isolation.';
 }
 
 type Wrap = (command: string, policy: FilesystemPolicy, commandId: string) => Promise<string>;
@@ -74,7 +74,7 @@ class ProcessSandbox implements Sandbox {
   }
 
   async run(request: RunRequest): Promise<RunResult> {
-    const scratch = await mkdtemp(join(tmpdir(), 'kintsugi-run-'));
+    const scratch = await mkdtemp(join(tmpdir(), 'fiutsu-run-'));
     try {
       const home = join(scratch, 'home');
       const tmp = join(scratch, 'tmp');

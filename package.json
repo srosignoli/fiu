@@ -1,13 +1,13 @@
 {
-  "name": "kintsugi",
+  "name": "fiutsu",
   "version": "5.1.0",
   "private": true,
-  "description": "Turn real code from your repository into small, verified practice Workouts.",
+  "description": "A nose for code you never typed: real code from the repository, turned into small, verified practice Workouts.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "kintsugi": "dist/cli.js",
-    "kin": "dist/cli.js"
+    "fiutsu": "dist/cli.js",
+    "fiu": "dist/cli.js"
   },
   "files": [
     "dist"

@@ -30,7 +30,7 @@ export interface TrackRecord {
 
 export class TrackNotFoundError extends Error {
   constructor(id: string) {
-    super(`No Track "${id}". Run \`kin track\` to list them.`);
+    super(`No Track "${id}". Run \`fiu track\` to list them.`);
   }
 }
 

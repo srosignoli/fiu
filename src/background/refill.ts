@@ -29,13 +29,13 @@ const PROCESSED_MEMORY = 500;
 export interface RefillOptions {
   /** The commit to generate from; HEAD when absent. */
   commit?: string;
-  /** Started by the hook: never prompts, needs `kin auto on`, and obeys the caps. */
+  /** Started by the hook: never prompts, needs `fiu auto on`, and obeys the caps. */
   background: boolean;
   /** Foreground only: consent to sending code without prompting. */
   yes?: boolean;
   /** Foreground only: false with --no-sandbox. Background generation is always sandboxed. */
   sandbox?: boolean;
-  /** Overrides the configured kinds: `kin predict --commit` asks for a Prediction and nothing else. */
+  /** Overrides the configured kinds: `fiu predict --commit` asks for a Prediction and nothing else. */
   kinds?: PreferredKind[];
 }
 
@@ -54,14 +54,14 @@ export interface RefillResult {
 
 export class RefillBusyError extends Error {
   constructor() {
-    super('Kintsugi is already generating a Drill in the background for this repository. Try again in a minute.');
+    super('Fiutsu is already generating a Drill in the background for this repository. Try again in a minute.');
   }
 }
 
 /**
- * `kin refill [--commit <sha>]`: turn a commit into a Quick Drill. In the background (from the hook)
+ * `fiu refill [--commit <sha>]`: turn a commit into a Quick Drill. In the background (from the hook)
  * it never prompts, runs one generator per repository, queues commits that arrive meanwhile, and
- * obeys the queue and daily caps. Every outcome goes to .kintsugi/log.
+ * obeys the queue and daily caps. Every outcome goes to .fiutsu/log.
  */
 export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, deps: RefillDependencies = {}): Promise<RefillResult> {
   const configEnv = deps.configEnv ?? { env: process.env, home: homedir() };
@@ -176,7 +176,7 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
         if (!ui.confirm) throw new ConsentRequiredError(config.provider);
         const what = before === undefined ? `${target.path} (as of ${commitSha.slice(0, 12)})` : `${target.path} (before and after ${commitSha.slice(0, 12)})`;
         const granted = await ui.confirm(
-          `Kintsugi will send ${what} to ${config.provider} (${config.model}) to generate a ${NOUN[kinds[0]!]}. Send code from this repository to ${config.provider}?`,
+          `Fiutsu will send ${what} to ${config.provider} (${config.model}) to generate a ${NOUN[kinds[0]!]}. Send code from this repository to ${config.provider}?`,
         );
         if (!granted) throw new ConsentDeclinedError();
       }
@@ -240,7 +240,7 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
 
 /** Why background generation must not run, if it mustn't. */
 function backgroundRefusal(repoConfig: RepoConfig, provider: string): string | undefined {
-  if (!repoConfig.auto?.enabled) return 'background generation is off (turn it on with `kin auto on`)';
+  if (!repoConfig.auto?.enabled) return 'background generation is off (turn it on with `fiu auto on`)';
   if (repoConfig.consent?.provider !== provider) return `no consent to send code to ${provider}`;
   return undefined;
 }

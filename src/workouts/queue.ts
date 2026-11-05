@@ -26,7 +26,7 @@ const fromAiCode = (record: WorkoutRecord) => record.origin === 'agent-task' || 
 export async function nextQuickWorkout(paths: WorkspacePaths, kinds: readonly WorkoutKind[] = ['drill']): Promise<StoredWorkout | undefined> {
   const candidates: StoredWorkout[] = [];
   for (const workout of await listWorkouts(paths)) {
-    // Track steps are a curriculum, worked through with `kin track`, not a snack for a short wait.
+    // Track steps are a curriculum, worked through with `fiu track`, not a snack for a short wait.
     if (workout.status !== 'queued' || workout.record.origin === 'explore') continue;
     if (!existsSync(join(paths.repoRoot, workout.record.source.path))) continue;
     if (await isQuick(workout)) candidates.push(workout);

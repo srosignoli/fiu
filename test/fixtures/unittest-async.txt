@@ -17,7 +17,7 @@ Traceback (most recent call last):
   File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
     return future.result()
            ^^^^^^^^^^^^^^^
-  File "/tmp/kintsugi-verify-a1b2c3/test_kata.py", line 12, in test_accept_reports_mission
+  File "/tmp/fiutsu-verify-a1b2c3/test_kata.py", line 12, in test_accept_reports_mission
     self.assertEqual(resolve("abc", True), (True, "m1"))
 AssertionError: Tuples differ: (False, None) != (True, 'm1')
 

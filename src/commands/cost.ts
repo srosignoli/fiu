@@ -35,7 +35,7 @@ export function startOfMonth(now = new Date()): Date {
   return new Date(now.getFullYear(), now.getMonth(), 1);
 }
 
-/** `kin cost`: what generating Workouts has cost since a date, and how much of it went unused. */
+/** `fiu cost`: what generating Workouts has cost since a date, and how much of it went unused. */
 export async function costReport(cwd: string, since: Date = startOfMonth()): Promise<CostReport> {
   const paths = workspacePaths(await findRepoRoot(cwd));
   const state = await readState(paths);

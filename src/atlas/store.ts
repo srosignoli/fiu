@@ -15,7 +15,7 @@ const FileEntrySchema = EntrySchema.extend({
   functions: z.record(z.string(), z.string()).default({}),
 });
 
-/** `.kintsugi/atlas.json`. The root folder's entry ('') is the overview of the repository. */
+/** `.fiutsu/atlas.json`. The root folder's entry ('') is the overview of the repository. */
 export const AtlasSchema = z.object({
   version: z.literal(1),
   folders: z.record(z.string(), EntrySchema),

@@ -42,7 +42,7 @@ export interface TrainingSessionOptions {
 
 /**
  * One sitting with one Attempt at a Workout. Holds no terminal state, so it can be driven by tests as
- * well as by `kin train`. Progress is saved to the Attempt as it happens.
+ * well as by `fiu train`. Progress is saved to the Attempt as it happens.
  */
 export class TrainingSession {
   readonly #options: TrainingSessionOptions;

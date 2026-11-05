@@ -8,7 +8,7 @@ import { answersOnly, NOUN, type WorkoutKind } from '../synthesis/schema.ts';
 import type { PreferredKind } from '../config.ts';
 
 /**
- * The kinds a Track may use: those given (`kin explore --kinds`), else exactly the no-code kinds for someone
+ * The kinds a Track may use: those given (`fiu explore --kinds`), else exactly the no-code kinds for someone
  * whose \`kinds\` setting lists only those (they don't read code), else all four.
  */
 export function trackKinds(preferred: readonly PreferredKind[], override?: readonly WorkoutKind[]): WorkoutKind[] {
@@ -46,7 +46,7 @@ const KIND_LINES: Record<WorkoutKind, string> = {
 };
 
 /**
- * The rules for ordering a Track: shared by Kintsugi's own planning call and agent mode's prepare_track.
+ * The rules for ordering a Track: shared by Fiutsu's own planning call and agent mode's prepare_track.
  * `kinds` are the kinds this Track may use (§11.11).
  */
 export function trackRules(kinds: readonly WorkoutKind[] = TRACK_KINDS): string {

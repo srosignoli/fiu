@@ -100,7 +100,7 @@ This is a What-if: it asks what the code would do with a Proposed Change that ha
 - previous: the same unit as it is today, made self-contained the same way and identical to referenceSolution except for the change. Copy the changed lines from the source file as they are. The two may differ by at most ${WHAT_IF_MAX_CHANGED_LINES} lines in all.
 - modelledAs: one plain-English sentence with concrete values saying how you understood the change. The human reads it before answering, and it is how they find out if you misread them.
 - Choose a Scenario whose outcome is different today and with the change, and ask what happens with the change.
-- One wrong option is what happens today: what previous does. Mark it previous: true and leave its variant and misunderstanding empty (Kintsugi explains it). Every other option has previous: false; the other two wrong options are ordinary Variants of referenceSolution.
+- One wrong option is what happens today: what previous does. Mark it previous: true and leave its variant and misunderstanding empty (Fiutsu explains it). Every other option has previous: false; the other two wrong options are ordinary Variants of referenceSolution.
 - explanation says why the change has this effect.
 - If the change is about behaviour that isn't in this file, is too vague to pin down, or needs more than ${WHAT_IF_MAX_CHANGED_LINES} changed lines, set worthPracticing to false and say why in notWorthReason, naming what is missing or where the behaviour seems to live.`
     : fromCommit
@@ -109,12 +109,12 @@ This is a What-if: it asks what the code would do with a Proposed Change that ha
 This is a Prediction from a commit: it asks what the code does now, in a situation the commit changed.
 - Choose a Scenario whose outcome is different before and after the commit. If the commit changed no behaviour (a refactor, a rename, a restructuring), set worthPracticing to false and say so in notWorthReason.
 - previous: the same unit extracted from the file before the commit, made self-contained the same way and identical to referenceSolution except where the commit changed it. Copy the changed lines from the old file as they are.
-- One wrong option is the old behaviour: what previous does. Mark it previous: true and leave its variant and misunderstanding empty (Kintsugi explains it). Every other option has previous: false; the other two wrong options are ordinary Variants.
+- One wrong option is the old behaviour: what previous does. Mark it previous: true and leave its variant and misunderstanding empty (Fiutsu explains it). Every other option has previous: false; the other two wrong options are ordinary Variants.
 - Never mention the commit, or that anything changed, in the scenario or the options.`
     : '';
   return `You create Predictions: short exercises in which people who never read code (engineering managers, architects, developers who let agents write their code) predict what their own system does in a concrete situation, so they keep an accurate picture of it.
 
-A Prediction takes one real unit of code from the repository, makes it self-contained, and asks what happens in a Scenario, with ${PREDICTION_OPTIONS} outcomes to choose from. Every outcome is measured: the true one is what the referenceSolution does, and each wrong one is what a Variant (a small change to it) does. Kintsugi runs the tests against each to prove it.
+A Prediction takes one real unit of code from the repository, makes it self-contained, and asks what happens in a Scenario, with ${PREDICTION_OPTIONS} outcomes to choose from. Every outcome is measured: the true one is what the referenceSolution does, and each wrong one is what a Variant (a small change to it) does. Fiutsu runs the tests against each to prove it.
 
 How to build the Prediction:
 - Extract the unit whose behaviour matters most to the people relying on it: business rules, policies, limits and caps, ordering, state transitions, what is skipped, deferred, retried, or kept. Not the one with the most interesting logic. If a symbol is named, use it.
@@ -141,7 +141,7 @@ ${profile.promptRules
 export function diagnosisSystemPrompt(profile: LanguageProfile): string {
   return `You create Diagnoses: short exercises in which people who never read code (engineering managers, architects, developers who let agents write their code) read a practice incident about their own system and choose what caused it, so they can reason about real incidents.
 
-A Diagnosis takes one real unit of code from the repository, makes it self-contained, and offers ${PREDICTION_OPTIONS} possible Causes. Every link is measured: the referenceSolution is the healthy code, and each Cause is a Variant (a small change to it) with a test that asserts the Cause's Symptom. Kintsugi runs the tests against all five versions to prove it.
+A Diagnosis takes one real unit of code from the repository, makes it self-contained, and offers ${PREDICTION_OPTIONS} possible Causes. Every link is measured: the referenceSolution is the healthy code, and each Cause is a Variant (a small change to it) with a test that asserts the Cause's Symptom. Fiutsu runs the tests against all five versions to prove it.
 
 How to build the Diagnosis:
 - Extract the unit whose behaviour matters most to the people relying on it: business rules, limits and caps, ordering, state transitions, what is skipped, deferred, retried, or kept. If a symbol is named, use it.

@@ -5,7 +5,7 @@ import type { ProviderOptions } from '../synthesis/model.ts';
 import type { Skeleton, SkeletonFile, SkeletonFolder } from './skeleton.ts';
 import type { Atlas } from './store.ts';
 
-/** Every Atlas line is short enough to sit beside a name in `kin map`. */
+/** Every Atlas line is short enough to sit beside a name in `fiu map`. */
 export const MAX_LINE_CHARS = 200;
 export const MAX_FILE_LINES = 2;
 export const MAX_OVERVIEW_LINES = 5;
@@ -26,7 +26,7 @@ export const AtlasOutputSchema = z.object({
 });
 export type AtlasOutput = z.infer<typeof AtlasOutputSchema>;
 
-/** Shared by Kintsugi's own calls and agent mode's prepare_atlas. */
+/** Shared by Fiutsu's own calls and agent mode's prepare_atlas. */
 export const ATLAS_RULES = `You write the Atlas of a codebase: short orientation notes that tell a developer what each folder, file, and key function is for, so they can choose what to study. You are shown one folder at a time, deepest folders first, so a folder's subfolders are already described.
 
 Write for someone who has not read the code. Say what each thing is for and what it is responsible for, in plain words, naming the domain concepts it deals with (orders, retries, snapshots, consent), not the syntax (no "exports a function that"). Describe only what the code you are shown does: never guess at behaviour you can't see, and never judge the code's quality.

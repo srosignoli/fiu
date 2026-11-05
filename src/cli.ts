@@ -13,23 +13,33 @@ import { EDITOR_TIP, init } from './commands/init.ts';
 import { quick, quickWhile, train, type TrainResult } from './commands/train.ts';
 import { runInForeground } from './runner/background.ts';
 import { terminalTrainIo } from './terminal.ts';
+import { migrateFromKintsugi } from './legacy.ts';
 import { VERSION } from './version.ts';
 import { discardSeries, discardWorkout, legacyDoneNotice, restoreWorkout } from './workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from './workspace.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type PreferredKind } from './config.ts';
 
 const program = new Command()
-  .name('kintsugi')
-  .description('Turn real code from your repository into small, verified practice Workouts.')
-  .version(VERSION);
+  .name('fiutsu')
+  .description('A nose for code you never typed: real code from the repository, turned into small, verified practice Workouts.')
+  .version(VERSION)
+  // Once per machine and repository: move what the project's old name (Kintsugi) left behind.
+  .hook('preAction', async () => {
+    try {
+      const notices = await migrateFromKintsugi({ cwd: process.cwd(), configEnv: { env: process.env, home: homedir() }, fiuCommand: fiuCommand() });
+      for (const notice of notices) console.error(notice);
+    } catch (error) {
+      console.error(`fiutsu: couldn't move Kintsugi's files to Fiutsu's names: ${(error as Error).message}`);
+    }
+  });
 
 program
   .command('init')
-  .description('Set up the .kintsugi/ workspace in the current git repository.')
+  .description('Set up the .fiutsu/ workspace in the current git repository.')
   .action(async () => {
     const { paths, createdWorkspace, updatedGitExclude, sandboxProblem } = await init(process.cwd());
     console.log(createdWorkspace ? `Created ${paths.root}` : `Workspace already exists at ${paths.root}`);
-    if (updatedGitExclude) console.log('Hid .kintsugi/ from git via .git/info/exclude');
+    if (updatedGitExclude) console.log('Hid .fiutsu/ from git via .git/info/exclude');
     if (sandboxProblem) {
       console.error(sandboxProblem.message);
       process.exitCode = 1;
@@ -37,10 +47,10 @@ program
       console.log('Sandbox check passed.');
     }
     console.log(EDITOR_TIP);
-    console.log('To get a Quick Drill from each of your commits in the background, run: kin auto on');
+    console.log('To get a Quick Drill from each of your commits in the background, run: fiu auto on');
   });
 
-/** `kin drill`, `kin kata`, and `kin predict`: the same flow, differing only in what is generated and how it is described. */
+/** `fiu drill`, `fiu kata`, and `fiu predict`: the same flow, differing only in what is generated and how it is described. */
 function trackKindList(value: string): WorkoutKind[] {
   const kinds = value.split(',').map((k) => k.trim()).filter(Boolean);
   const unknown = kinds.filter((k) => !(k in NOUN));
@@ -91,7 +101,7 @@ function generationCommand(kind: WorkoutKind) {
                   ? [`Read the incident:        ${join(workoutDir, 'README.md')}`]
                   : [`Read the Scenario:        ${join(workoutDir, 'README.md')}`]
             )
-              .concat(`Then train with:          kin train ${record.id}`)
+              .concat(`Then train with:          fiu train ${record.id}`)
               .join('\n'),
           );
         }
@@ -152,7 +162,7 @@ program
 
 program
   .command('mcp')
-  .description("Run Kintsugi's MCP server (stdio), so your coding agent can create Drills. Started by the agent, not by hand.")
+  .description("Run Fiutsu's MCP server (stdio), so your coding agent can create Drills. Started by the agent, not by hand.")
   .action(async () => {
     // Loaded lazily: only the agent's server process needs the MCP SDK.
     const { AgentDrills } = await import('./agent/drills.ts');
@@ -165,12 +175,12 @@ program
     await server.connect(new StdioServerTransport());
   });
 
-const agent = program.command('agent').description('Set up your coding agent to create Drills with Kintsugi.');
+const agent = program.command('agent').description('Set up your coding agent to create Drills with Fiutsu.');
 
 agent
   .command('install')
   .argument('<agent>', 'the coding agent: claude (Claude Code)')
-  .description("Install Kintsugi's skill, /kin-drill command, and MCP server for your coding agent.")
+  .description("Install Fiutsu's skill, /fiu-drill command, and MCP server for your coding agent.")
   .option('--project', 'install into this repository only (untracked) instead of for your user')
   .option('--after-tasks', 'also ask the agent to create a Quick Drill when it finishes a coding task')
   .action(async (name: string, options: { project?: boolean; afterTasks?: boolean }) => {
@@ -182,22 +192,22 @@ agent
       version: VERSION,
       home: homedir(),
       cwd: process.cwd(),
-      kinCommand: kinCommand(),
+      fiuCommand: fiuCommand(),
     });
     for (const path of report.written) log.step(`Wrote ${path}`);
     for (const path of report.removed) log.step(`Removed ${path}`);
     if (report.manualMcpCommand) {
       log.warn(`Couldn't register the MCP server with the claude CLI. Run this yourself:\n${report.manualMcpCommand}`);
     } else {
-      log.step('Registered the kintsugi MCP server with Claude Code');
+      log.step('Registered the fiutsu MCP server with Claude Code');
     }
-    log.success('Done. In Claude Code, ask for a drill or a kata (or type /kin-drill <file> [kata]), then start it with kin train.');
+    log.success('Done. In Claude Code, ask for a drill or a kata (or type /fiu-drill <file> [kata]), then start it with fiu train.');
   });
 
 agent
   .command('uninstall')
   .argument('<agent>', 'the coding agent: claude (Claude Code)')
-  .description('Remove what `kin agent install` added.')
+  .description('Remove what `fiu agent install` added.')
   .option('--project', 'remove the installation from this repository')
   .action(async (name: string, options: { project?: boolean }) => {
     const { uninstallClaude } = await import('./agent/install.ts');
@@ -209,17 +219,17 @@ agent
   });
 
 function pausedMessage(queued: number, cap: number): string {
-  return `Paused: the queue is full (${queued} of ${cap} Workouts waiting), so new commits won't get Drills until you attempt or \`kin discard\` one (or raise the cap with \`kin auto on --queue-cap <n>\`).`;
+  return `Paused: the queue is full (${queued} of ${cap} Workouts waiting), so new commits won't get Drills until you attempt or \`fiu discard\` one (or raise the cap with \`fiu auto on --queue-cap <n>\`).`;
 }
 
 function assertClaude(name: string): void {
   if (name !== 'claude') {
-    throw new Error(`Only "claude" (Claude Code) has an installer so far. Other MCP clients can run \`${kinCommand().join(' ')} mcp\` as a stdio server.`);
+    throw new Error(`Only "claude" (Claude Code) has an installer so far. Other MCP clients can run \`${fiuCommand().join(' ')} mcp\` as a stdio server.`);
   }
 }
 
-/** How to start this same `kin` again, independent of the PATH the agent sees. */
-function kinCommand(): string[] {
+/** How to start this same `fiu` again, independent of the PATH the agent sees. */
+function fiuCommand(): string[] {
   return [process.execPath, ...process.execArgv, realpathSync(process.argv[1]!)];
 }
 
@@ -283,7 +293,7 @@ program
       return;
     }
     if (result.status === 'declined') {
-      log.info('No Drills generated. (Choosing the steps was a single small call, already recorded in `kin cost`.)');
+      log.info('No Drills generated. (Choosing the steps was a single small call, already recorded in `fiu cost`.)');
       return;
     }
     for (const drop of result.dropped) log.warn(`Dropped ${drop}`);
@@ -294,7 +304,7 @@ program
     }
     log.success(`Saved the Track "${result.track.title}" (${result.track.id}) with ${result.track.steps.length} steps: ${result.track.steps.map((s) => NOUN[s.kind ?? 'drill']).join(', ')}.`);
     if (options.train && process.stdin.isTTY) await runTrack(result.track.id, options);
-    else log.info(`Start it with: kin track ${result.track.id}`);
+    else log.info(`Start it with: fiu track ${result.track.id}`);
   });
 
 program
@@ -307,13 +317,13 @@ program
     if (!id) {
       const listing = await trackListing(process.cwd());
       if (listing.length === 0) {
-        log.info('No Tracks yet. Build one with: kin explore <module-directory>');
+        log.info('No Tracks yet. Build one with: fiu explore <module-directory>');
         return;
       }
       // One Track opens directly, but only where there's a terminal to train in.
       if (listing.length > 1 || !process.stdin.isTTY) {
         log.message(listing.map(({ track, done, total }) => `${track.id}  ${done}/${total}  ${track.title}`).join('\n'));
-        log.info('Continue one with: kin track <track-id>');
+        log.info('Continue one with: fiu track <track-id>');
         return;
       }
       id = listing[0]!.track.id;
@@ -330,13 +340,13 @@ async function runTrack(id: string, options: { sandbox: boolean }): Promise<void
   } finally {
     io.close();
   }
-  if (result.status === 'track-complete') log.success('Every step of this Track has been attempted. Redo any step with: kin train <workout-id>');
-  else if (result.status === 'completed' || result.status === 'abandoned') log.info(`Next step: kin track ${id}`);
+  if (result.status === 'track-complete') log.success('Every step of this Track has been attempted. Redo any step with: fiu train <workout-id>');
+  else if (result.status === 'completed' || result.status === 'abandoned') log.info(`Next step: fiu track ${id}`);
 }
 
 program
   .command('share')
-  .description("Share Workouts, whole Tracks, or the Atlas with your team on the repository's kintsugi/workouts branch.")
+  .description("Share Workouts, whole Tracks, or the Atlas with your team on the repository's fiutsu/workouts branch.")
   .argument('[ids...]', 'Workout or Track ids')
   .option('--atlas', "share the Atlas too, merged with the team's")
   .option('--remote <name>', 'the remote to share through (default: share.remote in config, else origin)')
@@ -347,7 +357,7 @@ program
     for (const item of report.shared) log.success(`Shared ${item.kind} ${item.id}${item.as !== item.id ? ` as ${item.as} (a different Workout already had its id)` : ''}`);
     for (const id of report.alreadyShared) log.info(`${id} was already shared`);
     if (report.atlas) log[report.atlas.changed ? 'success' : 'info'](report.atlas.changed ? `Shared the Atlas: the team's now has ${report.atlas.entries} entries.` : 'The team already has your Atlas.');
-    if (report.shared.length > 0 || report.atlas?.changed) log.info(`Teammates get them with: kin fetch  (branch kintsugi/workouts on ${report.remote})`);
+    if (report.shared.length > 0 || report.atlas?.changed) log.info(`Teammates get them with: fiu fetch  (branch fiutsu/workouts on ${report.remote})`);
   });
 
 program
@@ -369,11 +379,11 @@ program
       return;
     }
     for (const item of report.imported) log.success(`Fetched ${item.id}${item.as !== item.id ? ` as ${item.as}` : ''}`);
-    for (const item of report.tracks) log.success(`Fetched Track ${item.id}: start it with kin track ${item.as}`);
+    for (const item of report.tracks) log.success(`Fetched Track ${item.id}: start it with fiu track ${item.as}`);
     for (const item of report.rejected) log.warn(`Skipped ${item.id}: it didn't re-verify here (${item.reason})`);
     for (const item of report.skippedTracks) log.warn(`Skipped Track ${item.id}: ${item.reason}`);
     const atlasNews = report.atlas ? report.atlas.added + report.atlas.replaced : 0;
-    if (report.atlas && atlasNews > 0) log.success(`Fetched ${atlasNews} Atlas entr${atlasNews === 1 ? 'y' : 'ies'} (${report.atlas.added} new, ${report.atlas.replaced} replacing out-of-date ones): see them with kin map`);
+    if (report.atlas && atlasNews > 0) log.success(`Fetched ${atlasNews} Atlas entr${atlasNews === 1 ? 'y' : 'ies'} (${report.atlas.added} new, ${report.atlas.replaced} replacing out-of-date ones): see them with fiu map`);
     if (report.imported.length === 0 && report.tracks.length === 0 && atlasNews === 0) log.info('You already have everything your team has shared.');
   });
 
@@ -420,7 +430,7 @@ atlas
     const dim = (text: string) => (color ? `\x1b[2m${text}\x1b[0m` : text);
     const marks = { red: '●', amber: '◐', green: '✓', grey: '·' } as const;
     if (results.length === 0) {
-      log.info(`Nothing matches "${goal.join(' ')}".${described ? '' : ' Only names are searched until the Atlas is built: `kin atlas build`, or ask your agent: /kin-atlas'}`);
+      log.info(`Nothing matches "${goal.join(' ')}".${described ? '' : ' Only names are searched until the Atlas is built: `fiu atlas build`, or ask your agent: /fiu-atlas'}`);
       return;
     }
     const shown = options.all ? results : results.slice(0, SEARCH_RESULTS);
@@ -428,11 +438,11 @@ atlas
     for (const result of shown) {
       lines.push(`${marks[result.state]} ${targetOf(result)}`);
       if (result.text) lines.push(dim(`    ${result.stale ? '≈ ' : ''}${result.text.replace(/\n/g, ' ')}`));
-      lines.push(result.tooLong ? dim('    too long to drill: its file is over 3,000 lines') : `    kin drill ${targetOf(result)}`);
+      lines.push(result.tooLong ? dim('    too long to drill: its file is over 3,000 lines') : `    fiu drill ${targetOf(result)}`);
     }
     if (shown.length < results.length) lines.push(dim(`… and ${results.length - shown.length} more: --all`));
     lines.push('', dim('● complex, never practised   ◐ out of date or AI-changed   ✓ practised. Swap drill for kata (rebuild it) or predict (say what it does, no code reading).'));
-    if (!described) lines.push(dim('Matched on names only: `kin atlas build` (or /kin-atlas) adds what each file and function is for.'));
+    if (!described) lines.push(dim('Matched on names only: `fiu atlas build` (or /fiu-atlas) adds what each file and function is for.'));
     console.log(lines.join('\n'));
   });
 
@@ -453,7 +463,7 @@ atlas
     if (result.status === 'up-to-date') return log.success('The Atlas is up to date: nothing is missing or stale.');
     if (result.status === 'declined') return log.info('Nothing described.');
     for (const failure of result.failed) log.warn(`Couldn't describe ${failure.folder || 'the repository overview'}:\n${failure.problems.map((p) => `- ${p}`).join('\n')}`);
-    log.success(`Described ${result.folders} folder(s) and ${result.files} file(s), ${describeCost(result.cost)}. See them with \`kin map\`, or search with \`kin atlas search "<goal>"\`.`);
+    log.success(`Described ${result.folders} folder(s) and ${result.files} file(s), ${describeCost(result.cost)}. See them with \`fiu map\`, or search with \`fiu atlas search "<goal>"\`.`);
     if (result.failed.length > 0) process.exitCode = 1;
   });
 
@@ -491,7 +501,7 @@ program
       if (generate === true) {
         await runRefill({ background: false, sandbox: options.sandbox, train: true });
       } else {
-        log.info('Make one with `kin drill --quick <file>`, or ask your agent: `/kin-drill <file> quick`.');
+        log.info('Make one with `fiu drill --quick <file>`, or ask your agent: `/fiu-drill <file> quick`.');
       }
     } else if (result.status === 'completed' || result.status === 'abandoned') {
       log.info(`Attempt ${result.attempt} kept at ${result.dir}.`);
@@ -502,7 +512,7 @@ program
   .command('refill')
   .description('Generate a Quick Workout from a commit (the latest by default), of the kind your "kinds" setting prefers. The git hook runs this in the background.')
   .option('--commit <sha>', 'the commit to generate from (default: HEAD)')
-  .option('--background', 'run unattended, as the hook does: never prompts, needs `kin auto on`, obeys the caps')
+  .option('--background', 'run unattended, as the hook does: never prompts, needs `fiu auto on`, obeys the caps')
   .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only (never in the background)')
   .option('--no-train', 'only save the Drill, without opening the runner')
@@ -542,7 +552,7 @@ auto
       repoConfig,
       provider: config.provider,
       model: config.model,
-      kinCommand: kinCommand(),
+      fiuCommand: fiuCommand(),
       caps,
       yes: options.yes,
       confirm: process.stdin.isTTY ? async (message) => (await confirm({ message, initialValue: false })) === true : undefined,
@@ -567,7 +577,7 @@ auto
     const paths = workspacePaths(await findRepoRoot(process.cwd()));
     await setAuto(paths.configFile, false);
     const { removed, path } = await removeHook(paths.repoRoot);
-    log.success(`Background generation is off.${removed ? ` Removed Kintsugi's block from ${path}.` : ''}`);
+    log.success(`Background generation is off.${removed ? ` Removed Fiutsu's block from ${path}.` : ''}`);
   });
 
 auto
@@ -578,7 +588,7 @@ auto
     const paths = workspacePaths(await findRepoRoot(process.cwd()));
     const s = await autoStatus(paths, await loadRepoConfig(paths.configFile));
     const lines = [
-      `Background generation: ${s.enabled ? 'on' : 'off'}${s.enabled && !s.hookInstalled ? ' (no hook in .git/hooks: add it to your hook manager, or run kin auto on again)' : ''}`,
+      `Background generation: ${s.enabled ? 'on' : 'off'}${s.enabled && !s.hookInstalled ? ' (no hook in .git/hooks: add it to your hook manager, or run fiu auto on again)' : ''}`,
       `Today: ${s.generationsToday} of ${s.caps.dailyLimit} generations used`,
       `Queue: ${s.queued} of ${s.caps.queueCap} Workouts waiting${s.backlog ? `; ${s.backlog} commit(s) in the backlog` : ''}`,
       ...(s.enabled && s.paused ? [pausedMessage(s.queued, s.caps.queueCap)] : []),
@@ -605,7 +615,7 @@ program
 async function runRefill(options: { commit?: string; background: boolean; yes?: boolean; sandbox: boolean; train: boolean; kinds?: PreferredKind[] }): Promise<void> {
   const { refill } = await import('./background/refill.ts');
   if (options.background) {
-    // Unattended: say nothing, decide nothing; everything goes to .kintsugi/log.
+    // Unattended: say nothing, decide nothing; everything goes to .fiutsu/log.
     await refill(process.cwd(), options, { step: () => {}, warn: () => {} });
     return;
   }
@@ -631,7 +641,7 @@ async function runRefill(options: { commit?: string; background: boolean; yes?: 
 }
 
 /** One line about background failures not yet shown. */
-/** `kin quick --while`: never stands between the user and their command; with nothing to serve, it just runs it. */
+/** `fiu quick --while`: never stands between the user and their command; with nothing to serve, it just runs it. */
 async function quickWhileCommand(command: string, options: { sandbox: boolean }): Promise<void> {
   const foreground = async (note?: string) => {
     if (note) log.message(styleText('dim', note));
@@ -653,7 +663,7 @@ async function quickWhileCommand(command: string, options: { sandbox: boolean })
   } finally {
     io.close();
   }
-  if (result.status === 'nothing-ready') return foreground('No Quick Workout is ready (make some with `kin refill` or `/kin-drill <file> quick`).');
+  if (result.status === 'nothing-ready') return foreground('No Quick Workout is ready (make some with `fiu refill` or `/fiu-drill <file> quick`).');
   process.exitCode = result.result.exitCode;
 }
 
@@ -685,9 +695,9 @@ async function runTrain(id: string | undefined, options: { sandbox: boolean }): 
   } finally {
     io.close();
   }
-  if (result.status === 'nothing-pending') log.info('No Workouts waiting. Create one with: kin drill <file>');
+  if (result.status === 'nothing-pending') log.info('No Workouts waiting. Create one with: fiu drill <file>');
   else if (result.status === 'completed' || result.status === 'abandoned') {
-    log.info(`Attempt ${result.attempt} kept at ${result.dir}. Redo it any time with: kin train ${result.workoutId}`);
+    log.info(`Attempt ${result.attempt} kept at ${result.dir}. Redo it any time with: fiu train ${result.workoutId}`);
   }
   await legacyNotice();
 }
@@ -705,16 +715,16 @@ async function legacyNotice(): Promise<void> {
 program
   .command('discard')
   .argument('<workout-id>', 'the Workout to archive, or a Series id for its unanswered questions')
-  .description('Archive a Workout: hidden from the queue, but kept. Undo with kin restore.')
+  .description('Archive a Workout: hidden from the queue, but kept. Undo with fiu restore.')
   .action(async (id: string) => {
     const paths = workspacePaths(await findRepoRoot(process.cwd()));
     if (id.startsWith('series_')) {
       const discarded = await discardSeries(paths, id);
       if (discarded.length === 0) return log.info(`Every question of ${id} is already answered: nothing to discard.`);
-      return log.success(`Discarded ${discarded.length} unanswered question(s) of ${id}. Bring one back with: kin restore <workout-id>\n${discarded.map((d) => `  ${d}`).join('\n')}`);
+      return log.success(`Discarded ${discarded.length} unanswered question(s) of ${id}. Bring one back with: fiu restore <workout-id>\n${discarded.map((d) => `  ${d}`).join('\n')}`);
     }
     await discardWorkout(paths, id, 'manual');
-    log.success(`Discarded ${id}. Bring it back with: kin restore ${id}`);
+    log.success(`Discarded ${id}. Bring it back with: fiu restore ${id}`);
   });
 
 program
@@ -764,6 +774,6 @@ function terminalUi(): DrillUi & { settle(): void } {
 try {
   await program.parseAsync();
 } catch (error) {
-  console.error(`kintsugi: ${(error as Error).message}`);
+  console.error(`fiutsu: ${(error as Error).message}`);
   process.exitCode = 1;
 }

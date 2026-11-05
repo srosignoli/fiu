@@ -92,7 +92,7 @@ async function runInTempWorkout(
   sandbox: Sandbox,
   cacheRoot: string | undefined,
 ): Promise<TestRun> {
-  const dir = await mkdtemp(join(tmpdir(), 'kintsugi-verify-'));
+  const dir = await mkdtemp(join(tmpdir(), 'fiutsu-verify-'));
   try {
     const files = { ...profile.supportFiles, [profile.codeFilename]: code, [profile.testFilename]: tests };
     for (const [name, content] of Object.entries(files)) {

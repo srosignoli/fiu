@@ -52,7 +52,7 @@ async function build(dir: string, replies: (AtlasOutput | string)[], { path, yes
   return { result, prompts: scripted.prompts, steps };
 }
 
-describe('kin atlas build', () => {
+describe('fiu atlas build', () => {
   it('describes every folder bottom up, saves entries tied to the content, and records the cost', async () => {
     const dir = await repo();
     const { result, prompts, steps } = await build(dir, [DB, UI, SRC, ROOT]);

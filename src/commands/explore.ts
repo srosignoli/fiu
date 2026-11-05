@@ -59,12 +59,12 @@ export async function moduleAbout(repoRoot: string, goal: string, configEnv: Con
       if (candidate === '') break;
     }
   }
-  const hint = described ? 'Try other words, or name the module.' : 'Only names are searched until the Atlas is built (`kin atlas build`); or name the module.';
+  const hint = described ? 'Try other words, or name the module.' : 'Only names are searched until the Atlas is built (`fiu atlas build`); or name the module.';
   throw new ExploreTargetError(`Nothing matches "${goal}" well enough to choose a module. ${hint}`);
 }
 
 /**
- * `kin explore <path>`: a Track for a module. A static shortlist, one call to choose and order the
+ * `fiu explore <path>`: a Track for a module. A static shortlist, one call to choose and order the
  * steps, then every step generated up front (after a cost confirmation), replacing failed ones from
  * the alternates.
  */
@@ -82,7 +82,7 @@ export async function explore(
   }
   const module = repoRelativeDir(repoRoot, resolve(cwd, options.about !== undefined ? join(repoRoot, modulePath) : modulePath));
   if (module.startsWith('..')) throw new ExploreTargetError(`${modulePath} is outside the repository at ${repoRoot}.`);
-  if (module.split('/')[0] === '.kintsugi') throw new ExploreTargetError('Explore your own code, not the Kintsugi workspace.');
+  if (module.split('/')[0] === '.fiutsu') throw new ExploreTargetError('Explore your own code, not the Fiutsu workspace.');
 
   const paths = workspacePaths(repoRoot);
   await ensureWorkspace(paths);
@@ -95,14 +95,14 @@ export async function explore(
     apiKey = resolveApiKey(config.provider, userConfig, configEnv);
   } catch (error) {
     if (!(error instanceof MissingApiKeyError)) throw error;
-    error.message += `\nOr build the Track with your coding agent instead: run \`kin agent install claude\`, then ask it to explore ${module || 'the repository'}.`;
+    error.message += `\nOr build the Track with your coding agent instead: run \`fiu agent install claude\`, then ask it to explore ${module || 'the repository'}.`;
     throw error;
   }
 
   const candidates = withAtlas(await shortlist(repoRoot, module, config.profiles), await readAtlas(paths));
   if (candidates.length < MIN_STEPS) {
     throw new ExploreTargetError(
-      `${module || 'The repository'} has ${candidates.length} source file(s) worth drilling; a Track needs at least ${MIN_STEPS}. Try a larger module, or \`kin drill <file>\`.`,
+      `${module || 'The repository'} has ${candidates.length} source file(s) worth drilling; a Track needs at least ${MIN_STEPS}. Try a larger module, or \`fiu drill <file>\`.`,
     );
   }
 
@@ -110,7 +110,7 @@ export async function explore(
     if (!options.yes) {
       if (!ui.confirm) throw new ConsentRequiredError(config.provider);
       const granted = await ui.confirm(
-        `Kintsugi will send outlines of ${candidates.length} files in ${module || 'the repository'}, then the chosen files, to ${config.provider} (${config.model}). Send code from this repository to ${config.provider}?`,
+        `Fiutsu will send outlines of ${candidates.length} files in ${module || 'the repository'}, then the chosen files, to ${config.provider} (${config.model}). Send code from this repository to ${config.provider}?`,
       );
       if (!granted) throw new ConsentDeclinedError();
     }
@@ -210,7 +210,7 @@ export async function explore(
   }
 
   if (steps.length < MIN_STEPS) return { status: 'not-enough', workoutIds, dropped };
-  const track: TrackRecord = { id, title: plan.title, module, createdAt: new Date().toISOString(), generator: 'kintsugi', steps };
+  const track: TrackRecord = { id, title: plan.title, module, createdAt: new Date().toISOString(), generator: 'fiutsu', steps };
   await saveTrack(paths, track);
   return { status: 'saved', track, dropped };
 
@@ -219,7 +219,7 @@ export async function explore(
     await recordSpend(paths, {
       at: new Date().toISOString(),
       origin: 'explore',
-      generator: 'kintsugi',
+      generator: 'fiutsu',
       source: module || '.',
       result: 'track-plan',
       generationAttempts: 1,

@@ -43,7 +43,7 @@ interface Run {
   confirm?: DrillUi['confirm'];
   env?: NodeJS.ProcessEnv;
   replies?: Parameters<typeof scriptedModel>;
-  /** null: no target at all, as `kin predict` with no path. */
+  /** null: no target at all, as `fiu predict` with no path. */
   target?: string | null;
 }
 
@@ -70,7 +70,7 @@ async function run({ repo, options = {}, confirm, env = { ANTHROPIC_API_KEY: 'te
 
 const readJson = async (path: string) => JSON.parse(await readFile(path, 'utf8'));
 
-describe('kin drill', () => {
+describe('fiu drill', () => {
   it('generates, verifies, and saves a Drill with its Source Anchors', async () => {
     const repo = await repoWithSource();
     const { result, created } = await run({ repo, options: { yes: true } });
@@ -99,7 +99,7 @@ describe('kin drill', () => {
     assert.doesNotMatch(readme, /Look at how ties are broken/, 'hints stay out of the README');
 
     // Consent is remembered, and the workspace stays invisible to git.
-    assert.equal((await readJson(join(repo, '.kintsugi', 'config.json'))).consent.provider, 'anthropic');
+    assert.equal((await readJson(join(repo, '.fiutsu', 'config.json'))).consent.provider, 'anthropic');
     assert.equal((await execa('git', ['status', '--porcelain'], { cwd: repo })).stdout, '');
   });
 
@@ -115,7 +115,7 @@ describe('kin drill', () => {
     const second = await run({ repo, confirm });
     assert.equal(second.result.status, 'saved');
     assert.equal(questions.length, 1, 'not asked again');
-    const ids = await readdir(join(repo, '.kintsugi', 'workouts'));
+    const ids = await readdir(join(repo, '.fiutsu', 'workouts'));
     assert.deepEqual(ids.sort(), [ids[0], `${ids[0]}-2`].sort(), 'the second Drill gets its own id');
   });
 
@@ -124,14 +124,14 @@ describe('kin drill', () => {
     const declined = run({ repo, confirm: async () => false });
     await assert.rejects(declined, ConsentDeclinedError);
     await assert.rejects(run({ repo }), ConsentRequiredError, 'no terminal to ask in');
-    assert.equal((await readJson(join(repo, '.kintsugi', 'config.json'))).consent, undefined);
+    assert.equal((await readJson(join(repo, '.fiutsu', 'config.json'))).consent, undefined);
   });
 
   it('fails on a missing API key before doing anything slow', async () => {
     const repo = await repoWithSource();
     await assert.rejects(run({ repo, env: {}, options: { yes: true } }), (error: Error) => {
       assert.ok(error instanceof MissingApiKeyError);
-      assert.match(error.message, /run `kin agent install claude`, then ask it to `\/kin-drill src\/queue\.ts`/);
+      assert.match(error.message, /run `fiu agent install claude`, then ask it to `\/fiu-drill src\/queue\.ts`/);
       return true;
     });
   });
@@ -159,7 +159,7 @@ describe('kin drill', () => {
     const repo = await repoWithSource();
     const { result } = await run({ repo, options: { yes: true }, replies: [goodDrill({ startingCode: TS_REFERENCE })] });
     assert.equal(result.status, 'failed');
-    assert.deepEqual(await readdir(join(repo, '.kintsugi', 'workouts')), []);
+    assert.deepEqual(await readdir(join(repo, '.fiutsu', 'workouts')), []);
   });
 
   it('marks Drills made from uncommitted code', async () => {
@@ -171,7 +171,7 @@ describe('kin drill', () => {
   });
 });
 
-describe('kin kata', () => {
+describe('fiu kata', () => {
   it('generates, verifies, and saves a Kata with its brief', async () => {
     const repo = await repoWithSource();
     const { result, prompts } = await run({ repo, options: { yes: true, kind: 'kata' }, replies: [goodKata()], target: 'src/queue.ts#pickNext' });
@@ -198,7 +198,7 @@ describe('kin kata', () => {
   });
 });
 
-describe('kin predict', () => {
+describe('fiu predict', () => {
   /** Long enough (15+ lines) for the shortlist to consider it. */
   const LONG_QUEUE = `${TS_REFERENCE}${'\n// The scheduler serves the queue in this order.'.repeat(8)}\n`;
   async function repoWithLongSource(): Promise<string> {
@@ -242,7 +242,7 @@ describe('kin predict', () => {
     const { attempt } = await openAttempt(paths, await loadWorkout(paths, record.id), TYPESCRIPT);
     Object.assign(attempt.record, { outcome: 'completed', finishedAt: new Date().toISOString() });
     await saveAttempt(attempt);
-    await assert.rejects(run({ repo, target: 'src', options: { yes: true, kind: 'prediction', questions: 1 }, replies: [goodPrediction()] }), /practised every file Kintsugi would pick in src/);
+    await assert.rejects(run({ repo, target: 'src', options: { yes: true, kind: 'prediction', questions: 1 }, replies: [goodPrediction()] }), /practised every file Fiutsu would pick in src/);
   });
 
   it('asks a Series of questions by default, each saved as its own Prediction', async () => {
@@ -273,8 +273,8 @@ describe('kin predict', () => {
   it('uses the predictionQuestions setting', async () => {
     const repo = await repoWithSource();
     const home = await tempDir();
-    await mkdir(join(home, '.config', 'kintsugi'), { recursive: true });
-    await writeFile(join(home, '.config', 'kintsugi', 'config.json'), JSON.stringify({ predictionQuestions: 1 }));
+    await mkdir(join(home, '.config', 'fiutsu'), { recursive: true });
+    await writeFile(join(home, '.config', 'fiutsu', 'config.json'), JSON.stringify({ predictionQuestions: 1 }));
     const scripted = scriptedModel(goodPrediction());
     const result = await drill(repo, 'src/queue.ts', { yes: true, sandbox: sandboxWorks, kind: 'prediction' }, { step: () => {}, warn: () => {} }, {
       createModel: () => ({ model: scripted.model, providerOptions: {} }),
@@ -308,10 +308,10 @@ describe('parseTarget', () => {
     const outside = join(await tempDir(), 'x.ts');
     await writeFile(outside, '');
     await assert.rejects(run({ repo, target: outside }), /outside the repository/);
-    await mkdir(join(repo, '.kintsugi', 'workouts', 'w'), { recursive: true });
-    await writeFile(join(repo, '.kintsugi', 'workouts', 'w', 'kata.ts'), '');
-    await assert.rejects(run({ repo, target: '.kintsugi/workouts/w/kata.ts' }), /not a Workout/);
-    assert.ok(!existsSync(join(repo, '.kintsugi', 'workouts', 'w', 'workout.json')));
+    await mkdir(join(repo, '.fiutsu', 'workouts', 'w'), { recursive: true });
+    await writeFile(join(repo, '.fiutsu', 'workouts', 'w', 'kata.ts'), '');
+    await assert.rejects(run({ repo, target: '.fiutsu/workouts/w/kata.ts' }), /not a Workout/);
+    assert.ok(!existsSync(join(repo, '.fiutsu', 'workouts', 'w', 'workout.json')));
   });
 });
 
@@ -319,11 +319,11 @@ describe('cost recording', () => {
   // The mock model reports 10 input and 20 output tokens per call as "mock-model-id": $0.05 per call at these prices.
   async function pricedRepo(): Promise<string> {
     const repo = await repoWithSource();
-    await mkdir(join(repo, '.kintsugi'), { recursive: true });
-    await writeFile(join(repo, '.kintsugi', 'config.json'), JSON.stringify({ prices: { 'mock-model-id': { input: 1000, output: 2000 } } }));
+    await mkdir(join(repo, '.fiutsu'), { recursive: true });
+    await writeFile(join(repo, '.fiutsu', 'config.json'), JSON.stringify({ prices: { 'mock-model-id': { input: 1000, output: 2000 } } }));
     return repo;
   }
-  const ledger = async (repo: string) => (await readJson(join(repo, '.kintsugi', 'state.json'))).spend;
+  const ledger = async (repo: string) => (await readJson(join(repo, '.fiutsu', 'state.json'))).spend;
 
   it('records what a Workout cost in workout.json, its README, and the spend ledger', async () => {
     const repo = await pricedRepo();
@@ -340,7 +340,7 @@ describe('cost recording', () => {
     assert.deepEqual({ ...entry, at: undefined, cost: undefined }, {
       at: undefined,
       origin: 'manual',
-      generator: 'kintsugi',
+      generator: 'fiutsu',
       source: 'src/queue.ts',
       result: 'verified',
       workoutId: record.id,
@@ -369,7 +369,7 @@ describe('cost recording', () => {
         ['error', 1, '0.05'],
       ],
     );
-    assert.deepEqual(await readdir(join(repo, '.kintsugi', 'workouts')), []);
+    assert.deepEqual(await readdir(join(repo, '.fiutsu', 'workouts')), []);
   });
 
   it('shows the average cost of recent Drills once there is history', async () => {
@@ -380,7 +380,7 @@ describe('cost recording', () => {
     assert.ok(second.steps.includes('Your Drills have averaged $0.05 (last 1)'), second.steps.join('\n'));
   });
 
-  it('kin cost splits spend into attempted, never attempted, and produced nothing', async () => {
+  it('fiu cost splits spend into attempted, never attempted, and produced nothing', async () => {
     const repo = await pricedRepo();
     const saved = await run({ repo, options: { yes: true } });
     await run({ repo, options: { yes: true } });

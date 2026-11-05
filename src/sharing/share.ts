@@ -126,7 +126,7 @@ export interface ShareReport {
 
 export class NotShareableError extends Error {}
 
-/** `kin share <id>...`: publishes Workouts (or whole Tracks) to the shared branch. */
+/** `fiu share <id>...`: publishes Workouts (or whole Tracks) to the shared branch. */
 export async function share(cwd: string, ids: string[], options: ShareOptions = {}): Promise<ShareReport> {
   if (ids.length === 0 && !options.atlas) throw new NotShareableError('Name the Workouts or Tracks to share, or pass --atlas to share the Atlas.');
   const repo = await findRepoRoot(cwd);
@@ -152,7 +152,7 @@ export async function share(cwd: string, ids: string[], options: ShareOptions = 
     }
   }
   const workouts = await Promise.all([...new Set(workoutIds)].map((id) => loadWorkout(paths, id)));
-  if (options.atlas && !existsSync(paths.atlasFile)) throw new NotShareableError('There is no Atlas to share yet: build it with `kin atlas build`, or ask your agent: /kin-atlas');
+  if (options.atlas && !existsSync(paths.atlasFile)) throw new NotShareableError('There is no Atlas to share yet: build it with `fiu atlas build`, or ask your agent: /fiu-atlas');
   const localAtlas = options.atlas ? await readAtlas(paths) : undefined;
 
   const refusals: string[] = [];
@@ -231,7 +231,7 @@ export async function share(cwd: string, ids: string[], options: ShareOptions = 
 
     if (additions.size === 0) return report;
     const what = [...report.shared.map((s) => s.as), ...(report.atlas?.changed ? ['the Atlas'] : [])];
-    const message = `Share ${what.join(', ')}\n\nShared by ${identity.name} <${identity.email}> with Kintsugi.`;
+    const message = `Share ${what.join(', ')}\n\nShared by ${identity.name} <${identity.email}> with Fiutsu.`;
     const commit = await commitWith(repo, parent, additions, message);
     if ((await pushShared(repo, remote, commit)) === 'pushed') return report;
     // A teammate pushed first: start again from their branch.
@@ -264,7 +264,7 @@ export interface FetchReport {
 }
 
 /**
- * `kin fetch`: brings in what teammates shared. Every incoming Workout is re-verified in the local
+ * `fiu fetch`: brings in what teammates shared. Every incoming Workout is re-verified in the local
  * sandbox before it is added; Track manifests follow their steps' (possibly renamed) ids.
  */
 export async function fetchWorkouts(cwd: string, options: FetchOptions, step: (message: string) => void = () => {}, deps: FetchDependencies = {}): Promise<FetchReport> {
@@ -346,7 +346,7 @@ export async function fetchWorkouts(cwd: string, options: FetchOptions, step: (m
         continue;
       }
 
-      // Stage inside .kintsugi/ (same filesystem), then move into place in one step.
+      // Stage inside .fiutsu/ (same filesystem), then move into place in one step.
       const staging = join(incoming, as);
       await rm(staging, { recursive: true, force: true });
       for (const [path, content] of files) {

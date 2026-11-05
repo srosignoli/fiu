@@ -53,7 +53,7 @@ export interface GenerateOptions {
 }
 
 /**
- * Kintsugi's own generation, shared by `kin drill` and `kin refill`: generate, verify, and save a
+ * Fiutsu's own generation, shared by `fiu drill` and `fiu refill`: generate, verify, and save a
  * Drill or Kata, recording everything it cost in the spend ledger whatever the outcome.
  */
 export async function generateWorkout(options: GenerateOptions): Promise<GenerationResult> {
@@ -125,7 +125,7 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
       await recordSpend(paths, {
         at: new Date().toISOString(),
         origin: options.origin,
-        generator: 'kintsugi',
+        generator: 'fiutsu',
         source: target.path,
         ...spend,
         cost: estimateCost(usage, config.prices),

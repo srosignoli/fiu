@@ -78,7 +78,7 @@ async function make(dir: string, target: string | undefined, whatIf: string | tr
   return { result, prompts: scripted.prompts };
 }
 
-describe('kin predict --what-if', () => {
+describe('fiu predict --what-if', () => {
   it('models the sentence, saves its reading beside it, and leaves the repository alone', async () => {
     const dir = await repo();
     const { result, prompts } = await make(dir, 'src/queue.ts', SENTENCE, [goodWhatIf()]);

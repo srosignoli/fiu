@@ -68,6 +68,10 @@ _Avoid_: Micro-kata, wait-time kata
 The section at the top of a Drill's or Kata's README about what surrounds its target: what the folder and file are for, and their Links. Assembled by Fiu, never by the model that wrote the Workout, and it never describes the target itself.
 _Avoid_: Context (too vague), hint (it must never help with the task)
 
+**Debrief**:
+What `fiu train` shows after an Attempt finishes, and keeps as `debrief.md`: where the code lives, what the target is for, who calls it, its tensions, and neighbours to practise next. Computed from today's code; nothing in it is Verified.
+_Avoid_: Reveal (that's the answer and its explanation, shown just before), summary
+
 **Starting Code**:
 The code the human receives: the Kata's gapped code or the Drill's bugged code.
 _Avoid_: initialUserCode, skeleton, mutant

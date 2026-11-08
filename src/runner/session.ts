@@ -37,6 +37,8 @@ export interface TrainingSessionOptions {
   /** Absent for a Prediction or Diagnosis: everything was measured when it was Verified, so nothing runs during its Attempt. */
   sandbox?: Sandbox;
   cacheRoot?: string;
+  /** Set when context is on (§11.15): the profiles the Debrief reads the Atlas and links with. */
+  contextProfiles?: readonly LanguageProfile[];
   now?: () => Date;
 }
 
@@ -54,6 +56,14 @@ export class TrainingSession {
 
   get workout(): { record: WorkoutRecord; dir: string } {
     return this.#options.workout;
+  }
+
+  get contextProfiles(): readonly LanguageProfile[] | undefined {
+    return this.#options.contextProfiles;
+  }
+
+  get paths(): WorkspacePaths {
+    return this.#options.paths;
   }
 
   get attempt(): Attempt {

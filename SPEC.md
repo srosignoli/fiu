@@ -689,7 +689,7 @@ Someone steering agents decides what to ask for before anyone writes code: *what
 
 **Not in v5.1:** several Scenarios for one change; changes spanning several files.
 
-### 11.15 v7.1: Links, context, and the Debrief (links and Around this code implemented; the Debrief designed)
+### 11.15 v7.1: Links, context, and the Debrief (implemented)
 
 A Workout is vertical: one function, one bug, one Scenario. This adds the horizontal view around it (what the module is for, who depends on the target, what changes with it, which forces pull on it) without giving the Workout away. Per [ADR 0009](./docs/adr/0009-context-is-orientation-links-are-computed-facts.md), links are computed facts, the context's descriptions are orientation, and neither is Verified or counts as practice (`fiu map` and stats ignore them). Designed in a grilling session on 2026-11-08; shipped in three steps, each released on its own.
 
@@ -708,17 +708,21 @@ A Workout is vertical: one function, one bug, one Scenario. This adds the horizo
 - **Around, not inside.** The target is the `#symbol` asked for plus every function the changed or removed lines fall in (in the Reference Solution); a method also counts by its own name. The target function's own entry is never shown. A description (the folder's or the file's) is dropped when it names the target, or holds something only the changed or removed lines say: an identifier that appears nowhere else in the Reference Solution, a number other than 0 and 1, or a string's contents. Names match as written and as spoken (`maxRetries` and "max retries"), as whole words. The link rows are file paths, not prose, and are not checked. A dropped line is counted in `around.dropped`; building the section never fails or regenerates a Workout (on any error the Workout is saved without it).
 - Without an Atlas (or an entry): the links alone, plus one dim line, *Run `fiu atlas build` for what these files are for*.
 - Frozen with the Workout, in its README and `workout.json` (ADR 0003), so it travels with `fiu share`.
-- On by default; `"context": false` in `.fiu/config.json` turns it off.
+- On by default; `"context": false` in `.fiu/config.json` turns it off, together with everything in the Debrief but *Where this lives*.
 - Predictions, What-ifs, and Diagnoses get it once the dogfooding pass shows the guard holds on Drills and Katas.
 
 *Checked on 2026-11-08 against three files of Fiu's own repository with synthetic one-line changes: links-only sections, hubs left out, nothing written outside a workspace. Not yet run: the leak guard against a real Atlas and real generated Workouts (needs `fiu atlas build` or `/fiu-atlas`, then a dogfooding pass) — the gate for extending the section to Predictions and Diagnoses.*
 
-**3. The Debrief (designed).** After every finished Attempt, Completed or Abandoned, in `closeAttempt`, for all five kinds; also written to `debrief.md` in the Attempt's directory. Computed when shown from the current Atlas and links, saying when the source changed since the Workout was made. It holds:
+**3. The Debrief (implemented).** After every finished Attempt, Completed or Abandoned, for all five kinds: after the source-bug notice and its question (a possible real bug in the user's code comes first), before the rating. Also written to `debrief.md` in the Attempt's directory. Computed when shown from the current code, Atlas, and links, and says so first when the source changed since the Workout was made. Building it never stops an Attempt from closing: on any error, it falls back to *Where this lives*.
 
-- what the target function is for, and its callers;
-- the Source Anchors (the reveal's *Where this lives* moves here);
-- tension signals, all computed: **hidden coupling** (files that change together without importing each other), **blast radius** (how many files use this one), **churn** (how often it changes);
-- **Try next**: commands aimed at neighbouring files (`fiu predict src/worker.ts`, `fiu diagnose <co-changed file>`), never What-if sentences.
+- **Where this lives**: the Source Anchors. The reveals of Predictions, What-ifs, and Diagnoses no longer list them: they moved here. With context off, this is the whole Debrief.
+- **What it is for**: the target (the `#symbol`, and the functions of the source file that the Source Anchors overlap today, a class left out when its method is there) with its Atlas entry, and the file's entry.
+- **Used by**, and which of those files mention a target function by name: a cheap stand-in for callers on top of file-level links (*all call `pickNext`* when every one does).
+- **Tensions**, all computed: **blast radius** (how many files use this one; *a change here travels far* from 5), **churn** (commits that changed it), **hidden coupling** (up to 2 files that change with it though neither imports the other, hubs left out), and **hub** when the file is one.
+- **Try next**, up to 3 commands aimed at neighbours, never What-if sentences: `fiu predict <caller>` (*it calls pickNext*), `fiu diagnose <hidden coupling>`, `fiu drill <a file it imports>` (a Go package folder is skipped: drills take a file).
+- The closing line says descriptions are a model's word when there are any, and that links and signals are computed.
+
+*Checked on 2026-11-08 on `src/verify/diff.ts` of Fiu's own repository: five users, all calling `diffLines`; blast radius and churn; one Try next. Not yet run: Debriefs with a real Atlas, in the dogfooding pass above.*
 
 **Not in v7.1:** links between functions (a call graph); model-written trade-off paragraphs; links in Atlas search ranking or the MCP tools; co-change settings in config.
 

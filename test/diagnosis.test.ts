@@ -138,7 +138,7 @@ describe('answering a Diagnosis', () => {
     const { result, io, shown } = await answer(repo, record.id, 'Ties in priority go', '3');
     assert.match(shown, /Practice incident: this didn't happen\.[^]*Two jobs had the same priority[^]*What explains it\?/);
     assert.equal(result.status, 'completed', io.text);
-    assert.match(io.text, /Right: Ties in priority go to the most recently submitted job\.\n\nWhen priorities tie[^]*Where this lives:\n {2}queue\.ts:3-9/);
+    assert.match(io.text, /Right: Ties in priority go to the most recently submitted job\.\n\nWhen priorities tie[^]*Debrief\n {2}Where this lives:\n {4}queue\.ts:3-9/);
     assert.equal(JSON.parse(await readFile(paths.stateFile, 'utf8')).outcomes[0].confidence, 'certain');
   });
 

@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AUTO_DEFAULTS, loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv, type RepoConfig } from '../config.ts';
 import { expireStaleWorkouts } from '../background/refill.ts';
@@ -14,6 +15,7 @@ import { openAttempt } from '../workouts/attempts.ts';
 import { nextQuickWorkout } from '../workouts/queue.ts';
 import type { PredictionOption } from '../synthesis/schema.ts';
 import type { Confidence } from '../workouts/attempts.ts';
+import { buildDebrief, renderDebriefMarkdown, renderDebriefText } from '../workouts/debrief.ts';
 import { incidentOf, PRACTICE_INCIDENT, WHAT_IF_LIMITS, whatIfLines, type WorkoutRecord } from '../workouts/save.ts';
 import { listWorkouts, loadWorkout, nextInSeries, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
@@ -117,16 +119,17 @@ export async function train(
   const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(configEnv));
   const profile = config.profiles.find((p) => p.id === workout.record.language);
   if (!profile) throw new UnknownProfileError(`No Language Profile "${workout.record.language}" is configured for ${workout.record.id}.`);
+  const context = config.context ? { contextProfiles: config.profiles } : {};
 
   // A Prediction or Diagnosis runs nothing during its Attempt: every outcome was measured when it was Verified.
   if (workout.record.kind === 'diagnosis') {
     const { attempt, resumed } = await openAttempt(paths, workout, profile);
-    return runDiagnosis(new TrainingSession({ paths, workout, attempt, profile, cacheRoot }), io, { resumed, background });
+    return runDiagnosis(new TrainingSession({ paths, workout, attempt, profile, cacheRoot, ...context }), io, { resumed, background });
   }
   if (workout.record.kind === 'prediction') {
     for (;;) {
       const { attempt, resumed } = await openAttempt(paths, workout, profile);
-      const result = await runPrediction(new TrainingSession({ paths, workout, attempt, profile, cacheRoot }), io, { resumed, background });
+      const result = await runPrediction(new TrainingSession({ paths, workout, attempt, profile, cacheRoot, ...context }), io, { resumed, background });
       // A Series offers its next question, one key away.
       const next = result.status === 'completed' || result.status === 'abandoned' ? await nextInSeries(paths, workout.record) : undefined;
       if (!next) return result;
@@ -146,7 +149,7 @@ export async function train(
     await verifySandbox(sandbox, cacheRoot ? { cacheDir: cacheRoot } : {});
     await preflight(sandbox, profile, cacheRoot);
     const { attempt, resumed } = await openAttempt(paths, workout, profile);
-    const session = new TrainingSession({ paths, workout, attempt, profile, sandbox, cacheRoot });
+    const session = new TrainingSession({ paths, workout, attempt, profile, sandbox, cacheRoot, ...context });
     return await runSession(session, io, { debounceMs, resumed, ignore: ignoredByWatcher(profile), background });
   } finally {
     await sandbox.dispose();
@@ -233,18 +236,36 @@ async function runSession(
   return closeAttempt(session, io, outcome);
 }
 
-/** After any finished Attempt: the source-bug notice and question, the rating, and the outcome recorded. */
+/** After any finished Attempt: the source-bug notice and question, the Debrief, the rating, and the outcome recorded. */
 async function closeAttempt(session: TrainingSession, io: TrainIo, outcome: Outcome['outcome'], confidence?: Confidence): Promise<TrainResult> {
   const { record } = session.workout;
+  const sourceChanged = await session.sourceChanged();
   let defectConfirmed: boolean | undefined;
   if (record.originalDefect) {
     io.print(describeDefect(record));
-    if (await session.sourceChanged()) io.print('Source has changed since this Workout was made.');
+    if (sourceChanged) io.print('Source has changed since this Workout was made.');
     if (await session.firstToFinish()) defectConfirmed = await io.confirmDefect();
   }
+  await showDebrief(session, io, sourceChanged);
   const rating = await io.rate();
   await session.finish(outcome, rating, defectConfirmed, confidence);
   return { status: outcome, workoutId: record.id, attempt: session.attempt.record.number, dir: session.attempt.dir };
+}
+
+/**
+ * Prints the Debrief and keeps it as debrief.md in the Attempt's directory. It is an extra: whatever goes
+ * wrong building it, the Attempt still closes, with where the code lives at the least.
+ */
+async function showDebrief(session: TrainingSession, io: TrainIo, sourceChanged: boolean): Promise<void> {
+  const { record } = session.workout;
+  let debrief;
+  try {
+    debrief = await buildDebrief({ paths: session.paths, record, sourceChanged, profiles: session.contextProfiles });
+  } catch {
+    debrief = await buildDebrief({ paths: session.paths, record, sourceChanged });
+  }
+  io.print(renderDebriefText(debrief));
+  await writeFile(join(session.attempt.dir, 'debrief.md'), renderDebriefMarkdown(debrief, record)).catch(() => {});
 }
 
 /**
@@ -312,8 +333,7 @@ async function runDiagnosis(session: TrainingSession, io: TrainIo, { resumed, ba
     outcome === 'completed'
       ? [`Right: ${truth.text.trim()}`]
       : [`Not quite. The cause: ${truth.text.trim()}`, `Your answer would have shown up differently: ${chosen.symptom.trim()}`];
-  const anchors = record.sourceAnchors.map((a) => `  ${a.path}:${a.startLine}-${a.endLine}: ${a.explanation}`);
-  io.print([...reveal, '', explanation.trim(), '', 'Where this lives:', ...anchors].join('\n'));
+  io.print([...reveal, '', explanation.trim()].join('\n'));
   if (outcome === 'abandoned') {
     io.print('[d] the code difference behind the true cause   [any other key] continue');
     if ((await io.readKey(new AbortController().signal)) === 'd') {
@@ -355,8 +375,7 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
   const why = chosen.previous ? `That was true until ${commit}.` : chosen.misunderstanding.trim();
   const reveal = outcome === 'completed' ? [`Right: ${truth.text.trim()}`] : [`Not quite. What happens: ${truth.text.trim()}`, why];
   const changed = old ? ['', describeChange(record, old)] : [];
-  const anchors = record.sourceAnchors.map((a) => `  ${a.path}:${a.startLine}-${a.endLine}: ${a.explanation}`);
-  io.print([...reveal, ...changed, '', explanation.trim(), '', 'Where this lives:', ...anchors].join('\n'));
+  io.print([...reveal, ...changed, '', explanation.trim()].join('\n'));
   if (outcome === 'abandoned') {
     io.print(`[d] ${chosen.previous ? 'what the commit changed' : 'the code difference behind your answer'}   [any other key] continue`);
     const read = new AbortController();
@@ -377,10 +396,7 @@ async function revealWhatIf(
   const { record } = session.workout;
   const today = record.prediction!.options.find((o) => o.previous)!;
   const verdict = outcome === 'completed' ? ['Right.'] : ['Not quite.', chosen.previous ? 'That is what happens today, and this change alters it.' : chosen.misunderstanding.trim()];
-  const anchors = record.sourceAnchors.map((a) => `  ${a.path}:${a.startLine}-${a.endLine}: ${a.explanation}`);
-  io.print(
-    [...verdict, '', `Today: ${today.text.trim()}`, `With this change: ${truth.text.trim()}`, '', record.prediction!.explanation.trim(), '', 'Where this lives:', ...anchors, '', WHAT_IF_LIMITS].join('\n'),
-  );
+  io.print([...verdict, '', `Today: ${today.text.trim()}`, `With this change: ${truth.text.trim()}`, '', record.prediction!.explanation.trim(), '', WHAT_IF_LIMITS].join('\n'));
   io.print('[d] the code change, as modelled   [any other key] continue');
   if ((await io.readKey(new AbortController().signal)) === 'd') io.print(`The change, as modelled (- today, + with it):\n${await session.variantDiff(today)}`);
   return closeAttempt(session, io, outcome, confidence);

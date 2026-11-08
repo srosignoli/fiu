@@ -213,7 +213,7 @@ describe(`fiu train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
       const result = await training;
       assert.equal(result.status, 'completed', io.transcript);
       assert.match(io.transcript, /How sure were you\? \[1\] guessing {3}\[2\] fairly sure {3}\[3\] certain/);
-      assert.match(io.transcript, /Right: The "early" job runs next\.\n\nThe highest priority wins.*\n\nWhere this lives:\n {2}queue\.ts:3-9: The scheduler picks/);
+      assert.match(io.transcript, /Right: The "early" job runs next\.\n\nThe highest priority wins.*\nDebrief\n {2}Where this lives:\n {4}queue\.ts:3-9: The scheduler picks/);
       const saved = await readJson(join(attempt(), 'attempt.json'));
       assert.equal(saved.answer, 0);
       assert.equal(saved.confidence, 'certain');
@@ -221,6 +221,7 @@ describe(`fiu train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
       assert.equal(existsSync(join(attempt(), 'kata.ts')), false);
       assert.equal((await readJson(paths.stateFile)).outcomes[0].outcome, 'completed');
       assert.equal((await readJson(paths.stateFile)).outcomes[0].confidence, 'certain');
+      assert.match(await readFile(join(attempt(), 'debrief.md'), 'utf8'), /^# Debrief: [^\n]+\n\n## Where this lives\n\n- `queue\.ts:3-9`: The scheduler picks/);
     });
 
     it('abandons on a wrong answer, explaining the misunderstanding and the code behind it', async () => {

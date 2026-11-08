@@ -7,7 +7,7 @@ import type { LanguageProfile } from '../languages/profile.ts';
 import { profileForFile } from '../languages/registry.ts';
 import { diffLines } from '../verify/diff.ts';
 import type { WorkspacePaths } from '../workspace.ts';
-import { targetNames } from './context.ts';
+import { otherVersions, targetNames } from './context.ts';
 import type { SourceAnchor, WorkoutRecord } from './save.ts';
 
 /**
@@ -89,21 +89,29 @@ export async function buildDebrief({ paths, record, sourceChanged, profiles }: D
 }
 
 /**
- * The functions the Workout is about. For a Drill or Kata, those its changed or removed lines fall in (as
- * "Around this code" finds them), kept when the source file has a function of that name; otherwise, and for
- * the other kinds, the `#symbol` and the functions the Source Anchors overlap today.
+ * The functions the Workout is about: those where its other versions differ from the Reference Solution
+ * (a Drill's bug, a Kata's gap, a Prediction's or Diagnosis's Variants, as "Around this code" finds them),
+ * kept when the source file has a function of that name. Otherwise, the `#symbol` and the functions the
+ * Source Anchors overlap today.
  */
 async function findTarget(paths: WorkspacePaths, record: WorkoutRecord, symbols: { name: string; callable: boolean; startLine: number; endLine: number }[], profiles: readonly LanguageProfile[]): Promise<string[]> {
   const callable = new Set(symbols.filter((s) => s.callable).map((s) => s.name));
-  if (record.kind === 'drill' || record.kind === 'kata') {
-    const dir = join(paths.workoutsDir, record.id);
-    const solution = await readFile(join(dir, record.files.solution), 'utf8').catch(() => undefined);
-    const code = await readFile(join(dir, record.files.code), 'utf8').catch(() => undefined);
-    if (solution !== undefined && code !== undefined) {
-      const names = targetNames({ referenceSolution: solution, profile: profileForFile(record.source.path, profiles), symbol: record.source.symbol }, diffLines(solution, code));
-      const found = names.filter((name) => callable.has(name));
-      if (found.length > 0) return innermost(found);
-    }
+  const dir = join(paths.workoutsDir, record.id);
+  const read = (file: string | undefined) => (file ? readFile(join(dir, file), 'utf8').catch(() => undefined) : Promise.resolve(undefined));
+  const solution = await read(record.files?.solution);
+  if (solution !== undefined) {
+    const others = otherVersions({
+      kind: record.kind,
+      referenceSolution: solution,
+      startingCode: record.kind === 'drill' || record.kind === 'kata' ? await read(record.files.code) : undefined,
+      previous: await read(record.files.previous),
+      options: record.prediction?.options,
+      causes: record.diagnosis?.causes,
+    });
+    const hunks = others.flatMap((other) => diffLines(solution, other));
+    const names = targetNames({ referenceSolution: solution, profile: profileForFile(record.source.path, profiles), symbol: record.source.symbol }, hunks);
+    const found = names.filter((name) => callable.has(name));
+    if (found.length > 0) return innermost(found);
   }
   const names = new Set<string>(record.source.symbol ? [record.source.symbol] : []);
   for (const symbol of symbols) {

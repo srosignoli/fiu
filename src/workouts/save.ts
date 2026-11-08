@@ -6,7 +6,7 @@ import { describeCost, type Cost } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { answersOnly, type AnyWorkoutOutput, type DiagnosisCause, type PredictionOption, type WorkoutKind } from '../synthesis/schema.ts';
 import { findOriginalDefect, type OriginalDefect } from '../verify/defect.ts';
-import { aroundThisCode, type AroundThisCode } from './context.ts';
+import { aroundThisCode, answerTexts, otherVersions, type AroundThisCode } from './context.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 
 export const SOLUTION_DIRNAME = '.solution';
@@ -103,7 +103,7 @@ export interface WorkoutRecord {
   diagnosis?: { explanation: string; causes: DiagnosisCause[] };
   /** A bug the source file appears to contain already. Shown only after an Attempt. */
   originalDefect?: OriginalDefect;
-  /** Drill and Kata: "Around this code", as it was when the Workout was made (§11.15). */
+  /** "Around this code", as it was when the Workout was made (§11.15). */
   around?: AroundThisCode;
   /** What generating this Workout cost, across all its generation attempts. Absent when the user's agent generated it (not measured) and on Workouts made before cost recording. */
   cost?: Cost & { generationAttempts: number };
@@ -139,7 +139,7 @@ export interface SaveDrillOptions {
   track?: TrackPlacement;
   series?: SeriesPlacement;
   whatIf?: WhatIfPlacement;
-  /** Set to build "Around this code" for a Drill or Kata: the Language Profiles the Atlas and links are read with. */
+  /** Set to build "Around this code": the Language Profiles the Atlas and links are read with. */
   contextProfiles?: readonly LanguageProfile[];
   now?: Date;
 }
@@ -171,7 +171,7 @@ export async function saveDrill({
   const originalTest = join(SOLUTION_DIRNAME, profile.testFilename);
   const previous = drill.previous ? join(SOLUTION_DIRNAME, `previous${extname(profile.codeFilename)}`) : undefined;
   const originalDefect = source === undefined ? undefined : findOriginalDefect(kind, drill, source, profile.lineComment);
-  const around = contextProfiles && (kind === 'drill' || kind === 'kata') ? await safeAround(paths, contextProfiles, profile, sourcePath, symbol, drill) : undefined;
+  const around = contextProfiles ? await safeAround(paths, contextProfiles, profile, sourcePath, symbol, kind, drill) : undefined;
 
   const record: WorkoutRecord = {
     id,
@@ -271,6 +271,7 @@ function predictionReadme(record: WorkoutRecord): string {
     ...(record.series ? [`*Question ${record.series.index} of ${record.series.of} about \`${record.source.path}\`.*`, ''] : []),
     ...trackPlacement(record),
     ...(record.whatIf ? [...whatIfLines(record.whatIf), ''] : []),
+    ...aroundLines(record),
     '## Scenario',
     '',
     scenario.trim(),
@@ -311,6 +312,7 @@ function diagnosisReadme(record: WorkoutRecord): string {
     ...trackPlacement(record),
     `*${PRACTICE_INCIDENT}*`,
     '',
+    ...aroundLines(record),
     '## What happened',
     '',
     incidentOf(record),
@@ -328,6 +330,9 @@ function diagnosisReadme(record: WorkoutRecord): string {
   ].join('\n');
 }
 
+/** "Around this code", when the Workout has one, followed by a blank line. */
+const aroundLines = (record: WorkoutRecord): string[] => (record.around && record.around.lines.length > 0 ? [...record.around.lines, ''] : []);
+
 /** A Track step's README opens with its place in the Track. */
 function trackPlacement(record: WorkoutRecord): string[] {
   if (!record.track) return [];
@@ -340,8 +345,7 @@ function readme(drill: AnyWorkoutOutput, record: WorkoutRecord, dir: string, rep
   const anchors = record.sourceAnchors.map(
     (a) => `- [${a.path}:${a.startLine}-${a.endLine}](${link}#L${a.startLine}-L${a.endLine}): ${a.explanation}`,
   );
-  const around = record.around && record.around.lines.length > 0 ? [...record.around.lines, ''] : [];
-  return [`# ${drill.title}`, '', ...trackPlacement(record), ...around, (drill.readmeMarkdown ?? '').trim(), '', '## Source', '', ...anchors, '', ...provenance(record), ''].join('\n');
+  return [`# ${drill.title}`, '', ...trackPlacement(record), ...aroundLines(record), (drill.readmeMarkdown ?? '').trim(), '', '## Source', '', ...anchors, '', ...provenance(record), ''].join('\n');
 }
 
 /** "Around this code" is an extra: whatever goes wrong building it, the Verified Workout is saved without it. */
@@ -351,10 +355,13 @@ async function safeAround(
   profile: LanguageProfile,
   sourcePath: string,
   symbol: string | undefined,
+  kind: WorkoutKind,
   drill: AnyWorkoutOutput,
 ): Promise<AroundThisCode | undefined> {
   try {
-    return await aroundThisCode({ paths, profiles, profile, sourcePath, symbol, startingCode: drill.startingCode ?? '', referenceSolution: drill.referenceSolution });
+    const versions = { kind, referenceSolution: drill.referenceSolution, startingCode: drill.startingCode, previous: drill.previous, options: drill.options, causes: drill.causes };
+    const answer = answerTexts(versions);
+    return await aroundThisCode({ paths, profiles, profile, sourcePath, symbol, kind, referenceSolution: drill.referenceSolution, others: otherVersions(versions), ...(answer ? { answer } : {}) });
   } catch {
     return undefined;
   }

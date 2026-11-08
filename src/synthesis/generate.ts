@@ -190,6 +190,7 @@ async function generateSeries(
         generationAttempts: result.attempts,
         origin: options.origin,
         series: { id, index: i + 1, of: result.questions.length },
+        ...(config.context ? { contextProfiles: config.profiles } : {}),
       }),
     );
   }

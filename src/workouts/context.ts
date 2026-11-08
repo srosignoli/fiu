@@ -1,14 +1,17 @@
 import { posix } from 'node:path';
 import { loadLinks, NO_LINKS } from '../atlas/links.ts';
+import { words } from '../atlas/search.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
 import { entryState, readAtlas } from '../atlas/store.ts';
 import { extractSymbols } from '../atlas/symbols.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
+import type { DiagnosisCause, PredictionOption, WorkoutKind } from '../synthesis/schema.ts';
 import { diffLines, type Hunk } from '../verify/diff.ts';
+import { buildVariant } from '../verify/gate.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 
 /**
- * "Around this code" (§11.15, ADR 0009): what surrounds a Drill's or Kata's target, never the target
+ * "Around this code" (§11.15, ADR 0009): what surrounds a Workout's target, never the target
  * itself. Assembled from a template out of the Atlas and the links, with no model call, so its author
  * never saw the Workout. Saved with the Workout, which never changes.
  */
@@ -38,9 +41,42 @@ export interface AroundOptions {
   profile: LanguageProfile;
   sourcePath: string;
   symbol?: string;
-  /** The code the human starts from (with the bug, or the gap) and the Reference Solution. */
-  startingCode: string;
+  /** A Prediction (What-ifs included) never shows the file's entry: its answer is behaviour, and the entry summarises behaviour. Default: drill. */
+  kind?: WorkoutKind;
   referenceSolution: string;
+  /** Every other version of the code the Workout holds (`otherVersions`): what differs from the Reference Solution is the target. */
+  others: string[];
+  /** For a Prediction or Diagnosis: the true option's (or Cause's) text and the wrong ones'. */
+  answer?: { truth: string; wrong: string[] };
+}
+
+/** What a Workout holds besides its Reference Solution, as saved in its record and files. */
+export interface WorkoutVersions {
+  kind: WorkoutKind;
+  referenceSolution: string;
+  /** Drill and Kata: the code the human starts from. */
+  startingCode?: string;
+  /** A Prediction from a commit or a What-if: the code before. */
+  previous?: string;
+  options?: PredictionOption[];
+  causes?: DiagnosisCause[];
+}
+
+/**
+ * The other versions of the code: a Drill's bugged code or a Kata's gapped code; a Prediction's wrong
+ * options' Variants (and the code before, for the old-behaviour option); every Cause's Variant.
+ */
+export function otherVersions(w: WorkoutVersions): string[] {
+  if (w.kind === 'drill' || w.kind === 'kata') return w.startingCode === undefined ? [] : [w.startingCode];
+  if (w.kind === 'diagnosis') return (w.causes ?? []).map((c) => buildVariant(w.referenceSolution, c.variant));
+  return (w.options ?? []).filter((o) => !o.correct).map((o) => (o.previous ? (w.previous ?? '') : buildVariant(w.referenceSolution, o.variant))).filter(Boolean);
+}
+
+/** The true option's (or Cause's) text and the wrong ones', for a Prediction or Diagnosis. */
+export function answerTexts(w: Pick<WorkoutVersions, 'options' | 'causes'>): AroundOptions['answer'] {
+  const choices = w.options ?? w.causes;
+  const truth = choices?.find((c) => c.correct);
+  return truth ? { truth: truth.text, wrong: choices!.filter((c) => !c.correct).map((c) => c.text) } : undefined;
 }
 
 /** The section, or undefined when there is nothing around the code to say. */
@@ -54,8 +90,10 @@ export async function aroundThisCode(options: AroundOptions): Promise<AroundThis
   const own = links.files[sourcePath] ?? NO_LINKS;
   const hubs = new Set(links.hubs);
 
-  const hunks = diffLines(options.referenceSolution, options.startingCode);
-  const leaks = leakChecker(targetNames(options, hunks), distinctiveTokens(options.referenceSolution, hunks));
+  const hunks = options.others.flatMap((other) => diffLines(options.referenceSolution, other));
+  const named = leakChecker(targetNames(options, hunks), distinctiveTokens(options.referenceSolution, hunks, options.profile.lineComment));
+  const picksAnswer = options.answer ? answerPicker(options.answer) : () => false;
+  const leaks = (text: string) => named(text) || picksAnswer(text);
   let dropped = 0;
   const describe = (label: string, text: string | undefined, stale: boolean): string[] => {
     if (!text) return [];
@@ -72,7 +110,7 @@ export async function aroundThisCode(options: AroundOptions): Promise<AroundThis
   const fileEntry = atlas.files[sourcePath];
   const descriptions = [
     ...describe(`Folder \`${folderPath}/\``, folderEntry?.text, folder !== undefined && entryState(folderEntry, folder.hash) === 'stale'),
-    ...describe('This file', fileEntry?.text, entryState(fileEntry, file.hash) === 'stale'),
+    ...(options.kind === 'prediction' ? [] : describe('This file', fileEntry?.text, entryState(fileEntry, file.hash) === 'stale')),
   ];
 
   const row = (label: string, paths: string[]): string[] =>
@@ -111,13 +149,20 @@ const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*/g;
 const NUMBER = /(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g;
 const STRING = /(['"`])([^'"`\n]{3,})\1/g;
 
+/** A line that is only a comment: it describes the code without changing what it does. */
+const commentOnly = (line: string, lineComment?: string) => {
+  const text = line.trim();
+  return (lineComment !== undefined && text.startsWith(lineComment)) || text.startsWith('/*') || text.startsWith('*');
+};
+
 /**
  * What only the changed or removed lines say: identifiers that appear nowhere else in the Reference
  * Solution, numbers other than 0 and 1, and string contents. Names shared with the rest of the code
- * are the unit's ordinary vocabulary, and saying them gives nothing away.
+ * are the unit's ordinary vocabulary, and saying them gives nothing away. Comment lines are left out:
+ * they change no behaviour, and their prose would match any description.
  */
-export function distinctiveTokens(referenceSolution: string, hunks: Hunk[]): string[] {
-  const changed = hunks.flatMap((h) => [...h.removed, ...h.added]);
+export function distinctiveTokens(referenceSolution: string, hunks: Hunk[], lineComment?: string): string[] {
+  const changed = hunks.flatMap((h) => [...h.removed, ...h.added]).filter((line) => !commentOnly(line, lineComment));
   const changedSet = new Set(changed.map((line) => line.trim()));
   const rest = referenceSolution
     .split('\n')
@@ -136,6 +181,16 @@ export function distinctiveTokens(referenceSolution: string, hunks: Hunk[]): str
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** `maxRetries` is also written "max retries" in prose. */
 const spoken = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase();
+
+/**
+ * True when a description uses a word only the true option (or Cause) uses: the words that tell the right
+ * answer from the wrong ones. Compared as stems, stopwords left out, as Atlas search compares them.
+ */
+export function answerPicker({ truth, wrong }: { truth: string; wrong: string[] }): (text: string) => boolean {
+  const others = new Set(wrong.flatMap((text) => words(text)));
+  const telling = new Set(words(truth).filter((word) => !others.has(word)));
+  return (text) => words(text).some((word) => telling.has(word));
+}
 
 /** True when a description names the target or says what only the changed lines say. */
 export function leakChecker(names: string[], tokens: string[]): (text: string) => boolean {

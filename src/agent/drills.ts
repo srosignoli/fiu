@@ -476,6 +476,7 @@ export class AgentDrills {
           generator: 'agent',
           origin: generation.origin,
           series: { id, index: i + 1, of: series.kept.length },
+          ...(generation.contextProfiles ? { contextProfiles: generation.contextProfiles } : {}),
           now: this.#now(),
         }),
       );

@@ -4,7 +4,10 @@ import { loadLinks, NO_LINKS } from '../atlas/links.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
 import { entryState, readAtlas } from '../atlas/store.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
+import { profileForFile } from '../languages/registry.ts';
+import { diffLines } from '../verify/diff.ts';
 import type { WorkspacePaths } from '../workspace.ts';
+import { targetNames } from './context.ts';
 import type { SourceAnchor, WorkoutRecord } from './save.ts';
 
 /**
@@ -19,8 +22,8 @@ export interface Debrief {
   /** The target functions, with what the Atlas says each is for. */
   target: { name: string; text?: string }[];
   file?: { text: string; stale: boolean };
-  /** Files that use this one and mention a target function by name. */
-  callers: string[];
+  /** Files that use this one and mention a target function by name, with the names each mentions. */
+  callers: { path: string; calls: string[] }[];
   usedBy: string[];
   /** Computed tension signals, one sentence each. */
   signals: string[];
@@ -51,29 +54,23 @@ export async function buildDebrief({ paths, record, sourceChanged, profiles }: D
   const own = links.files[path] ?? NO_LINKS;
   const hubs = new Set(links.hubs);
 
-  // The target: the #symbol asked for, and the functions the Source Anchors point at.
   const entry = atlas.files[path];
-  const names = new Set<string>(record.source.symbol ? [record.source.symbol] : []);
-  for (const symbol of file.symbols) {
-    if (!symbol.callable) continue;
-    if (record.sourceAnchors.some((a) => a.path === path && symbol.startLine <= a.endLine && symbol.endLine >= a.startLine)) names.add(symbol.name);
-  }
-  // A function enclosing another (a class around its method) is not the target when the method is.
-  const target = [...names].filter((name) => ![...names].some((other) => other !== name && other.startsWith(`${name}.`)));
+  const target = await findTarget(paths, record, file.symbols, profiles);
   debrief.target = target.map((name) => ({ name, ...(entry?.functions[name] ? { text: entry.functions[name] } : {}) }));
   if (entry) debrief.file = { text: entry.text.replace(/\s*\n\s*/g, ' '), stale: entryState(entry, file.hash) === 'stale' };
 
   debrief.usedBy = own.importedBy;
-  const spoken = target.map((name) => name.split('.').pop()!);
+  const spoken = [...new Set(target.map((name) => name.split('.').pop()!))];
   for (const user of own.importedBy) {
     const text = await readFile(join(paths.repoRoot, user), 'utf8').catch(() => '');
-    if (spoken.some((name) => new RegExp(`(?<![\\w$])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w$])`).test(text))) debrief.callers.push(user);
+    const calls = spoken.filter((name) => new RegExp(`(?<![\\w$])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w$])`).test(text));
+    if (calls.length > 0) debrief.callers.push({ path: user, calls });
   }
 
   // Tension signals: computed, never a model's word.
   const imported = new Set([...own.imports, ...own.importedBy]);
   const hidden = own.changesWith.filter((c) => !imported.has(c.path) && !hubs.has(c.path));
-  if (own.importedBy.length > 0) debrief.signals.push(`Blast radius: ${plural(own.importedBy.length, 'file')} use this file${own.importedBy.length >= 5 ? ', so a change here travels far' : ''}.`);
+  if (own.importedBy.length > 0) debrief.signals.push(`Blast radius: ${plural(own.importedBy.length, 'file')} ${own.importedBy.length === 1 ? 'uses' : 'use'} this file${own.importedBy.length >= 5 ? ', so a change here travels far' : ''}.`);
   if (links.commitsRead > 0) debrief.signals.push(`Churn: changed in ${own.commits} of the last ${plural(links.commitsRead, 'commit')}.`);
   for (const c of hidden.slice(0, 2)) debrief.signals.push(`Hidden coupling: changes with ${c.path} (together in ${plural(c.shared, 'commit')}), though neither imports the other.`);
   if (hubs.has(path)) debrief.signals.push('Hub: this file changes with a third or more of the codebase.');
@@ -82,13 +79,41 @@ export async function buildDebrief({ paths, record, sourceChanged, profiles }: D
   const suggest = (command: string, why: string) => {
     if (debrief.tryNext.length < TRY_NEXT && !debrief.tryNext.some((t) => t.command.endsWith(` ${command.split(' ').pop()}`))) debrief.tryNext.push({ command, why });
   };
-  const caller = debrief.callers[0] ?? own.importedBy[0];
-  if (caller) suggest(`fiu predict ${caller}`, debrief.callers[0] ? `it calls ${spoken[0]}` : 'it uses this file');
+  const caller = debrief.callers[0];
+  if (caller) suggest(`fiu predict ${caller.path}`, `it calls ${caller.calls[0]}`);
+  else if (own.importedBy[0]) suggest(`fiu predict ${own.importedBy[0]}`, 'it uses this file');
   if (hidden[0]) suggest(`fiu diagnose ${hidden[0].path}`, 'it changes with this file, though neither imports the other');
   const dependency = own.imports.find((p) => !p.endsWith('/'));
   if (dependency) suggest(`fiu drill ${dependency}`, 'this file uses it');
   return debrief;
 }
+
+/**
+ * The functions the Workout is about. For a Drill or Kata, those its changed or removed lines fall in (as
+ * "Around this code" finds them), kept when the source file has a function of that name; otherwise, and for
+ * the other kinds, the `#symbol` and the functions the Source Anchors overlap today.
+ */
+async function findTarget(paths: WorkspacePaths, record: WorkoutRecord, symbols: { name: string; callable: boolean; startLine: number; endLine: number }[], profiles: readonly LanguageProfile[]): Promise<string[]> {
+  const callable = new Set(symbols.filter((s) => s.callable).map((s) => s.name));
+  if (record.kind === 'drill' || record.kind === 'kata') {
+    const dir = join(paths.workoutsDir, record.id);
+    const solution = await readFile(join(dir, record.files.solution), 'utf8').catch(() => undefined);
+    const code = await readFile(join(dir, record.files.code), 'utf8').catch(() => undefined);
+    if (solution !== undefined && code !== undefined) {
+      const names = targetNames({ referenceSolution: solution, profile: profileForFile(record.source.path, profiles), symbol: record.source.symbol }, diffLines(solution, code));
+      const found = names.filter((name) => callable.has(name));
+      if (found.length > 0) return innermost(found);
+    }
+  }
+  const names = new Set<string>(record.source.symbol ? [record.source.symbol] : []);
+  for (const symbol of symbols) {
+    if (symbol.callable && record.sourceAnchors.some((a) => a.path === record.source.path && symbol.startLine <= a.endLine && symbol.endLine >= a.startLine)) names.add(symbol.name);
+  }
+  return innermost([...names]);
+}
+
+/** A function enclosing another (a class around its method) is not the target when the method is. */
+const innermost = (names: string[]) => names.filter((name) => !names.some((other) => other !== name && other.startsWith(`${name}.`)));
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const listed = (paths: string[]) => paths.slice(0, LISTED).join(', ') + (paths.length > LISTED ? `, and ${paths.length - LISTED} more` : '');
@@ -96,11 +121,14 @@ const DESCRIPTIONS_NOTE = 'Descriptions are written by a model from the code, no
 const LINKS_NOTE = 'Links and signals are computed from imports and git history.';
 const hasDescriptions = (d: Debrief) => d.target.some((t) => t.text) || d.file !== undefined;
 const note = (d: Debrief) => (hasDescriptions(d) ? DESCRIPTIONS_NOTE : LINKS_NOTE);
-/** Which users call the target: "all" when every one of them does. */
+/** Which users call which target function: "all call x" when every user calls the one target. */
 function calling(d: Debrief, code: (text: string) => string): string {
   if (d.callers.length === 0) return '';
-  const names = d.target.map((t) => code(t.name.split('.').pop()!)).join(', ');
-  return d.callers.length === d.usedBy.length ? ` (all call ${names})` : ` (calling ${names}: ${listed(d.callers.map(code))})`;
+  const names = [...new Set(d.callers.flatMap((c) => c.calls))];
+  if (names.length === 1) {
+    return d.callers.length === d.usedBy.length ? ` (all call ${code(names[0]!)})` : ` (calling ${code(names[0]!)}: ${listed(d.callers.map((c) => code(c.path)))})`;
+  }
+  return ` (calling ${listed(d.callers.map((c) => `${code(c.path)} → ${c.calls.map(code).join(', ')}`))})`;
 }
 const CHANGED_NOTE = 'The source has changed since this Workout was made: what follows is about today\'s code.';
 const hasContext = (d: Debrief) => d.target.some((t) => t.text) || d.file !== undefined || d.usedBy.length > 0 || d.signals.length > 0 || d.tryNext.length > 0;

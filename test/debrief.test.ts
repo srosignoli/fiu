@@ -57,7 +57,7 @@ describe('the Debrief', () => {
     assert.deepEqual(debrief.target, [{ name: 'pickNext', text: 'Picks the next job to run.' }]);
     assert.deepEqual(debrief.file, { text: 'The queue jobs wait in.', stale: false });
     assert.deepEqual(debrief.usedBy, ['src/dashboard.ts', 'src/worker.ts']);
-    assert.deepEqual(debrief.callers, ['src/worker.ts'], 'the dashboard imports the file but never calls pickNext');
+    assert.deepEqual(debrief.callers, [{ path: 'src/worker.ts', calls: ['pickNext'] }], 'the dashboard imports the file but never calls pickNext');
     assert.deepEqual(debrief.signals, [
       'Blast radius: 2 files use this file.',
       'Churn: changed in 3 of the last 4 commits.',
@@ -79,6 +79,38 @@ describe('the Debrief', () => {
     assert.match(markdown, /^# Debrief: Late jobs jump the queue\n\n## Where this lives\n/);
     assert.match(markdown, /## Tensions\n\n- Blast radius: 2 files use this file\.\n/);
     assert.match(markdown, /## Try next\n\n- `fiu predict src\/worker\.ts`: it calls pickNext\n/);
+  });
+
+  it("takes a Drill's target from what it changed, and names what each caller actually calls", async () => {
+    const repo = await tempGitRepo();
+    const paths = workspacePaths(repo);
+    await ensureWorkspace(paths);
+    const lib = 'export function parse(s: string) {\n  return s.trim();\n}\n\nexport function render(s: string) {\n  return `<${s}>`;\n}\n';
+    await commit(repo, {
+      'src/lib.ts': lib,
+      'src/reader.ts': "import { parse } from './lib.ts';\nexport const r = parse(' x ');\n",
+      'src/writer.ts': "import { render } from './lib.ts';\nexport const w = render('x');\n",
+    });
+    const id = 'drill_render';
+    await mkdir(join(paths.workoutsDir, id, '.solution'), { recursive: true });
+    await writeFile(join(paths.workoutsDir, id, '.solution', 'kata.ts'), lib);
+    await writeFile(join(paths.workoutsDir, id, 'kata.ts'), lib.replace('`<${s}>`', '`<${s}`'));
+    const record = {
+      id,
+      kind: 'drill',
+      title: 'Unclosed tags',
+      source: { path: 'src/lib.ts', dirty: false },
+      // The anchors cover both functions; the change is only in render.
+      sourceAnchors: [{ path: 'src/lib.ts', startLine: 1, endLine: 7, explanation: 'Parsing and rendering.' }],
+      files: { code: 'kata.ts', solution: '.solution/kata.ts', test: 'kata.test.ts', originalTest: '.solution/kata.test.ts' },
+    } as unknown as WorkoutRecord;
+
+    const debrief = await buildDebrief({ paths, record, sourceChanged: false, profiles: profiles() });
+    assert.deepEqual(debrief.target.map((t) => t.name), ['render']);
+    assert.deepEqual(debrief.callers, [{ path: 'src/writer.ts', calls: ['render'] }]);
+    assert.deepEqual(debrief.tryNext[0], { command: 'fiu predict src/writer.ts', why: 'it calls render' });
+    assert.match(renderDebriefText(debrief), /Used by: src\/reader\.ts, src\/writer\.ts \(calling render: src\/writer\.ts\)/);
+    assert.match(renderDebriefText(debrief), /Blast radius: 2 files use this file\./);
   });
 
   it('says when the source changed since the Workout was made', async () => {

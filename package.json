@@ -1,6 +1,6 @@
 {
   "name": "fiu",
-  "version": "7.0.0",
+  "version": "7.1.0",
   "private": true,
   "description": "A nose for code you never typed: real code from the repository, turned into small, verified practice Workouts.",
   "license": "MIT",

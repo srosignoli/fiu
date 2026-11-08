@@ -78,7 +78,7 @@ The project was called Kintsugi up to v5.1 (binaries `kintsugi` and `kin`) and F
 
 ## 5. Language Profiles
 
-A Language Profile is pure data; the only per-language code is the parser for its result format. No language-specific logic exists outside a profile.
+A Language Profile is pure data; the only per-language code is the parser for its result format and the resolver for its import style (the Atlas's links, §11.15), each chosen by name from the profile. No other language-specific logic exists outside a profile.
 
 ```typescript
 export interface LanguageProfile {
@@ -97,6 +97,7 @@ export interface LanguageProfile {
   extraReadPaths: string[];              // sandbox allowances (never network)
   extraWritePaths: string[];
   limits?: { processMemoryMiB?: number; memoryMiB?: number; processes?: number };  // raise or lower the defaults (§7)
+  importStyle?: 'relative' | 'python' | 'go';  // how imports name files, for the Atlas's links (§11.15)
 }
 ```
 
@@ -458,7 +459,7 @@ Fiu now **notices such a bug and reports it after the Attempt**. It doesn't go l
 - **Prompt rule** (Drills and Katas): *"Keep the Reference Solution faithful to the original's behaviour. If the original itself looks wrong, don't fix it silently: say where and why in originalDefect."* A Drill may still use that defect as its bug, as the dogfooded one did. A Kata whose removed region fixes the original gets only the model report, since its Starting Code is a placeholder.
 - **No comments in the bug** (Drills, enforced from now on; the prompt already forbade them). Comparing the two sides of the changed region by their trailing comments (via `lineComment`), a comment on a buggy line that the fixed side doesn't have is `[schema]` retry feedback: *"The bug region carries a comment that points at the bug; remove it."*
 - **Agent mode:** `originalDefect` is part of the schema `submit_drill` accepts, and the agent gets the same prompt rule. `list_workouts` doesn't report it.
-- **Not in v3.4:** choosing targets for suspected defects (see §11.15); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
+- **Not in v3.4:** choosing targets for suspected defects (see §11.16); a source match for Katas; reporting a defect anywhere else (an issue, the agent).
 
 ### 11.8 v4.0: Predictions (implemented)
 
@@ -640,7 +641,7 @@ For the people Predictions serve, the dangerous state isn't not knowing how the 
 - **`fiu stats [<path>] [--json]`:** overall Prediction accuracy; the calibration table (answers and hit rate per level, against the expected rate); the last 30 days against before; accuracy per directory, worst first; the Blind Spots. A rate is shown only with at least 3 answers behind it.
 - **Yours only.** Like the map, it never leaves the machine (ADR 0004); `--json` is there for anyone who wants to share their own. A team view would make honest answers costly, and the numbers worthless.
 
-**Not in v4.4:** confidence for Drills and Katas; spaced repetition of Blind Spots (§11.15).
+**Not in v4.4:** confidence for Drills and Katas; spaced repetition of Blind Spots (§11.16).
 
 ### 11.13 v5.0: Diagnosis (implemented)
 
@@ -670,7 +671,7 @@ The gate proves that among these four, only the true Cause produces the incident
 
 **With the rest.** Quick by its own rules, so `fiu quick` serves it. It counts toward `fiu stats`, which becomes *Your answers*, split by kind, and toward Blind Spots. It can be a Track step (§11.11). `kinds` accepts `diagnosis`: `fiu quick` honours it first, commit generation skips it, and a personal `kinds` of only no-code kinds (`prediction`, `diagnosis`) makes a Track of exactly those. Shared and re-verified on fetch like any Workout.
 
-**Not in v5.0:** a Series of Diagnoses; Diagnoses from commits or in the background; running diagnostic checks before answering (§11.15).
+**Not in v5.0:** a Series of Diagnoses; Diagnoses from commits or in the background; running diagnostic checks before answering (§11.16).
 
 ### 11.14 v5.1: What-if Predictions (implemented)
 
@@ -688,7 +689,37 @@ Someone steering agents decides what to ask for before anyone writes code: *what
 
 **Not in v5.1:** several Scenarios for one change; changes spanning several files.
 
-### 11.15 Later (not yet designed)
+### 11.15 v7.1: Links, context, and the Debrief (links implemented; the rest designed)
+
+A Workout is vertical: one function, one bug, one Scenario. This adds the horizontal view around it (what the module is for, who depends on the target, what changes with it, which forces pull on it) without giving the Workout away. Per [ADR 0009](./docs/adr/0009-context-is-orientation-links-are-computed-facts.md), links are computed facts, the context's descriptions are orientation, and neither is Verified or counts as practice (`fiu map` and stats ignore them). Designed in a grilling session on 2026-11-08; shipped in three steps, each released on its own.
+
+**1. Links (implemented).** Computed locally, free, between the files the Atlas describes (tests and generated code are left out: they would drown the signal):
+
+- **Imports**: what each file imports, by its Language Profile's `importStyle`: `relative` (`./x`, `../y` in JavaScript and TypeScript, with `./x.js` naming `./x.ts`, missing extensions, and `index` files), `python` (dotted modules from the repository root and from each folder above the file, relative imports, `from a import b` trying the submodule `a/b.py`), `go` (a package under a module in a tracked `go.mod` is its folder). Only imports that resolve to a file (or Go folder) in the repository count; packages and the standard library are left out. A user-defined profile may set `importStyle`; without one, its files have no import links. Found by regular expressions: names good enough to show, not a parser (ADR 0008).
+- **Used by**: the reverse, so a file's fan-in is visible.
+- **Changes with** (co-change): files changed in the same commits among the last 500, merges left out, and commits touching over 20 files skipped (renames, formatting passes, lockfile bumps). A pair counts when the files share 3 or more commits and at least 30% of the less-changed file's commits; the strongest 5 are kept, by shared commits. Each file also records how many of those commits changed it (churn).
+- Cached in `.fiu/links.json`, keyed by HEAD and the described files' blob hashes, so a commit or an uncommitted edit recomputes them. Never stored in `atlas.json` and never shared: every clone computes the same links.
+- **`fiu atlas <file> [--markdown]`** shows the file's entry and key functions, then *Uses*, *Used by*, *Changes with*, and *Changed in*, labelled as computed from imports and git history. Atlas search ranking and the MCP tools are unchanged.
+
+**2. Around this code (designed).** A section of at most 6 lines in the README of each Drill and Kata, between the Track line and the brief: the folder's purpose and the file's purpose (Atlas entries, marked *(written before the code last changed)* when stale), *Used by*, *Uses*, and *Changes with* (top 3 each), and the line saying the descriptions are a model's word.
+
+- Assembled by Fiu from a template at save time, for every Workout whoever generated it (Fiu or the user's agent): no model call, no MCP change. The model that wrote the Workout never contributes to it.
+- **Around, not inside.** The target function's own entry is never shown; the file's entry is dropped when it names the target; any line holding a distinctive name or value from the changed or removed lines is dropped. A dropped line is logged and never fails or regenerates a Workout.
+- Without an Atlas (or an entry): the links alone, plus one dim line, *Run `fiu atlas build` for what these files are for*.
+- Frozen with the Workout, in its README and `workout.json` (ADR 0003), so it travels with `fiu share`.
+- On by default; `"context": false` in `.fiu/config.json` turns it off.
+- Predictions, What-ifs, and Diagnoses get it once the dogfooding pass shows the guard holds on Drills and Katas.
+
+**3. The Debrief (designed).** After every finished Attempt, Completed or Abandoned, in `closeAttempt`, for all five kinds; also written to `debrief.md` in the Attempt's directory. Computed when shown from the current Atlas and links, saying when the source changed since the Workout was made. It holds:
+
+- what the target function is for, and its callers;
+- the Source Anchors (the reveal's *Where this lives* moves here);
+- tension signals, all computed: **hidden coupling** (files that change together without importing each other), **blast radius** (how many files use this one), **churn** (how often it changes);
+- **Try next**: commands aimed at neighbouring files (`fiu predict src/worker.ts`, `fiu diagnose <co-changed file>`), never What-if sentences.
+
+**Not in v7.1:** links between functions (a call graph); model-written trade-off paragraphs; links in Atlas search ranking or the MCP tools; co-change settings in config.
+
+### 11.16 Later (not yet designed)
 
 Each item needs its own design round before implementation.
 

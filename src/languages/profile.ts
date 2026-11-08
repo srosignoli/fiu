@@ -3,6 +3,9 @@ import type { ResourceLimits } from '../sandbox/process.ts';
 
 export type ResultFormat = 'tap' | 'junit-xml' | 'go-json' | 'unittest-verbose';
 
+export const IMPORT_STYLES = ['relative', 'python', 'go'] as const;
+export type ImportStyle = (typeof IMPORT_STYLES)[number];
+
 /** Everything Fiu needs to build and run Workouts in one language. Pure data: no language logic lives elsewhere. */
 export interface LanguageProfile {
   id: string;
@@ -19,6 +22,12 @@ export interface LanguageProfile {
    * in a group called `name`. Replaces the built-in, language-neutral patterns for this language.
    */
   declarationPattern?: string;
+  /**
+   * For the Atlas's links: how this language names the files it imports. `relative` resolves `./x` and
+   * `../x` paths (JavaScript, TypeScript), `python` resolves dotted modules, `go` resolves package paths
+   * under the module in go.mod to their folder. Absent: the language's files have no import links.
+   */
+  importStyle?: ImportStyle;
   /** Language-specific generation constraints for the LLM prompt. */
   promptRules: string;
   /** Toolchain check, run before any LLM call (and before training). */
@@ -87,6 +96,7 @@ export const UserProfileSchema = z.strictObject({
       }
     }, 'must be a valid regular expression with a group called "name"')
     .optional(),
+  importStyle: z.enum(IMPORT_STYLES).optional(),
   promptRules: z.string().default(''),
   preflightCmd: z.string().min(1),
   warmup: z.record(relativePath, z.string()).optional(),

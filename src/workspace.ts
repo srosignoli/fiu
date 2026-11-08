@@ -15,6 +15,8 @@ export interface WorkspacePaths {
   attemptsDir: string;
   /** The Atlas: what each folder, file, and key function is for. */
   atlasFile: string;
+  /** The Atlas's computed links (imports and co-change), cached by commit and code. */
+  linksFile: string;
   /** Where v1 moved finished Workouts; no longer written. */
   doneDir: string;
 }
@@ -41,6 +43,7 @@ export function workspacePaths(repoRoot: string): WorkspacePaths {
     workoutsDir: join(root, 'workouts'),
     attemptsDir: join(root, 'attempts'),
     atlasFile: join(root, 'atlas.json'),
+    linksFile: join(root, 'links.json'),
     doneDir: join(root, 'done'),
   };
 }

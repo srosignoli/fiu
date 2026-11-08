@@ -1,12 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { applyAtlasOutput, ATLAS_RULES, describeFolder, FILES_PER_CALL, folderPrompt } from '../atlas/describe.ts';
+import { loadLinks } from '../atlas/links.ts';
 import { atlasScope, buildSkeleton, foldersBottomUp, type Skeleton, type SkeletonFolder } from '../atlas/skeleton.ts';
 import type { AtlasView } from '../atlas/render.ts';
 import { searchAtlas } from '../atlas/search.ts';
 import { folderWork, readAtlas, writeAtlas, type Atlas } from '../atlas/store.ts';
 import { buildMap } from '../map/map.ts';
+import { repoRelativeDir } from '../explore/shortlist.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { ConsentDeclinedError, ConsentRequiredError, hasConsent, recordConsent } from '../consent.ts';
 import { describeCost, estimateCost, mergeByModel, type Cost, type ModelUsage } from '../cost/usage.ts';
@@ -183,11 +185,16 @@ export async function searchAtlasCommand(cwd: string, goal: string, { configEnv 
   return { results: searchAtlas(goal, skeleton, atlas, states), described: Object.keys(atlas.files).length > 0 };
 }
 
-/** `fiu atlas [<path>]`: what the Atlas holds for the repository or one folder. */
+/** `fiu atlas [<path>]`: what the Atlas holds for the repository, one folder, or one file (with its links). */
 export async function atlasView(cwd: string, path: string | undefined, { configEnv = { env: process.env, home: homedir() } }: Pick<AtlasDependencies, 'configEnv'> = {}): Promise<AtlasView> {
   const repoRoot = await findRepoRoot(cwd);
   const paths = workspacePaths(repoRoot);
   const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(configEnv));
   const skeleton = await buildSkeleton(repoRoot, config.profiles);
-  return { name: basename(repoRoot), scope: atlasScope(repoRoot, cwd, path, skeleton), skeleton, atlas: await readAtlas(paths) };
+  const atlas = await readAtlas(paths);
+  const file = path === undefined ? undefined : repoRelativeDir(repoRoot, resolve(cwd, path));
+  if (file !== undefined && skeleton.files.has(file)) {
+    return { name: basename(repoRoot), scope: file, file, skeleton, atlas, links: await loadLinks(paths, skeleton, config.profiles) };
+  }
+  return { name: basename(repoRoot), scope: atlasScope(repoRoot, cwd, path, skeleton), skeleton, atlas };
 }

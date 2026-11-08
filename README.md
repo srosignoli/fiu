@@ -45,7 +45,7 @@ Ask Claude Code for a Workout (or run `/fiu-drill src/queue.ts` and `/fiu-atlas`
 
 ## Key workflows
 
-- `fiu atlas` / `fiu atlas search "<goal>"`: browse the codebase Atlas or find the files behind a goal.
+- `fiu atlas` / `fiu atlas <file>` / `fiu atlas search "<goal>"`: browse the codebase Atlas, see what a file uses, what uses it, and what changes with it, or find the files behind a goal.
 - `fiu explore <dir>` / `fiu track --goal "<goal>"`: build a multi-step Track across a module or data flow.
 - `fiu quick [--while "<cmd>"]`: solve a Workout right away, or while an agent runs or a long build or pipeline finishes.
 - `fiu map`: inspect comprehension coverage and locate unpractised hotspots.

@@ -408,7 +408,7 @@ const atlas = program.command('atlas').description('What each folder, file, and 
 atlas
   .command('show', { isDefault: true })
   .description('Show the Atlas: the overview, each folder and file, and their key functions.')
-  .argument('[path]', 'a folder to show (default: the repository)')
+  .argument('[path]', 'a folder, or a file to show with its links (default: the repository)')
   .option('--markdown', 'print it as a Markdown document')
   .action(async (path: string | undefined, options: { markdown?: boolean }) => {
     const { atlasView } = await import('./commands/atlas.ts');

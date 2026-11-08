@@ -50,6 +50,10 @@ _Avoid_: Ladder, learning path, exploration
 A map of the repository saying what each folder, file, and key function is for, so the human can choose what to practise. Its structure is computed from the code; its descriptions are written by a model and never Verified. The Atlas is not a Workout.
 _Avoid_: Assessment, index, overview (that's one Atlas Entry)
 
+**Link**:
+A relationship between two source files that Fiu computes, never a model: one imports the other, or they change in the same commits (co-change). Shown beside the Atlas, true by construction, and never Verified, because it isn't a Workout.
+_Avoid_: Dependency (a package), edge, call (links are between files, not functions)
+
 **Atlas Entry**:
 One model-written description in the Atlas (of the repository, a folder, a file, or a key function), tied to the exact content it describes; stale once that content changes.
 _Avoid_: Summary, annotation

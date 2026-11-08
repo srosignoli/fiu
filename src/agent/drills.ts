@@ -63,6 +63,8 @@ interface Generation {
   whatIf?: { sentence?: string };
   /** For a Prediction Series: how many questions, and those Verified so far (saved together when it ends). */
   series?: { count: number; kept: PredictionOutput[] };
+  /** Set when "Around this code" is on: the profiles to read the Atlas and links with. */
+  contextProfiles?: readonly LanguageProfile[];
 }
 
 /** A Track an agent is building: its shortlist, and the steps saved so far, in order. */
@@ -294,6 +296,7 @@ export class AgentDrills {
       ...(pendingTrack ? { track: { id: pendingTrack.id, why: why!.trim() } } : {}),
       ...(questions > 1 ? { series: { count: questions, kept: [] } } : {}),
       ...(proposed ? { whatIf: proposed } : {}),
+      ...(config.context ? { contextProfiles: config.profiles } : {}),
     });
     return {
       generationId,
@@ -402,6 +405,7 @@ export class AgentDrills {
       origin: generation.origin,
       ...(generation.whatIf ? { whatIf: { ...generation.whatIf, modelled: workout.modelledAs ?? '' } } : {}),
       ...(generation.track ? { track: { id: generation.track.id, module: this.#tracks.get(generation.track.id)?.module ?? '', why: generation.track.why } } : {}),
+      ...(generation.contextProfiles ? { contextProfiles: generation.contextProfiles } : {}),
       now: this.#now(),
     });
     await record('verified', saved.id);

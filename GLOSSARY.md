@@ -64,6 +64,10 @@ _Avoid_: Micro-kata, wait-time kata
 
 ### Anatomy of a Workout
 
+**Around this code**:
+The section at the top of a Drill's or Kata's README about what surrounds its target: what the folder and file are for, and their Links. Assembled by Fiu, never by the model that wrote the Workout, and it never describes the target itself.
+_Avoid_: Context (too vague), hint (it must never help with the task)
+
 **Starting Code**:
 The code the human receives: the Kata's gapped code or the Drill's bugged code.
 _Avoid_: initialUserCode, skeleton, mutant

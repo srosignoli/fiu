@@ -41,7 +41,8 @@ function linkRows(view: AtlasView & { file: string }): [string, string][] {
   const file = view.skeleton.files.get(view.file)!;
   if (!file.described) return [];
   const links = view.links?.files[view.file] ?? NO_LINKS;
-  const changes = links.changesWith.map((c) => `${c.path} (together in ${c.shared} commits)`);
+  const hubs = new Set(view.links?.hubs ?? []);
+  const changes = links.changesWith.map((c) => `${c.path} (together in ${c.shared} commits${hubs.has(c.path) ? '; changes with most files' : ''})`);
   return [
     ['Uses', listed(links.imports)],
     ['Used by', listed(links.importedBy)],

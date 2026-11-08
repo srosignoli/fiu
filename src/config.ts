@@ -38,6 +38,8 @@ export const RepoConfigSchema = z.strictObject({
   prices: z.record(z.string(), ModelPriceSchema).optional(),
   /** Overrides the user's `kinds` for this repository. */
   kinds: KindsSchema.optional(),
+  /** False turns off "Around this code" in new Workouts' READMEs (default on, §11.15). */
+  context: z.boolean().optional(),
   /** Team sharing: the remote the `fiu/workouts` branch lives on (default `origin`). */
   share: z.strictObject({ remote: z.string().min(1).optional() }).optional(),
   /** Background generation from commits (`fiu auto on`): its consent and caps. */
@@ -80,6 +82,8 @@ export interface ResolvedConfig {
   kinds: PreferredKind[];
   /** Questions per `fiu predict`: the user's setting, else DEFAULT_PREDICTION_QUESTIONS. */
   predictionQuestions: number;
+  /** Whether new Drills and Katas get "Around this code" (§11.15): the repository's setting, else on. */
+  context: boolean;
 }
 
 /** Three questions cost about 1.5 to 1.7 times one: past that, Scenarios on one unit start to repeat. */
@@ -131,6 +135,7 @@ export function resolveConfig(repo: RepoConfig, user: UserConfig): ResolvedConfi
     prices: { ...user.prices, ...repo.prices },
     kinds: repo.kinds ?? user.kinds ?? ['drill'],
     predictionQuestions: user.predictionQuestions ?? DEFAULT_PREDICTION_QUESTIONS,
+    context: repo.context ?? true,
   };
 }
 

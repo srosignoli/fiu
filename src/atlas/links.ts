@@ -15,6 +15,13 @@ import type { Skeleton } from './skeleton.ts';
  */
 export const CO_CHANGE = { commits: 500, maxFilesPerCommit: 20, minShared: 3, minRatio: 0.3, kept: 5 } as const;
 
+/**
+ * A hub changes with so many files (a CLI entry point, a central registry) that "changes with it" says
+ * nothing: at least a third of the files that changed at all, and at least 5. Measured on Fiu's own
+ * history, where it singles out `src/cli.ts` (27 of 65) and leaves `src/workouts/save.ts` (21) alone.
+ */
+export const HUB = { share: 1 / 3, minPartners: 5 } as const;
+
 const CoChangeSchema = z.object({
   path: z.string(),
   /** Commits that changed both files. */
@@ -42,6 +49,8 @@ const LinksSchema = z.object({
   key: z.string(),
   /** How many commits co-change looked at (fewer than `CO_CHANGE.commits` in a young repository). */
   commitsRead: z.number(),
+  /** Files that change with too many others for co-change with them to mean anything (`HUB`). */
+  hubs: z.array(z.string()),
   files: z.record(z.string(), FileLinksSchema),
 });
 export type Links = z.infer<typeof LinksSchema>;
@@ -76,7 +85,7 @@ export async function loadLinks(paths: Pick<WorkspacePaths, 'repoRoot' | 'root' 
   }
   const imports = await importGraph(repoRoot, sources, new Set(described.map((f) => f.path)));
   const history = await coChange(repoRoot, new Set(described.map((f) => f.path)));
-  const links: Links = { version: 1, key, commitsRead: history.commitsRead, files: {} };
+  const links: Links = { version: 1, key, commitsRead: history.commitsRead, hubs: history.hubs, files: {} };
   for (const file of described) {
     links.files[file.path] = {
       imports: imports.imports.get(file.path) ?? [],
@@ -243,7 +252,7 @@ export function goImports(path: string, source: string, files: Set<string>, modu
 export async function coChange(
   repoRoot: string,
   files: Set<string>,
-): Promise<{ commitsRead: number; commits: Map<string, number>; changesWith: Map<string, CoChange[]> }> {
+): Promise<{ commitsRead: number; commits: Map<string, number>; changesWith: Map<string, CoChange[]>; hubs: string[] }> {
   const log = await execa('git', ['log', '-n', String(CO_CHANGE.commits), '--no-merges', '--no-renames', '--format=%x1e', '--name-only'], {
     cwd: repoRoot,
     reject: false,
@@ -278,9 +287,11 @@ export async function coChange(
     add(a, { path: b, shared, ratio });
     add(b, { path: a, shared, ratio });
   }
+  const partnersForHub = Math.max(HUB.minPartners, Math.ceil(commits.size * HUB.share));
+  const hubs = sorted([...changesWith].filter(([, links]) => links.length >= partnersForHub).map(([path]) => path));
   for (const [path, links] of changesWith) {
     links.sort((x, y) => y.shared - x.shared || y.ratio - x.ratio || x.path.localeCompare(y.path));
     changesWith.set(path, links.slice(0, CO_CHANGE.kept));
   }
-  return { commitsRead, commits, changesWith };
+  return { commitsRead, commits, changesWith, hubs };
 }

@@ -115,6 +115,7 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
       commit: options.commit,
       track: options.track,
       ...(target.whatIf ? { whatIf: { ...target.whatIf, modelled: result.workout.modelledAs ?? '' } } : {}),
+      ...(config.context ? { contextProfiles: config.profiles } : {}),
     });
     Object.assign(spend, { result: 'verified', workoutId: record.id });
     const workoutDir = resolve(paths.workoutsDir, record.id);

@@ -6,6 +6,7 @@ import { describeCost, type Cost } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { answersOnly, type AnyWorkoutOutput, type DiagnosisCause, type PredictionOption, type WorkoutKind } from '../synthesis/schema.ts';
 import { findOriginalDefect, type OriginalDefect } from '../verify/defect.ts';
+import { aroundThisCode, type AroundThisCode } from './context.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 
 export const SOLUTION_DIRNAME = '.solution';
@@ -102,6 +103,8 @@ export interface WorkoutRecord {
   diagnosis?: { explanation: string; causes: DiagnosisCause[] };
   /** A bug the source file appears to contain already. Shown only after an Attempt. */
   originalDefect?: OriginalDefect;
+  /** Drill and Kata: "Around this code", as it was when the Workout was made (§11.15). */
+  around?: AroundThisCode;
   /** What generating this Workout cost, across all its generation attempts. Absent when the user's agent generated it (not measured) and on Workouts made before cost recording. */
   cost?: Cost & { generationAttempts: number };
   /** `solution` is the Reference Solution; `originalTest` the tests the Workout was Verified with; `previous`, for a Prediction from a commit, the Previous Version. */
@@ -136,6 +139,8 @@ export interface SaveDrillOptions {
   track?: TrackPlacement;
   series?: SeriesPlacement;
   whatIf?: WhatIfPlacement;
+  /** Set to build "Around this code" for a Drill or Kata: the Language Profiles the Atlas and links are read with. */
+  contextProfiles?: readonly LanguageProfile[];
   now?: Date;
 }
 
@@ -157,6 +162,7 @@ export async function saveDrill({
   track,
   series,
   whatIf,
+  contextProfiles,
   now = new Date(),
 }: SaveDrillOptions): Promise<WorkoutRecord> {
   const id = uniqueId(paths, `${kind}_${now.toISOString().slice(0, 10).replaceAll('-', '')}_${drill.slug}`);
@@ -165,6 +171,7 @@ export async function saveDrill({
   const originalTest = join(SOLUTION_DIRNAME, profile.testFilename);
   const previous = drill.previous ? join(SOLUTION_DIRNAME, `previous${extname(profile.codeFilename)}`) : undefined;
   const originalDefect = source === undefined ? undefined : findOriginalDefect(kind, drill, source, profile.lineComment);
+  const around = contextProfiles && (kind === 'drill' || kind === 'kata') ? await safeAround(paths, contextProfiles, profile, sourcePath, symbol, drill) : undefined;
 
   const record: WorkoutRecord = {
     id,
@@ -192,6 +199,7 @@ export async function saveDrill({
           ? { diagnosis: { explanation: drill.explanation ?? '', causes: drill.causes ?? [] } }
           : { prediction: { scenario: drill.scenario ?? '', explanation: drill.explanation ?? '', options: drill.options ?? [] } }),
     ...(originalDefect ? { originalDefect } : {}),
+    ...(around ? { around } : {}),
     ...(cost ? { cost: { ...cost, generationAttempts } } : {}),
     // A Prediction or Diagnosis has no code to work on: its code and tests are the ones it was Verified with.
     files: answersOnly(kind)
@@ -332,5 +340,22 @@ function readme(drill: AnyWorkoutOutput, record: WorkoutRecord, dir: string, rep
   const anchors = record.sourceAnchors.map(
     (a) => `- [${a.path}:${a.startLine}-${a.endLine}](${link}#L${a.startLine}-L${a.endLine}): ${a.explanation}`,
   );
-  return [`# ${drill.title}`, '', ...trackPlacement(record), (drill.readmeMarkdown ?? '').trim(), '', '## Source', '', ...anchors, '', ...provenance(record), ''].join('\n');
+  const around = record.around && record.around.lines.length > 0 ? [...record.around.lines, ''] : [];
+  return [`# ${drill.title}`, '', ...trackPlacement(record), ...around, (drill.readmeMarkdown ?? '').trim(), '', '## Source', '', ...anchors, '', ...provenance(record), ''].join('\n');
+}
+
+/** "Around this code" is an extra: whatever goes wrong building it, the Verified Workout is saved without it. */
+async function safeAround(
+  paths: WorkspacePaths,
+  profiles: readonly LanguageProfile[],
+  profile: LanguageProfile,
+  sourcePath: string,
+  symbol: string | undefined,
+  drill: AnyWorkoutOutput,
+): Promise<AroundThisCode | undefined> {
+  try {
+    return await aroundThisCode({ paths, profiles, profile, sourcePath, symbol, startingCode: drill.startingCode ?? '', referenceSolution: drill.referenceSolution });
+  } catch {
+    return undefined;
+  }
 }

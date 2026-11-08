@@ -1,6 +1,6 @@
-# Fiutsu
+# Fiu
 
-Fiutsu is a CLI that turns code in a developer's own repository into small, verified practice exercises, so they keep understanding code they (or AI agents) didn't write by hand.
+Fiu is a CLI that turns code in a developer's own repository into small, verified practice exercises, so they keep understanding code they (or AI agents) didn't write by hand.
 
 ## Language
 
@@ -100,7 +100,7 @@ Why a Workout exists: requested by the human for a chosen file (manual), generat
 _Avoid_: Source (that's the code it was derived from), trigger, mode
 
 **Generator**:
-Who wrote a Workout's content: Fiutsu itself (calling an LLM with the user's API key), or the user's own coding agent (through Fiutsu's tools). Independent of Origin.
+Who wrote a Workout's content: Fiu itself (calling an LLM with the user's API key), or the user's own coding agent (through Fiu's tools). Independent of Origin.
 _Avoid_: Provider, mode, backend
 
 **Regression Test**:
@@ -113,7 +113,7 @@ _Avoid_: Valid, checked
 ### Languages
 
 **Language Profile**:
-Everything Fiutsu needs to know to build and run Workouts in one programming language: which source files it applies to, how its tests are run, and how their results are read. A Workout's language is that of the source file it was derived from.
+Everything Fiu needs to know to build and run Workouts in one programming language: which source files it applies to, how its tests are run, and how their results are read. A Workout's language is that of the source file it was derived from.
 _Avoid_: Adapter, language plugin, runtime
 
 ### Progress

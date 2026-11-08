@@ -54,14 +54,14 @@ export interface RefillResult {
 
 export class RefillBusyError extends Error {
   constructor() {
-    super('Fiutsu is already generating a Drill in the background for this repository. Try again in a minute.');
+    super('Fiu is already generating a Drill in the background for this repository. Try again in a minute.');
   }
 }
 
 /**
  * `fiu refill [--commit <sha>]`: turn a commit into a Quick Drill. In the background (from the hook)
  * it never prompts, runs one generator per repository, queues commits that arrive meanwhile, and
- * obeys the queue and daily caps. Every outcome goes to .fiutsu/log.
+ * obeys the queue and daily caps. Every outcome goes to .fiu/log.
  */
 export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, deps: RefillDependencies = {}): Promise<RefillResult> {
   const configEnv = deps.configEnv ?? { env: process.env, home: homedir() };
@@ -176,7 +176,7 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
         if (!ui.confirm) throw new ConsentRequiredError(config.provider);
         const what = before === undefined ? `${target.path} (as of ${commitSha.slice(0, 12)})` : `${target.path} (before and after ${commitSha.slice(0, 12)})`;
         const granted = await ui.confirm(
-          `Fiutsu will send ${what} to ${config.provider} (${config.model}) to generate a ${NOUN[kinds[0]!]}. Send code from this repository to ${config.provider}?`,
+          `Fiu will send ${what} to ${config.provider} (${config.model}) to generate a ${NOUN[kinds[0]!]}. Send code from this repository to ${config.provider}?`,
         );
         if (!granted) throw new ConsentDeclinedError();
       }

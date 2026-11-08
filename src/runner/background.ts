@@ -63,7 +63,7 @@ export class BackgroundCommand {
     } finally {
       closeSync(log);
     }
-    // If Fiutsu itself dies, the command must not live on unattended.
+    // If Fiu itself dies, the command must not live on unattended.
     process.on('exit', this.#killOnExit);
   }
 

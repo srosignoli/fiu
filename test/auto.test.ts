@@ -19,12 +19,12 @@ describe('the post-commit hook', () => {
     assert.deepEqual(result, { status: 'installed', path: hookFile(repo), created: true });
     const hook = await readFile(hookFile(repo), 'utf8');
     assert.match(hook, /^#!\/bin\/sh\n/);
-    assert.match(hook, /# >>> fiutsu >>>[\s\S]*nohup '\/usr\/bin\/node' '\/opt\/fiu\/dist\/cli\.js' 'refill' '--background' '--commit' "\$\(git rev-parse HEAD\)"[\s\S]*# <<< fiutsu <<</);
+    assert.match(hook, /# >>> fiu >>>[\s\S]*nohup '\/usr\/bin\/node' '\/opt\/fiu\/dist\/cli\.js' 'refill' '--background' '--commit' "\$\(git rev-parse HEAD\)"[\s\S]*# <<< fiu <<</);
     assert.ok(statSync(hookFile(repo)).mode & 0o100, 'executable');
     assert.equal(await hookInstalled(repo), true);
 
     await removeHook(repo);
-    assert.ok(!existsSync(hookFile(repo)), 'a hook Fiutsu created goes away entirely');
+    assert.ok(!existsSync(hookFile(repo)), 'a hook Fiu created goes away entirely');
   });
 
   it("keeps the user's own hook lines, adding and removing only its block", async () => {
@@ -37,7 +37,7 @@ describe('the post-commit hook', () => {
     await installHook(repo, FIU);
     const hook = await readFile(hookFile(repo), 'utf8');
     assert.ok(hook.startsWith(mine));
-    assert.equal(hook.match(/# >>> fiutsu >>>/g)?.length, 1, 'reinstalling refreshes the block');
+    assert.equal(hook.match(/# >>> fiu >>>/g)?.length, 1, 'reinstalling refreshes the block');
 
     assert.deepEqual(await removeHook(repo), { removed: true, path: hookFile(repo) });
     assert.equal(await readFile(hookFile(repo), 'utf8'), mine);

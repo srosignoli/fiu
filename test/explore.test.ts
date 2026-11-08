@@ -146,7 +146,7 @@ describe('checkPlan', () => {
 
 describe('averageSpend by kind', () => {
   it('prices a kind from the Workouts of that kind only', () => {
-    const entry = (workoutId: string, usd: number) => ({ at: '2026-10-31T00:00:00.000Z', origin: 'manual' as const, generator: 'fiutsu' as const, source: 'a.ts', result: 'verified' as const, workoutId, generationAttempts: 1, cost: { usage: [], usd, unpricedModels: [], pricesAsOf: '2026-10' } });
+    const entry = (workoutId: string, usd: number) => ({ at: '2026-10-31T00:00:00.000Z', origin: 'manual' as const, generator: 'fiu' as const, source: 'a.ts', result: 'verified' as const, workoutId, generationAttempts: 1, cost: { usage: [], usd, unpricedModels: [], pricesAsOf: '2026-10' } });
     const spend = [entry('drill_1', 0.4), entry('prediction_1', 0.2), entry('kata_1', 0.6)];
     assert.equal(averageSpend(spend, 10, 'prediction')?.usd, 0.2);
     assert.equal(averageSpend(spend, 10, 'kata')?.usd, 0.6);

@@ -23,7 +23,7 @@ describe('runProcess', () => {
 
 describe('unsandboxed runs', () => {
   it('still scrub the environment and use a scratch HOME', async () => {
-    process.env.FIUTSU_TEST_SECRET = 'leak';
+    process.env.FIU_TEST_SECRET = 'leak';
     try {
       const cwd = await tempDir();
       const result = await openUnsandboxed().run({
@@ -32,12 +32,12 @@ describe('unsandboxed runs', () => {
         env: { PROFILE_VAR: 'yes' },
       });
       assert.equal(result.exitCode, 0);
-      assert.doesNotMatch(result.stdout, /FIUTSU_TEST_SECRET/);
+      assert.doesNotMatch(result.stdout, /FIU_TEST_SECRET/);
       assert.match(result.stdout, /^PROFILE_VAR=yes$/m);
-      assert.match(result.stdout, /^HOME=.*fiutsu-run-.*\/home$/m);
+      assert.match(result.stdout, /^HOME=.*fiu-run-.*\/home$/m);
       assert.match(result.stdout, new RegExp(`^${cwd}$`, 'm'));
     } finally {
-      delete process.env.FIUTSU_TEST_SECRET;
+      delete process.env.FIU_TEST_SECRET;
     }
   });
 
@@ -76,14 +76,14 @@ describe('OS sandbox', { skip: osSandbox ? false : 'sandbox dependencies are not
   it("gives commands the run's own writable TMPDIR", async () => {
     const result = await osSandbox!.run({ command: 'echo "$TMPDIR" && touch "$TMPDIR/probe"', cwd: await tempDir() });
     assert.equal(result.exitCode, 0, result.stderr);
-    assert.match(result.stdout, /fiutsu-run-.*\/tmp$/m);
+    assert.match(result.stdout, /fiu-run-.*\/tmp$/m);
   });
 
   it('keeps the repository unreadable except for the Workout directory', async () => {
     const repoRoot = await tempDir();
     const sandbox = await openSandbox({ repoRoot });
     try {
-      const workout = join(repoRoot, '.fiutsu', 'workouts', 'w1');
+      const workout = join(repoRoot, '.fiu', 'workouts', 'w1');
       await mkdir(workout, { recursive: true });
       await writeFile(join(repoRoot, '.env'), 'SECRET=1');
       const result = await sandbox.run({ command: `cat ${join(repoRoot, '.env')}; echo ok > here.txt && cat here.txt`, cwd: workout });

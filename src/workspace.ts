@@ -3,7 +3,7 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { execa } from 'execa';
 
-export const WORKSPACE_DIRNAME = '.fiutsu';
+export const WORKSPACE_DIRNAME = '.fiu';
 const EXCLUDE_LINE = `/${WORKSPACE_DIRNAME}/`;
 
 export interface WorkspacePaths {
@@ -21,7 +21,7 @@ export interface WorkspacePaths {
 
 export class NotAGitRepositoryError extends Error {
   constructor(cwd: string) {
-    super(`${cwd} is not inside a git repository. Run fiutsu from within one.`);
+    super(`${cwd} is not inside a git repository. Run fiu from within one.`);
   }
 }
 
@@ -78,7 +78,7 @@ export async function excludeFromGit(repoRoot: string, pattern: string, equivale
   return true;
 }
 
-/** True when git tracks the file, which Fiutsu never modifies. */
+/** True when git tracks the file, which Fiu never modifies. */
 export async function isTracked(repoRoot: string, path: string): Promise<boolean> {
   const result = await execa('git', ['ls-files', '--error-unmatch', '--', path], { cwd: repoRoot, reject: false });
   return result.exitCode === 0;

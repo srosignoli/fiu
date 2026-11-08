@@ -103,7 +103,7 @@ export async function drill(
       if (!options.yes) {
         if (!ui.confirm) throw new ConsentRequiredError(config.provider);
         const granted = await ui.confirm(
-          `Fiutsu will send ${sourcePath} to ${config.provider} (${config.model}) to generate the ${noun}. Send code from this repository to ${config.provider}?`,
+          `Fiu will send ${sourcePath} to ${config.provider} (${config.model}) to generate the ${noun}. Send code from this repository to ${config.provider}?`,
         );
         if (!granted) throw new ConsentDeclinedError();
       }
@@ -152,7 +152,7 @@ function directoryTarget(cwd: string, repoRoot: string, target: string | undefin
   if (!existsSync(path) || !statSync(path).isDirectory()) return undefined;
   const dir = relative(repoRoot, path);
   if (dir.startsWith('..')) throw new DrillTargetError(`${target} is outside the repository at ${repoRoot}.`);
-  if (dir.split(sep)[0] === '.fiutsu') throw new DrillTargetError('Ask about your own code, not a Workout.');
+  if (dir.split(sep)[0] === '.fiu') throw new DrillTargetError('Ask about your own code, not a Workout.');
   return dir.split(sep).join('/');
 }
 
@@ -163,7 +163,7 @@ export async function pickUnpractised(repoRoot: string, directory: string, profi
   const pick = candidates.find((c) => !practised.has(c.path));
   const where = directory || 'the repository';
   if (candidates.length === 0) throw new DrillTargetError(`${where} has no source files worth asking about.`);
-  if (!pick) throw new DrillTargetError(`You have practised every file Fiutsu would pick in ${where}. Name a file, or a smaller directory.`);
+  if (!pick) throw new DrillTargetError(`You have practised every file Fiu would pick in ${where}. Name a file, or a smaller directory.`);
   return pick.path;
 }
 
@@ -182,6 +182,6 @@ export function parseTarget(cwd: string, target: string): { file: string; symbol
 export function repoRelative(repoRoot: string, file: string): string {
   const path = relative(repoRoot, file);
   if (path.startsWith('..') || path === '') throw new DrillTargetError(`${file} is outside the repository at ${repoRoot}.`);
-  if (path.split(sep)[0] === '.fiutsu') throw new DrillTargetError('Drill your own code, not a Workout.');
+  if (path.split(sep)[0] === '.fiu') throw new DrillTargetError('Drill your own code, not a Workout.');
   return path.split(sep).join('/');
 }

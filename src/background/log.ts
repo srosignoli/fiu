@@ -19,7 +19,7 @@ export interface LogEntry {
 
 export const logPath = (paths: WorkspacePaths) => join(paths.root, 'log');
 
-/** Appends one JSON line to .fiutsu/log. */
+/** Appends one JSON line to .fiu/log. */
 export async function appendLog(paths: WorkspacePaths, entry: Omit<LogEntry, 'at'>, now = new Date()): Promise<void> {
   await appendFile(logPath(paths), JSON.stringify({ at: now.toISOString(), ...entry }) + '\n');
 }

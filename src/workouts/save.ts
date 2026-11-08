@@ -26,8 +26,8 @@ export interface SourceAnchor {
   commit?: string;
 }
 
-/** Who wrote a Workout's content: Fiutsu via the user's API key, or the user's coding agent. */
-export type Generator = 'fiutsu' | 'agent';
+/** Who wrote a Workout's content: Fiu via the user's API key, or the user's coding agent. */
+export type Generator = 'fiu' | 'agent';
 /** Why a Workout exists: the user asked for it, an agent made it at the end of its own task, a commit triggered it, or it is a Track step. */
 export type Origin = 'manual' | 'agent-task' | 'commit' | 'explore';
 
@@ -67,7 +67,7 @@ export interface SeriesPlacement {
 export interface WorkoutRecord {
   id: string;
   kind: WorkoutKind;
-  /** Absent on Workouts made before agent mode: those are `fiutsu`. */
+  /** Absent on Workouts made before agent mode: those are `fiu`. */
   generator?: Generator;
   /** Absent on Workouts made before agent mode: those are `manual`. */
   origin?: Origin;
@@ -139,7 +139,7 @@ export interface SaveDrillOptions {
   now?: Date;
 }
 
-/** Writes a Verified Drill or Kata into .fiutsu/workouts/<id>/ and returns its record. */
+/** Writes a Verified Drill or Kata into .fiu/workouts/<id>/ and returns its record. */
 export async function saveDrill({
   paths,
   profile,
@@ -151,7 +151,7 @@ export async function saveDrill({
   revision,
   cost,
   generationAttempts,
-  generator = 'fiutsu',
+  generator = 'fiu',
   origin = 'manual',
   commit,
   track,
@@ -251,7 +251,7 @@ function provenance(record: WorkoutRecord): string[] {
 }
 
 /**
- * Written by Fiutsu, not the model: the Scenario and the options, sorted so the order they were written
+ * Written by Fiu, not the model: the Scenario and the options, sorted so the order they were written
  * in gives nothing away. The answer and the Source Anchors stay in workout.json until after answering.
  */
 function predictionReadme(record: WorkoutRecord): string {
@@ -280,7 +280,7 @@ function predictionReadme(record: WorkoutRecord): string {
   ].join('\n');
 }
 
-/** Fiutsu's own line on every What-if's reveal: what was measured, and what wasn't. */
+/** Fiu's own line on every What-if's reveal: what was measured, and what wasn't. */
 export const WHAT_IF_LIMITS = 'Measured on a self-contained copy of this unit, not your whole system. Nothing in your repository changed.';
 
 /** The change as the human put it, and as the model read it: that the code matches the sentence is the model's word. */
@@ -288,13 +288,13 @@ export function whatIfLines({ sentence, modelled }: WhatIfPlacement): string[] {
   return sentence ? [`Imagine this change: ${sentence}`, `Modelled as: ${modelled.trim()}`] : [`Imagine this change: ${modelled.trim()}`];
 }
 
-/** Readers can't see the code, so Fiutsu itself says the incident isn't real. */
+/** Readers can't see the code, so Fiu itself says the incident isn't real. */
 export const PRACTICE_INCIDENT = "Practice incident: this didn't happen. The code here was changed on purpose.";
 
 /** The incident shown: the true Cause's Symptom. */
 export const incidentOf = (record: WorkoutRecord) => record.diagnosis!.causes.find((c) => c.correct)!.symptom.trim();
 
-/** Written by Fiutsu, not the model: the incident and the Causes, sorted so their written order gives nothing away. */
+/** Written by Fiu, not the model: the incident and the Causes, sorted so their written order gives nothing away. */
 function diagnosisReadme(record: WorkoutRecord): string {
   const sorted = record.diagnosis!.causes.map((c) => c.text.trim()).sort((a, b) => a.localeCompare(b));
   return [

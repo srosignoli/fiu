@@ -6,10 +6,11 @@ import { migrateLegacyHook } from './background/auto.ts';
 import { userConfigPath, type ConfigEnv } from './config.ts';
 import { excludeWorkspaceFromGit, findRepoRoot, NotAGitRepositoryError, WORKSPACE_DIRNAME } from './workspace.ts';
 
-/** Up to v5.1 Fiutsu was called Kintsugi: its workspace directory. */
-export const LEGACY_WORKSPACE_DIRNAME = '.kintsugi';
-/** Its user-level config directory, beside Fiutsu's (it can hold API keys). */
-const LEGACY_CONFIG_DIRNAME = 'kintsugi';
+/** The project's former names, newest first: Fiutsu (v6.0) and Kintsugi (up to v5.1). */
+const FORMER_NAMES = [
+  { name: 'Fiutsu', workspace: '.fiutsu', config: 'fiutsu' },
+  { name: 'Kintsugi', workspace: '.kintsugi', config: 'kintsugi' },
+];
 
 export interface LegacyMigration {
   cwd: string;
@@ -19,18 +20,19 @@ export interface LegacyMigration {
 }
 
 /**
- * Moves what Kintsugi left behind to Fiutsu's names, once: the user config, the repository's workspace,
- * and the background-generation hook. Never overwrites: when both names exist, the old one is left alone.
- * Returns one line per thing moved, plus a reminder when Kintsugi's agent files need replacing.
+ * Moves what Fiutsu or Kintsugi left behind to Fiu's names, once: the user config, the repository's
+ * workspace, and the background-generation hook. Never overwrites: when the new name already exists, the
+ * old ones are left alone; when both former names exist, the newer (Fiutsu) wins.
+ * Returns one line per thing moved, plus a reminder when a former name's agent files need replacing.
  */
-export async function migrateFromKintsugi({ cwd, configEnv, fiuCommand }: LegacyMigration): Promise<string[]> {
+export async function migrateFromFormerNames({ cwd, configEnv, fiuCommand }: LegacyMigration): Promise<string[]> {
   const notices: string[] = [];
 
   const configDir = dirname(userConfigPath(configEnv));
-  const legacyConfigDir = join(dirname(configDir), LEGACY_CONFIG_DIRNAME);
-  if (existsSync(legacyConfigDir) && !existsSync(configDir)) {
-    await rename(legacyConfigDir, configDir);
-    notices.push(`Moved your Kintsugi settings from ${legacyConfigDir} to ${configDir}.`);
+  const formerConfig = FORMER_NAMES.map((former) => ({ ...former, dir: join(dirname(configDir), former.config) })).find((former) => existsSync(former.dir));
+  if (formerConfig && !existsSync(configDir)) {
+    await rename(formerConfig.dir, configDir);
+    notices.push(`Moved your ${formerConfig.name} settings from ${formerConfig.dir} to ${configDir}.`);
   }
 
   let repoRoot: string | undefined;
@@ -40,18 +42,18 @@ export async function migrateFromKintsugi({ cwd, configEnv, fiuCommand }: Legacy
     if (!(error instanceof NotAGitRepositoryError)) throw error;
   }
   if (repoRoot) {
-    const legacyWorkspace = join(repoRoot, LEGACY_WORKSPACE_DIRNAME);
     const workspace = join(repoRoot, WORKSPACE_DIRNAME);
-    if (existsSync(legacyWorkspace) && !existsSync(workspace)) {
-      await rename(legacyWorkspace, workspace);
+    const formerWorkspace = FORMER_NAMES.find((former) => existsSync(join(repoRoot, former.workspace)));
+    if (formerWorkspace && !existsSync(workspace)) {
+      await rename(join(repoRoot, formerWorkspace.workspace), workspace);
       await excludeWorkspaceFromGit(repoRoot);
-      notices.push(`Moved this repository's ${LEGACY_WORKSPACE_DIRNAME}/ to ${WORKSPACE_DIRNAME}/ (Kintsugi is now Fiutsu).`);
+      notices.push(`Moved this repository's ${formerWorkspace.workspace}/ to ${WORKSPACE_DIRNAME}/ (${formerWorkspace.name} is now Fiu).`);
     }
-    if (await migrateLegacyHook(repoRoot, fiuCommand)) notices.push('Updated the post-commit hook to start Fiutsu instead of Kintsugi.');
+    if (await migrateLegacyHook(repoRoot, fiuCommand)) notices.push('Updated the post-commit hook to start Fiu under its new name.');
   }
 
   if (legacyAgentFiles(configEnv.home, repoRoot).length > 0) {
-    notices.push('Your coding agent still has Kintsugi\'s skill: run `fiu agent install claude` (with --project if you installed it that way) to replace it.');
+    notices.push('Your coding agent still has the skill from before Fiu\'s rename: run `fiu agent install claude` (with --project if you installed it that way) to replace it.');
   }
   return notices;
 }

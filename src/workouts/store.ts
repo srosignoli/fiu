@@ -50,8 +50,8 @@ export const CostSchema = z.object({
 export const SpendSchema = z.object({
   at: z.iso.datetime(),
   origin: z.enum(['manual', 'agent-task', 'commit', 'explore']),
-  /** Entries from before agent mode are all `fiutsu`; those from before the rename say `kintsugi`. */
-  generator: z.preprocess((value) => (value === 'kintsugi' ? 'fiutsu' : value), z.enum(['fiutsu', 'agent']).default('fiutsu')),
+  /** Entries from before agent mode are all `fiu`; those from before the renames say `fiutsu` or `kintsugi`. */
+  generator: z.preprocess((value) => (value === 'fiutsu' || value === 'kintsugi' ? 'fiu' : value), z.enum(['fiu', 'agent']).default('fiu')),
   /** The source file, relative to the repository root. */
   source: z.string(),
   /**
@@ -63,7 +63,7 @@ export const SpendSchema = z.object({
   /** For a Prediction Series: every question it saved (`workoutId` is the first). */
   workoutIds: z.array(z.string()).optional(),
   generationAttempts: z.number().int().nonnegative(),
-  /** Null when the user's agent generated it: Fiutsu can't see its usage. */
+  /** Null when the user's agent generated it: Fiu can't see its usage. */
   cost: CostSchema.nullable(),
 });
 export type Spend = z.infer<typeof SpendSchema>;
@@ -139,7 +139,7 @@ export interface StoredWorkout {
   status: WorkoutStatus;
 }
 
-/** Every Workout in .fiutsu/workouts/, newest first. */
+/** Every Workout in .fiu/workouts/, newest first. */
 export async function listWorkouts(paths: WorkspacePaths): Promise<StoredWorkout[]> {
   if (!existsSync(paths.workoutsDir)) return [];
   const state = await readState(paths);
@@ -217,5 +217,5 @@ export async function recordOutcome(paths: WorkspacePaths, outcome: Outcome): Pr
 /** v1 moved finished Workouts to done/; they can't be redone (their Starting Code was edited in place). */
 export function legacyDoneNotice(paths: WorkspacePaths): string | undefined {
   if (!existsSync(paths.doneDir)) return undefined;
-  return `Workouts finished with Fiutsu v1 stay in ${paths.doneDir} and aren't listed.`;
+  return `Workouts finished with Fiu v1 stay in ${paths.doneDir} and aren't listed.`;
 }

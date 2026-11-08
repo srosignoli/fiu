@@ -113,7 +113,7 @@ export async function buildAtlas(
     if (!options.yes) {
       if (!ui.confirm) throw new ConsentRequiredError(config.provider);
       const granted = await ui.confirm(
-        `Fiutsu will send the declarations and key functions of ${fileCount} file(s) in ${where} to ${config.provider} (${config.model}). Send code from this repository to ${config.provider}?`,
+        `Fiu will send the declarations and key functions of ${fileCount} file(s) in ${where} to ${config.provider} (${config.model}). Send code from this repository to ${config.provider}?`,
       );
       if (!granted) throw new ConsentDeclinedError();
     }
@@ -152,7 +152,7 @@ export async function buildAtlas(
       await recordSpend(paths, {
         at: now().toISOString(),
         origin: 'manual',
-        generator: 'fiutsu',
+        generator: 'fiu',
         source: call.folder.path || '.',
         result: 'atlas',
         generationAttempts: 1,

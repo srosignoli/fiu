@@ -3,7 +3,7 @@ import type { ResourceLimits } from '../sandbox/process.ts';
 
 export type ResultFormat = 'tap' | 'junit-xml' | 'go-json' | 'unittest-verbose';
 
-/** Everything Fiutsu needs to build and run Workouts in one language. Pure data: no language logic lives elsewhere. */
+/** Everything Fiu needs to build and run Workouts in one language. Pure data: no language logic lives elsewhere. */
 export interface LanguageProfile {
   id: string;
   /** Matched against the drilled source file. */
@@ -55,9 +55,9 @@ export interface TestResult {
 
 /** A test run, normalised across languages. */
 export interface TestRun {
-  /** False when the tests never got to run: compile, syntax, or import failure, or Fiutsu stopped them. */
+  /** False when the tests never got to run: compile, syntax, or import failure, or Fiu stopped them. */
   ran: boolean;
-  /** Why Fiutsu stopped the run: too long, too much memory, or too many processes. */
+  /** Why Fiu stopped the run: too long, too much memory, or too many processes. */
   stopped?: 'timeout' | 'memory' | 'processes';
   tests: TestResult[];
   /** The runner's combined output, for humans and for LLM retry feedback. */

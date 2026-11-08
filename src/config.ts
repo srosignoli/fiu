@@ -24,7 +24,7 @@ export const DEFAULTS = {
 export const KindsSchema = z.array(z.enum(['drill', 'prediction', 'diagnosis'])).min(1);
 export type PreferredKind = z.infer<typeof KindsSchema>[number];
 
-/** `.fiutsu/config.json`: lives inside the repo, so it must never hold secrets. */
+/** `.fiu/config.json`: lives inside the repo, so it must never hold secrets. */
 export const RepoConfigSchema = z.strictObject({
   provider: ProviderSchema.optional(),
   model: z.string().min(1).optional(),
@@ -38,7 +38,7 @@ export const RepoConfigSchema = z.strictObject({
   prices: z.record(z.string(), ModelPriceSchema).optional(),
   /** Overrides the user's `kinds` for this repository. */
   kinds: KindsSchema.optional(),
-  /** Team sharing: the remote the `fiutsu/workouts` branch lives on (default `origin`). */
+  /** Team sharing: the remote the `fiu/workouts` branch lives on (default `origin`). */
   share: z.strictObject({ remote: z.string().min(1).optional() }).optional(),
   /** Background generation from commits (`fiu auto on`): its consent and caps. */
   auto: z
@@ -55,7 +55,7 @@ export const RepoConfigSchema = z.strictObject({
 });
 export type RepoConfig = z.infer<typeof RepoConfigSchema>;
 
-/** `~/.config/fiutsu/config.json`: the only file allowed to hold API keys. */
+/** `~/.config/fiu/config.json`: the only file allowed to hold API keys. */
 export const UserConfigSchema = z.strictObject({
   provider: ProviderSchema.optional(),
   model: z.string().min(1).optional(),
@@ -96,12 +96,12 @@ const processConfigEnv = (): ConfigEnv => ({ env: process.env, home: homedir() }
 
 export function userConfigPath({ env, home }: ConfigEnv = processConfigEnv()): string {
   const base = env.XDG_CONFIG_HOME || join(home, '.config');
-  return join(base, 'fiutsu', 'config.json');
+  return join(base, 'fiu', 'config.json');
 }
 
 export function userCacheDir({ env, home }: ConfigEnv = processConfigEnv()): string {
   const base = env.XDG_CACHE_HOME || join(home, '.cache');
-  return join(base, 'fiutsu');
+  return join(base, 'fiu');
 }
 
 export async function loadRepoConfig(configFile: string): Promise<RepoConfig> {

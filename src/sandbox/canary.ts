@@ -7,7 +7,7 @@ import { SECRET_HOME_PATHS } from './policy.ts';
 import { shellQuote } from './process.ts';
 import { SandboxUnavailableError, type Sandbox } from './sandbox.ts';
 
-const CANARY_ENV_VAR = 'FIUTSU_CANARY_SECRET';
+const CANARY_ENV_VAR = 'FIU_CANARY_SECRET';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Runs inside the sandbox; every probe except `writeInside` must be refused. */
@@ -49,8 +49,8 @@ interface CanaryOutput {
 
 /** Proves the sandbox refuses network access, writes outside the Workout, secret reads, and leaked env vars. */
 export async function runCanary(sandbox: Sandbox, home: string = homedir()): Promise<CanaryReport> {
-  const workDir = await mkdtemp(join(tmpdir(), 'fiutsu-canary-'));
-  const outsideDir = await mkdtemp(join(tmpdir(), 'fiutsu-canary-outside-'));
+  const workDir = await mkdtemp(join(tmpdir(), 'fiu-canary-'));
+  const outsideDir = await mkdtemp(join(tmpdir(), 'fiu-canary-outside-'));
   // A secret we know exists, so the read denial is proven even on machines without ~/.ssh.
   const plantedSecret = join(outsideDir, 'secret');
   const secrets = [plantedSecret, ...(await existingSecretFiles(home))];

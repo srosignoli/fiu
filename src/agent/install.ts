@@ -5,7 +5,7 @@ import { execa } from 'execa';
 import { excludeFromGit, findRepoRoot, isTracked } from '../workspace.ts';
 import { afterTasksBlock, atlasCommandMarkdown, BLOCK_BEGIN, BLOCK_END, commandMarkdown, skillMarkdown, STAMP_PATTERN } from './texts.ts';
 
-export const MCP_SERVER_NAME = 'fiutsu';
+export const MCP_SERVER_NAME = 'fiu';
 
 /** `user` installs once for every repository; `project` installs into one repository, untracked. */
 export type InstallScope = 'user' | 'project';
@@ -32,7 +32,7 @@ export interface InstallReport {
 
 export class TrackedFileError extends Error {
   constructor(path: string) {
-    super(`${path} is tracked by git, and Fiutsu never modifies tracked files. Install at user level instead (without --project).`);
+    super(`${path} is tracked by git, and Fiu never modifies tracked files. Install at user level instead (without --project).`);
   }
 }
 
@@ -52,7 +52,7 @@ async function targets({ scope, home, cwd }: Pick<ClaudeInstallOptions, 'scope' 
     const root = join(home, '.claude');
     return {
       root,
-      skill: join(root, 'skills', 'fiutsu', 'SKILL.md'),
+      skill: join(root, 'skills', 'fiu', 'SKILL.md'),
       command: join(root, 'commands', 'fiu-drill.md'),
       atlasCommand: join(root, 'commands', 'fiu-atlas.md'),
       memory: join(root, 'CLAUDE.md'),
@@ -64,7 +64,7 @@ async function targets({ scope, home, cwd }: Pick<ClaudeInstallOptions, 'scope' 
   return {
     root,
     repoRoot,
-    skill: join(root, 'skills', 'fiutsu', 'SKILL.md'),
+    skill: join(root, 'skills', 'fiu', 'SKILL.md'),
     command: join(root, 'commands', 'fiu-drill.md'),
     atlasCommand: join(root, 'commands', 'fiu-atlas.md'),
     // The personal, per-repository counterpart of CLAUDE.md.
@@ -104,7 +104,7 @@ export async function installClaude(options: ClaudeInstallOptions): Promise<Inst
   }
 
   const add = ['mcp', 'add', '--scope', t.mcpScope, MCP_SERVER_NAME, '--', ...options.fiuCommand, 'mcp'];
-  // Re-registering replaces an older registration (e.g. after moving Fiutsu).
+  // Re-registering replaces an older registration (e.g. after moving Fiu).
   const removed = await run(['mcp', 'remove', '--scope', t.mcpScope, MCP_SERVER_NAME], cwd);
   const added = removed === undefined ? undefined : await run(add, cwd);
   if (!added || added.exitCode !== 0) report.manualMcpCommand = ['claude', ...add].map(shellWord).join(' ');
@@ -119,7 +119,7 @@ export async function uninstallClaude(options: Omit<ClaudeInstallOptions, 'after
   await removeLegacyInstall(t, run, t.repoRoot ?? options.cwd, report);
   for (const path of [t.skill, t.command, t.atlasCommand]) {
     if (!existsSync(path)) continue;
-    // Only files Fiutsu wrote (they carry its stamp).
+    // Only files Fiu wrote (they carry its stamp).
     if (!STAMP_PATTERN.test(await readFile(path, 'utf8'))) continue;
     await guardTracked(t, path);
     await rm(path);
@@ -141,10 +141,10 @@ export async function uninstallClaude(options: Omit<ClaudeInstallOptions, 'after
   return report;
 }
 
-/** The oldest Fiutsu version stamped into the installed agent files, if any are installed. */
+/** The oldest Fiu version stamped into the installed agent files, if any are installed. */
 export async function installedVersion(home: string, repoRoot?: string): Promise<string | undefined> {
-  const paths = [join(home, '.claude', 'skills', 'fiutsu', 'SKILL.md')];
-  if (repoRoot) paths.push(join(repoRoot, '.claude', 'skills', 'fiutsu', 'SKILL.md'));
+  const paths = [join(home, '.claude', 'skills', 'fiu', 'SKILL.md')];
+  if (repoRoot) paths.push(join(repoRoot, '.claude', 'skills', 'fiu', 'SKILL.md'));
   const versions: string[] = [];
   for (const path of paths) {
     if (!existsSync(path)) continue;
@@ -164,47 +164,61 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-/** What `agent install` wrote up to v5.1, when Fiutsu was called Kintsugi. */
-const LEGACY = {
-  serverName: 'kintsugi',
-  stamp: /<!-- kintsugi-version: [^ ]+ -->/,
-  blockBegin: '<!-- kintsugi:begin -->',
-  blockEnd: '<!-- kintsugi:end -->',
-  skillDir: (root: string) => join(root, 'skills', 'kintsugi'),
-  commands: (root: string) => [join(root, 'commands', 'kin-drill.md'), join(root, 'commands', 'kin-atlas.md')],
-};
+/** What `agent install` wrote under the project's former names: Fiutsu (v6.0) and Kintsugi (up to v5.1). */
+const FORMER_INSTALLS = [
+  {
+    name: 'Fiutsu',
+    serverName: 'fiutsu',
+    stamp: /<!-- fiutsu-version: [^ ]+ -->/,
+    blockBegin: '<!-- fiutsu:begin -->',
+    blockEnd: '<!-- fiutsu:end -->',
+    skillDir: (root: string) => join(root, 'skills', 'fiutsu'),
+    commands: (root: string) => [join(root, 'commands', 'fiu-drill.md'), join(root, 'commands', 'fiu-atlas.md')],
+  },
+  {
+    name: 'Kintsugi',
+    serverName: 'kintsugi',
+    stamp: /<!-- kintsugi-version: [^ ]+ -->/,
+    blockBegin: '<!-- kintsugi:begin -->',
+    blockEnd: '<!-- kintsugi:end -->',
+    skillDir: (root: string) => join(root, 'skills', 'kintsugi'),
+    commands: (root: string) => [join(root, 'commands', 'kin-drill.md'), join(root, 'commands', 'kin-atlas.md')],
+  },
+];
 
-/** Paths of a Kintsugi agent installation, for telling the user to replace it. */
+/** Paths of an agent installation made under a former name (Fiutsu or Kintsugi), for telling the user to replace it. */
 export function legacyAgentFiles(home: string, repoRoot?: string): string[] {
   const roots = [join(home, '.claude'), ...(repoRoot ? [join(repoRoot, '.claude')] : [])];
-  return roots.map((root) => join(LEGACY.skillDir(root), 'SKILL.md')).filter((path) => existsSync(path));
+  return FORMER_INSTALLS.flatMap((former) => roots.map((root) => join(former.skillDir(root), 'SKILL.md'))).filter((path) => existsSync(path));
 }
 
 /**
- * Removes what a Kintsugi installation added at this scope: only files carrying its stamp, only its
- * marked block, and its MCP registration (only when its files were there, so nobody else's is touched).
+ * Removes what an installation under a former name added at this scope: only files carrying its stamp,
+ * only its marked block, and its MCP registration (only when its files were there, so nobody else's is touched).
  */
 async function removeLegacyInstall(t: Targets, run: NonNullable<ClaudeInstallOptions['runClaude']>, cwd: string, report: InstallReport): Promise<void> {
-  let found = false;
-  for (const path of [join(LEGACY.skillDir(t.root), 'SKILL.md'), ...LEGACY.commands(t.root)]) {
-    if (!existsSync(path) || !LEGACY.stamp.test(await readFile(path, 'utf8'))) continue;
-    await guardTracked(t, path);
-    await rm(path);
-    report.removed.push(path);
-    found = true;
-  }
-  await rmdir(LEGACY.skillDir(t.root)).catch(() => {});
-  if (existsSync(t.memory)) {
-    const memory = await readFile(t.memory, 'utf8');
-    const withoutBlock = removeBlock(memory, LEGACY.blockBegin, LEGACY.blockEnd);
-    if (withoutBlock !== memory) {
-      await guardTracked(t, t.memory);
-      await updateOrDelete(t.memory, withoutBlock);
-      report.removed.push(`${t.memory} (Kintsugi's end-of-task instruction)`);
+  for (const former of FORMER_INSTALLS) {
+    let found = false;
+    for (const path of [join(former.skillDir(t.root), 'SKILL.md'), ...former.commands(t.root)]) {
+      if (!existsSync(path) || !former.stamp.test(await readFile(path, 'utf8'))) continue;
+      await guardTracked(t, path);
+      await rm(path);
+      report.removed.push(path);
       found = true;
     }
+    await rmdir(former.skillDir(t.root)).catch(() => {});
+    if (existsSync(t.memory)) {
+      const memory = await readFile(t.memory, 'utf8');
+      const withoutBlock = removeBlock(memory, former.blockBegin, former.blockEnd);
+      if (withoutBlock !== memory) {
+        await guardTracked(t, t.memory);
+        await updateOrDelete(t.memory, withoutBlock);
+        report.removed.push(`${t.memory} (${former.name}'s end-of-task instruction)`);
+        found = true;
+      }
+    }
+    if (found) await run(['mcp', 'remove', '--scope', t.mcpScope, former.serverName], cwd);
   }
-  if (found) await run(['mcp', 'remove', '--scope', t.mcpScope, LEGACY.serverName], cwd);
 }
 
 function removeBlock(text: string, begin = BLOCK_BEGIN, endMarker = BLOCK_END): string {

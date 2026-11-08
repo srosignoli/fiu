@@ -349,7 +349,7 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
 
   const { outcome, chosen, truth } = await session.answer(picked);
   if (record.whatIf) return revealWhatIf(session, io, { outcome, chosen, truth, confidence });
-  // In a Prediction from a commit, why the old behaviour is wrong is known for a fact: Fiutsu says it.
+  // In a Prediction from a commit, why the old behaviour is wrong is known for a fact: Fiu says it.
   const old = record.prediction!.options.find((o) => o.previous);
   const commit = record.commit ? `commit ${record.commit.sha.slice(0, 12)}` : 'the commit';
   const why = chosen.previous ? `That was true until ${commit}.` : chosen.misunderstanding.trim();
@@ -478,8 +478,8 @@ export async function quickWhile(
       if (key !== 'y') break;
     }
   } catch (error) {
-    // Fiutsu failing must not cost the user their command: report it, and keep waiting.
-    io.print(`Fiutsu stopped: ${error instanceof Error ? error.message : String(error)}`);
+    // Fiu failing must not cost the user their command: report it, and keep waiting.
+    io.print(`Fiu stopped: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   if (!background.result) {

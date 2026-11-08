@@ -35,14 +35,14 @@ export interface KinMcpServerOptions {
   home?: string;
 }
 
-/** `fiu mcp`: Fiutsu's tools for the user's coding agent. */
+/** `fiu mcp`: Fiu's tools for the user's coding agent. */
 export function createMcpServer(drills: AgentDrills, { version, home = homedir() }: KinMcpServerOptions): McpServer {
-  const server = new McpServer({ name: 'fiutsu', version }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: 'fiu', version }, { instructions: SERVER_INSTRUCTIONS });
 
   server.registerTool(
     'prepare_drill',
     {
-      title: 'Prepare a Fiutsu Drill, Kata, Prediction, or Diagnosis',
+      title: 'Prepare a Fiu Drill, Kata, Prediction, or Diagnosis',
       description: PREPARE_DESCRIPTION,
       inputSchema: {
         target: z.string().describe('A source file in this repository, relative to its root, optionally followed by #symbol.'),
@@ -69,7 +69,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'submit_drill',
     {
-      title: 'Submit a Fiutsu Drill, Kata, Prediction, or Diagnosis',
+      title: 'Submit a Fiu Drill, Kata, Prediction, or Diagnosis',
       description: SUBMIT_DESCRIPTION,
       // A Series (prepared with questions) has its own shape: the shared unit, then the questions.
       inputSchema: { generationId: z.string(), workout: z.union([AnyWorkoutOutputSchema, PredictionSeriesOutputSchema]) },
@@ -84,7 +84,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'prepare_track',
     {
-      title: 'Prepare a Fiutsu Track',
+      title: 'Prepare a Fiu Track',
       description: PREPARE_TRACK_DESCRIPTION,
       inputSchema: { module: z.string().describe('A module directory in this repository, relative to its root.') },
     },
@@ -94,7 +94,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'finish_track',
     {
-      title: 'Finish a Fiutsu Track',
+      title: 'Finish a Fiu Track',
       description: FINISH_TRACK_DESCRIPTION,
       inputSchema: { trackId: z.string(), title: z.string().describe('A short title naming what the module does.') },
     },
@@ -104,7 +104,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'prepare_atlas',
     {
-      title: 'Prepare the next folder of the Fiutsu Atlas',
+      title: 'Prepare the next folder of the Fiu Atlas',
       description: PREPARE_ATLAS_DESCRIPTION,
       inputSchema: { dir: z.string().optional().describe('A folder in this repository, relative to its root; the whole repository when left out.') },
     },
@@ -114,7 +114,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'submit_atlas',
     {
-      title: 'Submit Fiutsu Atlas entries for a folder',
+      title: 'Submit Fiu Atlas entries for a folder',
       description: SUBMIT_ATLAS_DESCRIPTION,
       inputSchema: {
         folder: z.string().describe('The folder prepare_atlas returned ("" for the repository root).'),
@@ -128,14 +128,14 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
   server.registerTool(
     'search_atlas',
     {
-      title: 'Search the Fiutsu Atlas',
+      title: 'Search the Fiu Atlas',
       description: SEARCH_ATLAS_DESCRIPTION,
       inputSchema: { goal: z.string().describe('What the user wants to learn, in their words.') },
     },
     ({ goal }) => respond(() => drills.searchAtlas(goal)),
   );
 
-  server.registerTool('list_workouts', { title: 'List Fiutsu Workouts', description: LIST_DESCRIPTION }, () =>
+  server.registerTool('list_workouts', { title: 'List Fiu Workouts', description: LIST_DESCRIPTION }, () =>
     respond(async () => ({ repository: await drills.repository(), workouts: await drills.list() })),
   );
 
@@ -154,5 +154,5 @@ async function respond(work: () => Promise<unknown>) {
 async function staleInstallNotice(home: string, repoRoot: string, version: string): Promise<string | undefined> {
   const installed = await installedVersion(home, repoRoot);
   if (!installed || compareVersions(installed, version) >= 0) return undefined;
-  return `The Fiutsu skill installed for this agent is from version ${installed}; Fiutsu is now ${version}. Tell the user to run \`fiu agent install claude\` again.`;
+  return `The Fiu skill installed for this agent is from version ${installed}; Fiu is now ${version}. Tell the user to run \`fiu agent install claude\` again.`;
 }

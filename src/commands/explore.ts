@@ -82,7 +82,7 @@ export async function explore(
   }
   const module = repoRelativeDir(repoRoot, resolve(cwd, options.about !== undefined ? join(repoRoot, modulePath) : modulePath));
   if (module.startsWith('..')) throw new ExploreTargetError(`${modulePath} is outside the repository at ${repoRoot}.`);
-  if (module.split('/')[0] === '.fiutsu') throw new ExploreTargetError('Explore your own code, not the Fiutsu workspace.');
+  if (module.split('/')[0] === '.fiu') throw new ExploreTargetError('Explore your own code, not the Fiu workspace.');
 
   const paths = workspacePaths(repoRoot);
   await ensureWorkspace(paths);
@@ -110,7 +110,7 @@ export async function explore(
     if (!options.yes) {
       if (!ui.confirm) throw new ConsentRequiredError(config.provider);
       const granted = await ui.confirm(
-        `Fiutsu will send outlines of ${candidates.length} files in ${module || 'the repository'}, then the chosen files, to ${config.provider} (${config.model}). Send code from this repository to ${config.provider}?`,
+        `Fiu will send outlines of ${candidates.length} files in ${module || 'the repository'}, then the chosen files, to ${config.provider} (${config.model}). Send code from this repository to ${config.provider}?`,
       );
       if (!granted) throw new ConsentDeclinedError();
     }
@@ -210,7 +210,7 @@ export async function explore(
   }
 
   if (steps.length < MIN_STEPS) return { status: 'not-enough', workoutIds, dropped };
-  const track: TrackRecord = { id, title: plan.title, module, createdAt: new Date().toISOString(), generator: 'fiutsu', steps };
+  const track: TrackRecord = { id, title: plan.title, module, createdAt: new Date().toISOString(), generator: 'fiu', steps };
   await saveTrack(paths, track);
   return { status: 'saved', track, dropped };
 
@@ -219,7 +219,7 @@ export async function explore(
     await recordSpend(paths, {
       at: new Date().toISOString(),
       origin: 'explore',
-      generator: 'fiutsu',
+      generator: 'fiu',
       source: module || '.',
       result: 'track-plan',
       generationAttempts: 1,

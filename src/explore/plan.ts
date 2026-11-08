@@ -46,7 +46,7 @@ const KIND_LINES: Record<WorkoutKind, string> = {
 };
 
 /**
- * The rules for ordering a Track: shared by Fiutsu's own planning call and agent mode's prepare_track.
+ * The rules for ordering a Track: shared by Fiu's own planning call and agent mode's prepare_track.
  * `kinds` are the kinds this Track may use (§11.11).
  */
 export function trackRules(kinds: readonly WorkoutKind[] = TRACK_KINDS): string {

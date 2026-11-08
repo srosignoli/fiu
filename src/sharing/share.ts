@@ -231,7 +231,7 @@ export async function share(cwd: string, ids: string[], options: ShareOptions = 
 
     if (additions.size === 0) return report;
     const what = [...report.shared.map((s) => s.as), ...(report.atlas?.changed ? ['the Atlas'] : [])];
-    const message = `Share ${what.join(', ')}\n\nShared by ${identity.name} <${identity.email}> with Fiutsu.`;
+    const message = `Share ${what.join(', ')}\n\nShared by ${identity.name} <${identity.email}> with Fiu.`;
     const commit = await commitWith(repo, parent, additions, message);
     if ((await pushShared(repo, remote, commit)) === 'pushed') return report;
     // A teammate pushed first: start again from their branch.
@@ -346,7 +346,7 @@ export async function fetchWorkouts(cwd: string, options: FetchOptions, step: (m
         continue;
       }
 
-      // Stage inside .fiutsu/ (same filesystem), then move into place in one step.
+      // Stage inside .fiu/ (same filesystem), then move into place in one step.
       const staging = join(incoming, as);
       await rm(staging, { recursive: true, force: true });
       for (const [path, content] of files) {

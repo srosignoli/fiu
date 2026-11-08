@@ -50,8 +50,8 @@ async function repoWithChange(trailer = ''): Promise<{ repo: string; sha: string
 }
 
 async function configure(repo: string, config: Record<string, unknown>) {
-  await mkdir(join(repo, '.fiutsu'), { recursive: true });
-  await writeFile(join(repo, '.fiutsu', 'config.json'), JSON.stringify(config));
+  await mkdir(join(repo, '.fiu'), { recursive: true });
+  await writeFile(join(repo, '.fiu', 'config.json'), JSON.stringify(config));
 }
 const backgroundReady = { consent: { provider: 'anthropic', grantedAt: new Date().toISOString() }, auto: { enabled: true } };
 

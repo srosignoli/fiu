@@ -56,7 +56,7 @@ export type SynthesisResult =
 
 export class SourceTooLargeError extends Error {
   constructor(path: string, lines: number) {
-    super(`${path} has ${lines} lines; Fiutsu drills files of up to ${MAX_SOURCE_LINES}. Move the unit you want into a smaller file first.`);
+    super(`${path} has ${lines} lines; Fiu drills files of up to ${MAX_SOURCE_LINES}. Move the unit you want into a smaller file first.`);
   }
 }
 

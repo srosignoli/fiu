@@ -1,14 +1,14 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 
-/** Why Fiutsu stopped a command before it finished. */
+/** Why Fiu stopped a command before it finished. */
 export type StopReason = 'timeout' | 'memory' | 'processes';
 
 export interface ProcessResult {
   exitCode: number | null;
   stdout: string;
   stderr: string;
-  /** Set when Fiutsu killed the command. */
+  /** Set when Fiu killed the command. */
   stopped?: StopReason;
 }
 

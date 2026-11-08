@@ -13,33 +13,33 @@ import { EDITOR_TIP, init } from './commands/init.ts';
 import { quick, quickWhile, train, type TrainResult } from './commands/train.ts';
 import { runInForeground } from './runner/background.ts';
 import { terminalTrainIo } from './terminal.ts';
-import { migrateFromKintsugi } from './legacy.ts';
+import { migrateFromFormerNames } from './legacy.ts';
 import { VERSION } from './version.ts';
 import { discardSeries, discardWorkout, legacyDoneNotice, restoreWorkout } from './workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths } from './workspace.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type PreferredKind } from './config.ts';
 
 const program = new Command()
-  .name('fiutsu')
+  .name('fiu')
   .description('A nose for code you never typed: real code from the repository, turned into small, verified practice Workouts.')
   .version(VERSION)
-  // Once per machine and repository: move what the project's old name (Kintsugi) left behind.
+  // Once per machine and repository: move what the project's former names (Fiutsu, Kintsugi) left behind.
   .hook('preAction', async () => {
     try {
-      const notices = await migrateFromKintsugi({ cwd: process.cwd(), configEnv: { env: process.env, home: homedir() }, fiuCommand: fiuCommand() });
+      const notices = await migrateFromFormerNames({ cwd: process.cwd(), configEnv: { env: process.env, home: homedir() }, fiuCommand: fiuCommand() });
       for (const notice of notices) console.error(notice);
     } catch (error) {
-      console.error(`fiutsu: couldn't move Kintsugi's files to Fiutsu's names: ${(error as Error).message}`);
+      console.error(`fiu: couldn't move Fiutsu's or Kintsugi's files to Fiu's names: ${(error as Error).message}`);
     }
   });
 
 program
   .command('init')
-  .description('Set up the .fiutsu/ workspace in the current git repository.')
+  .description('Set up the .fiu/ workspace in the current git repository.')
   .action(async () => {
     const { paths, createdWorkspace, updatedGitExclude, sandboxProblem } = await init(process.cwd());
     console.log(createdWorkspace ? `Created ${paths.root}` : `Workspace already exists at ${paths.root}`);
-    if (updatedGitExclude) console.log('Hid .fiutsu/ from git via .git/info/exclude');
+    if (updatedGitExclude) console.log('Hid .fiu/ from git via .git/info/exclude');
     if (sandboxProblem) {
       console.error(sandboxProblem.message);
       process.exitCode = 1;
@@ -162,7 +162,7 @@ program
 
 program
   .command('mcp')
-  .description("Run Fiutsu's MCP server (stdio), so your coding agent can create Drills. Started by the agent, not by hand.")
+  .description("Run Fiu's MCP server (stdio), so your coding agent can create Drills. Started by the agent, not by hand.")
   .action(async () => {
     // Loaded lazily: only the agent's server process needs the MCP SDK.
     const { AgentDrills } = await import('./agent/drills.ts');
@@ -175,12 +175,12 @@ program
     await server.connect(new StdioServerTransport());
   });
 
-const agent = program.command('agent').description('Set up your coding agent to create Drills with Fiutsu.');
+const agent = program.command('agent').description('Set up your coding agent to create Drills with Fiu.');
 
 agent
   .command('install')
   .argument('<agent>', 'the coding agent: claude (Claude Code)')
-  .description("Install Fiutsu's skill, /fiu-drill command, and MCP server for your coding agent.")
+  .description("Install Fiu's skill, /fiu-drill command, and MCP server for your coding agent.")
   .option('--project', 'install into this repository only (untracked) instead of for your user')
   .option('--after-tasks', 'also ask the agent to create a Quick Drill when it finishes a coding task')
   .action(async (name: string, options: { project?: boolean; afterTasks?: boolean }) => {
@@ -199,7 +199,7 @@ agent
     if (report.manualMcpCommand) {
       log.warn(`Couldn't register the MCP server with the claude CLI. Run this yourself:\n${report.manualMcpCommand}`);
     } else {
-      log.step('Registered the fiutsu MCP server with Claude Code');
+      log.step('Registered the fiu MCP server with Claude Code');
     }
     log.success('Done. In Claude Code, ask for a drill or a kata (or type /fiu-drill <file> [kata]), then start it with fiu train.');
   });
@@ -346,7 +346,7 @@ async function runTrack(id: string, options: { sandbox: boolean }): Promise<void
 
 program
   .command('share')
-  .description("Share Workouts, whole Tracks, or the Atlas with your team on the repository's fiutsu/workouts branch.")
+  .description("Share Workouts, whole Tracks, or the Atlas with your team on the repository's fiu/workouts branch.")
   .argument('[ids...]', 'Workout or Track ids')
   .option('--atlas', "share the Atlas too, merged with the team's")
   .option('--remote <name>', 'the remote to share through (default: share.remote in config, else origin)')
@@ -357,7 +357,7 @@ program
     for (const item of report.shared) log.success(`Shared ${item.kind} ${item.id}${item.as !== item.id ? ` as ${item.as} (a different Workout already had its id)` : ''}`);
     for (const id of report.alreadyShared) log.info(`${id} was already shared`);
     if (report.atlas) log[report.atlas.changed ? 'success' : 'info'](report.atlas.changed ? `Shared the Atlas: the team's now has ${report.atlas.entries} entries.` : 'The team already has your Atlas.');
-    if (report.shared.length > 0 || report.atlas?.changed) log.info(`Teammates get them with: fiu fetch  (branch fiutsu/workouts on ${report.remote})`);
+    if (report.shared.length > 0 || report.atlas?.changed) log.info(`Teammates get them with: fiu fetch  (branch fiu/workouts on ${report.remote})`);
   });
 
 program
@@ -577,7 +577,7 @@ auto
     const paths = workspacePaths(await findRepoRoot(process.cwd()));
     await setAuto(paths.configFile, false);
     const { removed, path } = await removeHook(paths.repoRoot);
-    log.success(`Background generation is off.${removed ? ` Removed Fiutsu's block from ${path}.` : ''}`);
+    log.success(`Background generation is off.${removed ? ` Removed Fiu's block from ${path}.` : ''}`);
   });
 
 auto
@@ -615,7 +615,7 @@ program
 async function runRefill(options: { commit?: string; background: boolean; yes?: boolean; sandbox: boolean; train: boolean; kinds?: PreferredKind[] }): Promise<void> {
   const { refill } = await import('./background/refill.ts');
   if (options.background) {
-    // Unattended: say nothing, decide nothing; everything goes to .fiutsu/log.
+    // Unattended: say nothing, decide nothing; everything goes to .fiu/log.
     await refill(process.cwd(), options, { step: () => {}, warn: () => {} });
     return;
   }
@@ -774,6 +774,6 @@ function terminalUi(): DrillUi & { settle(): void } {
 try {
   await program.parseAsync();
 } catch (error) {
-  console.error(`fiutsu: ${(error as Error).message}`);
+  console.error(`fiu: ${(error as Error).message}`);
   process.exitCode = 1;
 }

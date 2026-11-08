@@ -309,7 +309,7 @@ describe(`fiu train (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     // Same content: no run. Then a real change.
     const code = join(attempt(), 'kata.ts');
     await writeFile(code, await readFile(code, 'utf8'));
-    // Fiutsu's own bookkeeping file never triggers a run.
+    // Fiu's own bookkeeping file never triggers a run.
     const bookkeeping = join(attempt(), 'attempt.json');
     await writeFile(bookkeeping, await readFile(bookkeeping, 'utf8'));
     await writeFile(code, `${await readFile(code, 'utf8')}\n// still buggy\n`);

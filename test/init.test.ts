@@ -19,16 +19,16 @@ describe('init', () => {
     const result = await init(repo);
 
     assert.equal(result.createdWorkspace, true);
-    assert.deepEqual(JSON.parse(await readFile(join(repo, '.fiutsu', 'config.json'), 'utf8')), {});
-    assert.deepEqual(JSON.parse(await readFile(join(repo, '.fiutsu', 'state.json'), 'utf8')), { outcomes: [] });
-    assert.ok((await stat(join(repo, '.fiutsu', 'workouts'))).isDirectory());
+    assert.deepEqual(JSON.parse(await readFile(join(repo, '.fiu', 'config.json'), 'utf8')), {});
+    assert.deepEqual(JSON.parse(await readFile(join(repo, '.fiu', 'state.json'), 'utf8')), { outcomes: [] });
+    assert.ok((await stat(join(repo, '.fiu', 'workouts'))).isDirectory());
   });
 
   it('works from a subdirectory, placing the workspace at the repo root', async () => {
     const repo = await tempGitRepo();
     await mkdir(join(repo, 'src', 'deep'), { recursive: true });
     const result = await init(join(repo, 'src', 'deep'));
-    assert.equal(result.paths.root, join(repo, '.fiutsu'));
+    assert.equal(result.paths.root, join(repo, '.fiu'));
   });
 
   it('hides the workspace from git without touching .gitignore', async () => {
@@ -36,7 +36,7 @@ describe('init', () => {
     await writeFile(join(repo, 'tracked.txt'), 'x');
     await init(repo);
 
-    assert.match(await readExclude(repo), /^\/\.fiutsu\/$/m);
+    assert.match(await readExclude(repo), /^\/\.fiu\/$/m);
     const { stdout } = await execa('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo });
     assert.equal(stdout.trim(), '?? tracked.txt');
   });
@@ -44,7 +44,7 @@ describe('init', () => {
   it('is idempotent and never overwrites existing files', async () => {
     const repo = await tempGitRepo();
     await init(repo);
-    const config = join(repo, '.fiutsu', 'config.json');
+    const config = join(repo, '.fiu', 'config.json');
     await writeFile(config, JSON.stringify({ model: 'my-model' }));
 
     const second = await init(repo);
@@ -52,14 +52,14 @@ describe('init', () => {
     assert.equal(second.createdWorkspace, false);
     assert.equal(second.updatedGitExclude, false);
     assert.deepEqual(JSON.parse(await readFile(config, 'utf8')), { model: 'my-model' });
-    assert.equal((await readExclude(repo)).match(/fiutsu/g)?.length, 1);
+    assert.equal((await readExclude(repo)).match(/fiu/g)?.length, 1);
   });
 
   it('appends to an exclude file that lacks a trailing newline', async () => {
     const repo = await tempGitRepo();
     await writeFile(join(repo, '.git', 'info', 'exclude'), '*.log');
     await init(repo);
-    assert.equal(await readExclude(repo), '*.log\n/.fiutsu/\n');
+    assert.equal(await readExclude(repo), '*.log\n/.fiu/\n');
   });
 
   it('rejects directories outside a git repository', async () => {
@@ -82,8 +82,8 @@ describe('init', () => {
 
   it('reports an invalid pre-existing config', async () => {
     const repo = await tempGitRepo();
-    await mkdir(join(repo, '.fiutsu'));
-    await writeFile(join(repo, '.fiutsu', 'config.json'), '{ nope');
+    await mkdir(join(repo, '.fiu'));
+    await writeFile(join(repo, '.fiu', 'config.json'), '{ nope');
     await assert.rejects(init(repo), ConfigError);
   });
 });

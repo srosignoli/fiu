@@ -99,7 +99,7 @@ describe('fiu drill', () => {
     assert.doesNotMatch(readme, /Look at how ties are broken/, 'hints stay out of the README');
 
     // Consent is remembered, and the workspace stays invisible to git.
-    assert.equal((await readJson(join(repo, '.fiutsu', 'config.json'))).consent.provider, 'anthropic');
+    assert.equal((await readJson(join(repo, '.fiu', 'config.json'))).consent.provider, 'anthropic');
     assert.equal((await execa('git', ['status', '--porcelain'], { cwd: repo })).stdout, '');
   });
 
@@ -115,7 +115,7 @@ describe('fiu drill', () => {
     const second = await run({ repo, confirm });
     assert.equal(second.result.status, 'saved');
     assert.equal(questions.length, 1, 'not asked again');
-    const ids = await readdir(join(repo, '.fiutsu', 'workouts'));
+    const ids = await readdir(join(repo, '.fiu', 'workouts'));
     assert.deepEqual(ids.sort(), [ids[0], `${ids[0]}-2`].sort(), 'the second Drill gets its own id');
   });
 
@@ -124,7 +124,7 @@ describe('fiu drill', () => {
     const declined = run({ repo, confirm: async () => false });
     await assert.rejects(declined, ConsentDeclinedError);
     await assert.rejects(run({ repo }), ConsentRequiredError, 'no terminal to ask in');
-    assert.equal((await readJson(join(repo, '.fiutsu', 'config.json'))).consent, undefined);
+    assert.equal((await readJson(join(repo, '.fiu', 'config.json'))).consent, undefined);
   });
 
   it('fails on a missing API key before doing anything slow', async () => {
@@ -159,7 +159,7 @@ describe('fiu drill', () => {
     const repo = await repoWithSource();
     const { result } = await run({ repo, options: { yes: true }, replies: [goodDrill({ startingCode: TS_REFERENCE })] });
     assert.equal(result.status, 'failed');
-    assert.deepEqual(await readdir(join(repo, '.fiutsu', 'workouts')), []);
+    assert.deepEqual(await readdir(join(repo, '.fiu', 'workouts')), []);
   });
 
   it('marks Drills made from uncommitted code', async () => {
@@ -242,7 +242,7 @@ describe('fiu predict', () => {
     const { attempt } = await openAttempt(paths, await loadWorkout(paths, record.id), TYPESCRIPT);
     Object.assign(attempt.record, { outcome: 'completed', finishedAt: new Date().toISOString() });
     await saveAttempt(attempt);
-    await assert.rejects(run({ repo, target: 'src', options: { yes: true, kind: 'prediction', questions: 1 }, replies: [goodPrediction()] }), /practised every file Fiutsu would pick in src/);
+    await assert.rejects(run({ repo, target: 'src', options: { yes: true, kind: 'prediction', questions: 1 }, replies: [goodPrediction()] }), /practised every file Fiu would pick in src/);
   });
 
   it('asks a Series of questions by default, each saved as its own Prediction', async () => {
@@ -273,8 +273,8 @@ describe('fiu predict', () => {
   it('uses the predictionQuestions setting', async () => {
     const repo = await repoWithSource();
     const home = await tempDir();
-    await mkdir(join(home, '.config', 'fiutsu'), { recursive: true });
-    await writeFile(join(home, '.config', 'fiutsu', 'config.json'), JSON.stringify({ predictionQuestions: 1 }));
+    await mkdir(join(home, '.config', 'fiu'), { recursive: true });
+    await writeFile(join(home, '.config', 'fiu', 'config.json'), JSON.stringify({ predictionQuestions: 1 }));
     const scripted = scriptedModel(goodPrediction());
     const result = await drill(repo, 'src/queue.ts', { yes: true, sandbox: sandboxWorks, kind: 'prediction' }, { step: () => {}, warn: () => {} }, {
       createModel: () => ({ model: scripted.model, providerOptions: {} }),
@@ -308,10 +308,10 @@ describe('parseTarget', () => {
     const outside = join(await tempDir(), 'x.ts');
     await writeFile(outside, '');
     await assert.rejects(run({ repo, target: outside }), /outside the repository/);
-    await mkdir(join(repo, '.fiutsu', 'workouts', 'w'), { recursive: true });
-    await writeFile(join(repo, '.fiutsu', 'workouts', 'w', 'kata.ts'), '');
-    await assert.rejects(run({ repo, target: '.fiutsu/workouts/w/kata.ts' }), /not a Workout/);
-    assert.ok(!existsSync(join(repo, '.fiutsu', 'workouts', 'w', 'workout.json')));
+    await mkdir(join(repo, '.fiu', 'workouts', 'w'), { recursive: true });
+    await writeFile(join(repo, '.fiu', 'workouts', 'w', 'kata.ts'), '');
+    await assert.rejects(run({ repo, target: '.fiu/workouts/w/kata.ts' }), /not a Workout/);
+    assert.ok(!existsSync(join(repo, '.fiu', 'workouts', 'w', 'workout.json')));
   });
 });
 
@@ -319,11 +319,11 @@ describe('cost recording', () => {
   // The mock model reports 10 input and 20 output tokens per call as "mock-model-id": $0.05 per call at these prices.
   async function pricedRepo(): Promise<string> {
     const repo = await repoWithSource();
-    await mkdir(join(repo, '.fiutsu'), { recursive: true });
-    await writeFile(join(repo, '.fiutsu', 'config.json'), JSON.stringify({ prices: { 'mock-model-id': { input: 1000, output: 2000 } } }));
+    await mkdir(join(repo, '.fiu'), { recursive: true });
+    await writeFile(join(repo, '.fiu', 'config.json'), JSON.stringify({ prices: { 'mock-model-id': { input: 1000, output: 2000 } } }));
     return repo;
   }
-  const ledger = async (repo: string) => (await readJson(join(repo, '.fiutsu', 'state.json'))).spend;
+  const ledger = async (repo: string) => (await readJson(join(repo, '.fiu', 'state.json'))).spend;
 
   it('records what a Workout cost in workout.json, its README, and the spend ledger', async () => {
     const repo = await pricedRepo();
@@ -340,7 +340,7 @@ describe('cost recording', () => {
     assert.deepEqual({ ...entry, at: undefined, cost: undefined }, {
       at: undefined,
       origin: 'manual',
-      generator: 'fiutsu',
+      generator: 'fiu',
       source: 'src/queue.ts',
       result: 'verified',
       workoutId: record.id,
@@ -369,7 +369,7 @@ describe('cost recording', () => {
         ['error', 1, '0.05'],
       ],
     );
-    assert.deepEqual(await readdir(join(repo, '.fiutsu', 'workouts')), []);
+    assert.deepEqual(await readdir(join(repo, '.fiu', 'workouts')), []);
   });
 
   it('shows the average cost of recent Drills once there is history', async () => {

@@ -44,4 +44,4 @@ async function checkOsSandbox(repoRoot: string): Promise<void> {
 }
 
 export const EDITOR_TIP =
-  'Tip: disable AI completions inside .fiutsu/ in your editor, so Workouts exercise your own brain.';
+  'Tip: disable AI completions inside .fiu/ in your editor, so Workouts exercise your own brain.';

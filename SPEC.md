@@ -1,74 +1,74 @@
-# Fiutsu: Specification (v1)
+# Fiu: Specification (v1)
 
 > Domain terms (Workout, Kata, Drill, Prediction, Scenario, Variant, Track, Quick, Starting Code, Reference Solution, Hint, Source Anchor, Regression Test, Verified, Language Profile, Completed, Abandoned) are defined in [GLOSSARY.md](./GLOSSARY.md). Decisions with lasting trade-offs live in [docs/adr/](./docs/adr/).
 
 ## 1. Vision
 
-Fiutsu is an open-source, language-agnostic CLI that keeps developers fluent in the code they're responsible for in the era of AI-assisted coding, including code they never typed. It turns real code from the user's repository into small, **Verified** practice exercises (**Workouts**) that the human solves with their own brain, paying down "comprehension debt" one Workout at a time.
+Fiu is an open-source, language-agnostic CLI that keeps developers fluent in the code they're responsible for in the era of AI-assisted coding, including code they never typed. It turns real code from the user's repository into small, **Verified** practice exercises (**Workouts**) that the human solves with their own brain, paying down "comprehension debt" one Workout at a time.
 
-The name is *fiuto* (Italian, "a nose for it") plus *-jutsu* (Japanese 術, "art, technique"): the art of knowing code you didn't write. Up to v5.1 the project was called Kintsugi (§3.1).
+The name comes from *fiuto* (Italian, "a nose for it"): a nose for code you never typed. The project was called Fiutsu in v6.0 and Kintsugi up to v5.1 (§3.1).
 
-The long-term product has several workflows (see §11). **v1 ships exactly one:** `fiutsu drill`, which takes a real piece of code, injects one realistic bug, and asks the human to find and fix it.
+The long-term product has several workflows (see §11). **v1 ships exactly one:** `fiu drill`, which takes a real piece of code, injects one realistic bug, and asks the human to find and fix it.
 
 ## 2. Principles
 
-- **Voluntary and non-blocking.** Fiutsu never touches commits, CI, or the build.
-- **Zero repo pollution.** All state lives in `.fiutsu/` at the repo root, hidden via `.git/info/exclude`. Fiutsu never edits tracked files (including `.gitignore` and `.vscode/settings.json`).
+- **Voluntary and non-blocking.** Fiu never touches commits, CI, or the build.
+- **Zero repo pollution.** All state lives in `.fiu/` at the repo root, hidden via `.git/info/exclude`. Fiu never edits tracked files (including `.gitignore` and `.vscode/settings.json`).
 - **Language-agnostic core, native Workouts.** One orchestrator; every language-specific detail lives in a **Language Profile**. A Workout is written in the language of the source file it was derived from.
 - **Standard library only.** Workouts depend on nothing but the language's standard library and built-in test runner ([ADR 0001](./docs/adr/0001-workouts-are-stdlib-only.md)).
 - **Nothing unverified reaches the user.** A Workout is written to disk only if it is Verified (§6).
 - **The LLM never chooses what runs.** Commands come only from Language Profiles, never from model output.
 - **Secrets never live in the repo.** Code leaves the machine only with per-repo consent.
 - **Generated code is untrusted.** Every Workout test run happens in an OS sandbox with no network ([ADR 0002](./docs/adr/0002-workouts-run-sandboxed-without-network.md)).
-- **No telemetry.** Nothing about Fiutsu's use leaves the machine, not even opt-in ([ADR 0004](./docs/adr/0004-no-telemetry.md)).
+- **No telemetry.** Nothing about Fiu's use leaves the machine, not even opt-in ([ADR 0004](./docs/adr/0004-no-telemetry.md)).
 - **Answers are measured, never asserted.** Even a Workout for people who don't read code is decided by running code ([ADR 0007](./docs/adr/0007-answers-are-measured-never-asserted.md)).
-- **Called by agents, never driving them.** Fiutsu never holds AI-subscription credentials or starts an agent itself ([ADR 0005](./docs/adr/0005-called-by-agents-never-driving-them.md)).
+- **Called by agents, never driving them.** Fiu never holds AI-subscription credentials or starts an agent itself ([ADR 0005](./docs/adr/0005-called-by-agents-never-driving-them.md)).
 
 ## 3. Packaging & Requirements
 
 | | |
 | :--- | :--- |
-| Package | `fiutsu` on npm (free as of 2026-11-04) |
-| Binaries | `fiutsu`, alias `fiu` |
+| Package | `fiu`, private (the unscoped `fiu` name is taken on npm as of 2026-11-08; publishing would need a scoped name) |
+| Binary | `fiu` |
 | Runtime | Node.js ≥ 22.18 (native TypeScript type-stripping, flag-free) |
 | Platforms | Linux and macOS; Windows via WSL only |
 | Sandbox | `@anthropic-ai/sandbox-runtime`, pinned to an exact version (bubblewrap on Linux, Seatbelt on macOS) |
 | Orchestrator stack | TypeScript, `commander`, `@clack/prompts`, `zod`, `execa`, `ai` (Vercel AI SDK) |
 | LLM | Bring-your-own key for a cloud provider supported by the `ai` SDK |
 
-### 3.1 Formerly Kintsugi
+### 3.1 Formerly Fiutsu and Kintsugi
 
-Up to v5.1 the project was called Kintsugi, with the binaries `kintsugi` and `kin`. The rename changes every name Kintsugi left on disk; before any command runs, `fiu` moves them once, never overwriting (when both names exist, the old one is left alone):
+The project was called Kintsugi up to v5.1 (binaries `kintsugi` and `kin`) and Fiutsu in v6.0 (binaries `fiutsu` and `fiu`). Since v7.0 it is Fiu, and `fiu` is its only binary. Each rename changes every name left on disk; before any command runs, `fiu` moves them once, never overwriting (when the new name already exists, the old ones are left alone; when both former names exist, Fiutsu's wins):
 
-| Kintsugi | Fiutsu | Moved by |
-| :--- | :--- | :--- |
-| `.kintsugi/` in the repository | `.fiutsu/` (and hidden through `.git/info/exclude`) | any command run in the repository |
-| `~/.config/kintsugi/` (API keys) | `~/.config/fiutsu/` | any command |
-| The `# >>> kintsugi >>>` block in `post-commit` | The `# >>> fiutsu >>>` block, starting `fiu` | any command run in the repository (not with `core.hooksPath`: the user edits that hook themselves) |
-| `~/.claude/skills/kintsugi/`, `/kin-drill`, `/kin-atlas`, the `kintsugi` MCP server, the `kintsugi:begin` block | Their `fiutsu` / `fiu-` counterparts | `fiu agent install claude` (or `uninstall`), which removes only what carries Kintsugi's stamp; until then every command reminds the user |
-| The `kintsugi/workouts` sharing branch | `fiutsu/workouts` | Read while the remote has no `fiutsu/workouts`; the next `fiu share` continues its history there |
-| Generator `kintsugi` in records | Generator `fiutsu` | Read as `fiutsu` |
+| Fiutsu | Kintsugi | Fiu | Moved by |
+| :--- | :--- | :--- | :--- |
+| `.fiutsu/` in the repository | `.kintsugi/` | `.fiu/` (and hidden through `.git/info/exclude`) | any command run in the repository |
+| `~/.config/fiutsu/` (API keys) | `~/.config/kintsugi/` | `~/.config/fiu/` | any command |
+| The `# >>> fiutsu >>>` block in `post-commit` | The `# >>> kintsugi >>>` block | The `# >>> fiu >>>` block, starting `fiu` | any command run in the repository (not with `core.hooksPath`: the user edits that hook themselves) |
+| `~/.claude/skills/fiutsu/`, the `fiutsu` MCP server, the `fiutsu:begin` block, `/fiu-drill` and `/fiu-atlas` stamped `fiutsu-version` | `~/.claude/skills/kintsugi/`, `/kin-drill`, `/kin-atlas`, the `kintsugi` MCP server, the `kintsugi:begin` block | Their `fiu` counterparts | `fiu agent install claude` (or `uninstall`), which removes only what carries a former name's stamp; until then every command reminds the user |
+| The `fiutsu/workouts` sharing branch | The `kintsugi/workouts` branch | `fiu/workouts` | Read while the remote has no `fiu/workouts` (Fiutsu's first); the next `fiu share` continues its history there |
+| Generator `fiutsu` in records | Generator `kintsugi` | Generator `fiu` | Read as `fiu` |
 
-`~/.cache/fiutsu/` starts empty (it is only a cache); `~/.cache/kintsugi/` can be deleted.
+`~/.cache/fiu/` starts empty (it is only a cache); `~/.cache/fiutsu/` and `~/.cache/kintsugi/` can be deleted, and so can the local ref `refs/fiutsu/workouts` (`git update-ref -d refs/fiutsu/workouts`).
 
 ## 4. v1 CLI
 
 | Command | Description |
 | :--- | :--- |
-| `fiu init` | Creates `.fiutsu/`, appends `.fiutsu/` to `.git/info/exclude`, runs the sandbox canary (§7), prints a tip on disabling AI completions inside `.fiutsu/` in your editor. |
+| `fiu init` | Creates `.fiu/`, appends `.fiu/` to `.git/info/exclude`, runs the sandbox canary (§7), prints a tip on disabling AI completions inside `.fiu/` in your editor. |
 | `fiu drill <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Generates a Drill (Quick with `--quick`) from `<file>` (the LLM picks the most bug-worthy unit unless `#symbol` pins one), verifies it, and opens it in the runner. `--no-train` only saves it; `--yes` skips the consent prompt; `--no-sandbox` runs Workout code unsandboxed for this invocation only (§7). |
 | `fiu kata <file>[#symbol] [--quick] [--no-train] [--yes] [--no-sandbox]` | Like `fiu drill`, but generates a Kata: one piece of the unit removed, rebuilt from a brief (§11.5). |
 | `fiu predict [<file>[#symbol] \| <dir>] --what-if ["<change>"]` | A Prediction about a change not yet made: what would happen, measured against today's code (§11.14). |
 | `fiu diagnose [<file>[#symbol] \| <dir>] [--no-train] [--yes] [--no-sandbox]` | Generate a Diagnosis: a practice incident and four possible Causes, each measured (§11.13). |
 | `fiu explore <path> [--yes] [--no-sandbox] [--no-train] [--kinds <list>]` / `fiu explore --about "<goal>"` | Build a Track for a module directory (§11.3.1), or for the module a goal is about, found through the Atlas (§11.10). |
 | `fiu track [<track-id>] [--no-sandbox]` | List Tracks, or show one's progress and open its next step (§11.3.1). |
-| `fiu share [<id>...] [--atlas] [--remote <name>]` / `fiu fetch [--remote <name>] [--no-sandbox]` | Share Workouts, Tracks, or the Atlas with the team on the `fiutsu/workouts` branch, or bring in theirs, Workouts re-verified (§11.3.2, §11.10). |
+| `fiu share [<id>...] [--atlas] [--remote <name>]` / `fiu fetch [--remote <name>] [--no-sandbox]` | Share Workouts, Tracks, or the Atlas with the team on the `fiu/workouts` branch, or bring in theirs, Workouts re-verified (§11.3.2, §11.10). |
 | `fiu map [<path>] [--json]` | Your comprehension debt by directory, or one directory's files: local and free (§11.4). |
 | `fiu stats [<path>] [--json]` | How often your Predictions are right, how well your confidence matches, and your Blind Spots: local and free (§11.12). |
 | `fiu atlas [<path>] [--markdown]` / `fiu atlas build [<dir>] [--yes]` / `fiu atlas search "<goal>" [--all]` | Show, build, or search the Atlas: what each folder, file, and key function is for (§11.10). |
 | `fiu quick [--while "<cmd>"] [--no-sandbox]` | Start the queue's best Quick Workout right away (§11.2.3); with `--while`, during a slow command (§11.6). |
 | `fiu train [workout-id] [--no-sandbox]` | Opens the runner on a pending Workout (picker if no id given). |
-| `fiu mcp` | Fiutsu's MCP server (stdio), started by your coding agent (§11.1.1). |
+| `fiu mcp` | Fiu's MCP server (stdio), started by your coding agent (§11.1.1). |
 | `fiu agent install claude [--project] [--after-tasks]` / `fiu agent uninstall claude [--project]` | Install or remove the skill, `/fiu-drill` command, and MCP registration for Claude Code (§11.1.1). |
 | `fiu discard <id>` / `fiu restore <id>` | Archive a Workout (hidden from the queue, kept), or bring it back (§11.2.2). |
 | `fiu refill [--commit <sha>] [--background] [--yes] [--no-sandbox] [--no-train]` | Generate a Quick Drill from a commit (default `HEAD`); the hook runs it with `--background` (§11.2.4). |
@@ -93,7 +93,7 @@ export interface LanguageProfile {
   resultFormat: 'tap' | 'junit-xml' | 'go-json' | 'unittest-verbose';
   resultFile?: string;                   // results file inside the Workout directory; stdout when absent
   env: Record<string, string>;           // added to the scrubbed environment, e.g. GOPROXY=off
-  cacheDirs: string[];                   // env vars pointed at ~/.cache/fiutsu/<id>/<VAR>/, e.g. GOCACHE
+  cacheDirs: string[];                   // env vars pointed at ~/.cache/fiu/<id>/<VAR>/, e.g. GOCACHE
   extraReadPaths: string[];              // sandbox allowances (never network)
   extraWritePaths: string[];
   limits?: { processMemoryMiB?: number; memoryMiB?: number; processes?: number };  // raise or lower the defaults (§7)
@@ -106,7 +106,7 @@ Every test run is normalised to:
 type TestOutcome = 'pass' | 'assertion-failure' | 'error';
 interface TestRun {
   ran: boolean;                          // false on compile/syntax/import failure, missing result file, or a stop
-  stopped?: 'timeout' | 'memory' | 'processes';  // why Fiutsu stopped the run (§7)
+  stopped?: 'timeout' | 'memory' | 'processes';  // why Fiu stopped the run (§7)
   tests: { name: string; outcome: TestOutcome }[];   // skipped tests are left out
   output: string;                        // combined runner output, for humans and LLM retry feedback
 }
@@ -136,11 +136,11 @@ A language is officially supported only if its toolchain ships a built-in test r
 
 ### User-defined profiles
 
-Users may declare additional profiles (`"profiles": [...]`) in `.fiutsu/config.json` or the user-level config. They must use a machine-readable `resultFormat` (`tap` or `junit-xml`, optionally read from a `resultFile`). Their commands run in the same sandbox and may declare extra read/write paths, but never network access. A declared profile replaces a built-in one with the same id and wins for any extension it claims; repo-level declarations win over user-level ones.
+Users may declare additional profiles (`"profiles": [...]`) in `.fiu/config.json` or the user-level config. They must use a machine-readable `resultFormat` (`tap` or `junit-xml`, optionally read from a `resultFile`). Their commands run in the same sandbox and may declare extra read/write paths, but never network access. A declared profile replaces a built-in one with the same id and wins for any extension it claims; repo-level declarations win over user-level ones.
 
 ## 6. The Verified Gate
 
-No Workout is written to `.fiutsu/workouts/` unless every check passes. Each test run executes in a fresh temp directory, inside the sandbox (§7), with a 10 s timeout. All checks run and every failure is reported (not just the first), so a retry learns everything that was wrong.
+No Workout is written to `.fiu/workouts/` unless every check passes. Each test run executes in a fresh temp directory, inside the sandbox (§7), with a 10 s timeout. All checks run and every failure is reported (not just the first), so a retry learns everything that was wrong.
 
 1. **Reference passes:** running the tests against the Reference Solution: `ran` is true and every test is `pass`.
 2. **Starting Code fails meaningfully:** running the tests against the Starting Code: `ran` is true, at least one test is `assertion-failure`, and at least one test is `pass`. No test may be `error`.
@@ -163,7 +163,7 @@ All Workout code (verification and runner alike) is untrusted: users drill code 
 | Resource | Rule |
 | :--- | :--- |
 | Network | Fully denied. Go runs with `GOPROXY=off`, `GOFLAGS=-mod=mod`. |
-| Writes | Only the Workout directory and the profile's cache dirs under `~/.cache/fiutsu/<profile>/` (persistent, per user, for speed). |
+| Writes | Only the Workout directory and the profile's cache dirs under `~/.cache/fiu/<profile>/` (persistent, per user, for speed). |
 | Reads | Allowed, except `~/.ssh`, `~/.aws`, `~/.config`, `~/.gnupg`, `~/.netrc`, and the **entire repository** (Workouts never need it, and it may hold `.env` files, credentials, or state files). The Workout directory is re-allowed even when it lives inside the repo. |
 | Environment | Empty, plus an allowlist: `PATH`, `LANG`, `HOME` and `TMPDIR` (pointed at per-run scratch dirs), and the profile's `env` / `cacheDirs`. No API keys or tokens ever reach Workout code. |
 | Resources | 10 s wall-clock timeout; at most 1 GiB per process (`RLIMIT_DATA`); at most 2 GiB in total and 256 processes across the command's whole process tree (a watchdog); a process-count backstop at the user's current task count + 2,048 (`RLIMIT_NPROC`). Output is capped at 1 MiB per stream. See *Resource limits* below. |
@@ -172,7 +172,7 @@ All Workout code (verification and runner alike) is untrusted: users drill code 
 
 1. **Per-process memory:** `ulimit -d` (`RLIMIT_DATA`, 1 GiB) caps what any single process can allocate. Unlike `ulimit -v`, it doesn't count the large address-space reservations V8 and Go make, so ordinary tests are unaffected. Likely not enforced on macOS (to confirm during the macOS check).
 2. **Process backstop:** `ulimit -u` (`RLIMIT_NPROC`) at the user's current task count + 2,048. The kernel counts all of the user's processes (and, on Linux, threads), not just the command's, so this is only a coarse wall against fork bombs; a tight value breaks the sandbox itself.
-3. **Watchdog:** every 250 ms Fiutsu reads the command's process tree (`ps`, the same on Linux and macOS) and kills it if the tree holds more than 2 GiB resident memory or more than 256 processes. Short-lived bursts between samples are left to layers 1 and 2.
+3. **Watchdog:** every 250 ms Fiu reads the command's process tree (`ps`, the same on Linux and macOS) and kills it if the tree holds more than 2 GiB resident memory or more than 256 processes. Short-lived bursts between samples are left to layers 1 and 2.
 
 The limits apply to every run, including under `--no-sandbox` (which only drops isolation). The command can't lift them (they're set as hard limits). A Language Profile can raise or lower them (`limits: { processMemoryMiB, memoryMiB, processes }`) but not switch them off. A run stopped by the timeout or the watchdog counts as not run, with `stopped: 'timeout' | 'memory' | 'processes'` and a plain message ("Stopped: the tests used more than 2 GiB of memory. Look for a runaway loop or allocation."), shown in the runner and fed back to the LLM on retry. A process killed by the per-process cap fails with its runtime's own out-of-memory error instead.
 
@@ -182,13 +182,13 @@ All execution goes through one internal `Sandbox` interface; `@anthropic-ai/sand
 
 **Canary:** `fiu init` (always fresh) and the preflight (cached for a week per platform, Node version, and sandbox-runtime version) run a canary inside the sandbox that tries to open a network connection, write outside the Workout directory, read a planted secret and every existing secret path above, and read a scrubbed env var. All must be refused. Two more probes, under deliberately low limits, must be stopped for the right reason: four processes holding ~600 MiB against a 256 MiB total, and a loop starting 100 processes against a limit of 32. A write inside the Workout directory must succeed (so a canary that can't run at all never counts as a pass); otherwise the sandbox is treated as unavailable.
 
-**Unavailable sandbox:** Fiutsu refuses to run Workout code and prints install instructions (Linux: `bubblewrap`, `socat`, `ripgrep`; macOS: `ripgrep`). `--no-sandbox` overrides for that single invocation and is never persisted. Environment scrubbing applies regardless.
+**Unavailable sandbox:** Fiu refuses to run Workout code and prints install instructions (Linux: `bubblewrap`, `socat`, `ripgrep`; macOS: `ripgrep`). `--no-sandbox` overrides for that single invocation and is never persisted. Environment scrubbing applies regardless.
 
 ## 8. Generating a Drill
 
 1. **Resolve target:** pick the Language Profile by file extension; error if none matches.
 2. **Preflight:** check the sandbox (canary, cached) and run the profile's `preflightCmd`; on failure, stop with a clear message (no tokens spent).
-3. **Consent:** on the first generation in a repo (and again whenever the provider changes), show the file that will be sent and the provider, ask `Send code to <provider>? [y/N]`, and remember a yes in `.fiutsu/config.json`. `--yes` grants it without asking; with no terminal to ask in and no `--yes`, Fiutsu refuses. The API key is resolved before any of this, so a missing key fails fast.
+3. **Consent:** on the first generation in a repo (and again whenever the provider changes), show the file that will be sent and the provider, ask `Send code to <provider>? [y/N]`, and remember a yes in `.fiu/config.json`. `--yes` grants it without asking; with no terminal to ask in and no `--yes`, Fiu refuses. The API key is resolved before any of this, so a missing key fails fast.
 4. **Synthesize:** send the target, with numbered lines (and `#symbol` if given), to the LLM with the Drill prompt (§9).
 5. **Verify:** run the Verified gate (§6), with retries.
 6. **Persist:** write the Workout (§10), stamping Source Anchors with the current commit SHA.
@@ -218,7 +218,7 @@ The schema itself carries only types, enums, and descriptions, because providers
 
 **Source size.** Files over 3,000 lines are refused with a request to move the unit into a smaller file, rather than truncated.
 
-If `worthPracticing` is false, Fiutsu reports the reason and stops (no retry).
+If `worthPracticing` is false, Fiu reports the reason and stops (no retry).
 
 **Drill prompt rules**
 
@@ -238,8 +238,8 @@ If `worthPracticing` is false, Fiutsu reports the reason and stops (no retry).
 
 ```text
 target-repo/
-├── .git/info/exclude              # contains `.fiutsu/`
-└── .fiutsu/
+├── .git/info/exclude              # contains `.fiu/`
+└── .fiu/
     ├── config.json                # provider, model, consent, user-defined profiles (no secrets)
     ├── state.json                 # outcomes log
     ├── workouts/
@@ -254,7 +254,7 @@ target-repo/
             └── 1/                     # a fresh copy of the code, tests, and support files; attempt.json (runs, Hints, outcome, rating)
 ```
 
-API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) or the user-level config at `~/.config/fiutsu/`. Never from `.fiutsu/`.
+API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) or the user-level config at `~/.config/fiu/`. Never from `.fiu/`.
 
 ### Runner (`fiu train`)
 
@@ -307,18 +307,18 @@ API keys come only from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_
 
 ### 11.1.1 Agent mode (implemented in v1.0)
 
-Generate Workouts with the user's own coding agent instead of an API key ([ADR 0005](./docs/adr/0005-called-by-agents-never-driving-them.md)): Fiutsu is *called by* the agent, never drives one. Everything after generation (the Verified gate, the sandbox, saving, the runner) is unchanged.
+Generate Workouts with the user's own coding agent instead of an API key ([ADR 0005](./docs/adr/0005-called-by-agents-never-driving-them.md)): Fiu is *called by* the agent, never drives one. Everything after generation (the Verified gate, the sandbox, saving, the runner) is unchanged.
 
 - **No mode switch.** `fiu drill` generates through the API; the agent generates through the MCP tools. With no API key, `fiu drill` suggests the agent ("run `fiu agent install`, then ask it to `/fiu-drill src/queue.ts`").
 - **`fiu mcp`**: a local (stdio) MCP server for any MCP client, working in the git repository containing its working directory. Tools:
   - `prepare_drill(target, { quick?, afterTask? })` returns a generation id, the same system prompt and numbered source API mode sends, and `DrillOutputSchema` as JSON Schema.
   - `submit_drill(id, workout)`: the input schema *is* `DrillOutputSchema`. Runs `checkDrillOutput` and the Verified gate in the sandbox, and returns the saved Workout's id or the same retry feedback API mode uses. At most 3 submissions per generation id, then "start over with `prepare_drill`".
   - `list_workouts`.
-- **Boundaries.** Targets follow `fiu drill`'s rules (inside the repository, not in `.fiutsu/`). Workout code never runs unsandboxed: there is no `--no-sandbox` equivalent, and with no working sandbox `submit_drill` returns the install instructions. The server never prompts. There is no consent step: Fiutsu sends nothing anywhere; the agent already has the code.
-- **Guidance.** The essential rules live in the MCP server's instructions and tool descriptions, so every client gets them (prepare before submitting; fix every reported problem; never edit files under `.fiutsu/`; stop after a refusal).
-- **`fiu agent install claude`** (Claude Code first; other MCP clients run `fiu mcp` as a stdio server) installs at user level by default (`~/.claude/skills/fiutsu/SKILL.md`, `~/.claude/commands/fiu-drill.md`, `claude mcp add --scope user`; the end-of-task block goes in `~/.claude/CLAUDE.md`). With `--project`: `.claude/…` and `CLAUDE.local.md` in the repository, untracked and excluded, never overwriting a tracked file, and `claude mcp add --scope local`. Re-running replaces the previous installation; `fiu agent uninstall` removes exactly what was added (only files carrying Fiutsu's stamp, and only the marked block). Without the `claude` CLI, the registration command is printed to run by hand. It installs: a skill (choosing a unit worth drilling while exploring, delegating generation to a subagent so the user's working context stays clean, never revealing the bug, pointing to `fiu train <id>`, offering Hints rather than fixes when asked for help on a Workout), a thin `/fiu-drill` command invoking it, and the MCP registration (`claude mcp add --scope user`). `--project` writes them into the repository instead, untracked and hidden through `.git/info/exclude`. The files are generated from text embedded in `fiu`, stamped with its version; `fiu mcp` warns when they're older than itself.
+- **Boundaries.** Targets follow `fiu drill`'s rules (inside the repository, not in `.fiu/`). Workout code never runs unsandboxed: there is no `--no-sandbox` equivalent, and with no working sandbox `submit_drill` returns the install instructions. The server never prompts. There is no consent step: Fiu sends nothing anywhere; the agent already has the code.
+- **Guidance.** The essential rules live in the MCP server's instructions and tool descriptions, so every client gets them (prepare before submitting; fix every reported problem; never edit files under `.fiu/`; stop after a refusal).
+- **`fiu agent install claude`** (Claude Code first; other MCP clients run `fiu mcp` as a stdio server) installs at user level by default (`~/.claude/skills/fiu/SKILL.md`, `~/.claude/commands/fiu-drill.md`, `claude mcp add --scope user`; the end-of-task block goes in `~/.claude/CLAUDE.md`). With `--project`: `.claude/…` and `CLAUDE.local.md` in the repository, untracked and excluded, never overwriting a tracked file, and `claude mcp add --scope local`. Re-running replaces the previous installation; `fiu agent uninstall` removes exactly what was added (only files carrying Fiu's stamp, and only the marked block). Without the `claude` CLI, the registration command is printed to run by hand. It installs: a skill (choosing a unit worth drilling while exploring, delegating generation to a subagent so the user's working context stays clean, never revealing the bug, pointing to `fiu train <id>`, offering Hints rather than fixes when asked for help on a Workout), a thin `/fiu-drill` command invoking it, and the MCP registration (`claude mcp add --scope user`). `--project` writes them into the repository instead, untracked and hidden through `.git/info/exclude`. The files are generated from text embedded in `fiu`, stamped with its version; `fiu mcp` warns when they're older than itself.
 - **`--after-tasks`** (opt-in) adds a marked block with an instruction to generate a Quick Drill about what the agent changed when it finishes a task: Origin `agent-task`, subject to the v2 queue caps (`submit_drill` refuses when the queue is full or the source file already has a queued Workout from an agent task).
-- **Recording.** Each Workout records its **Generator** (`fiutsu` or `agent`) next to its Origin. Agent-generated requests enter the spend ledger with cost "not measured" (never $0: they used the agent's plan); `fiu cost` lists them separately; the README says "Generated by your coding agent".
+- **Recording.** Each Workout records its **Generator** (`fiu` or `agent`) next to its Origin. Agent-generated requests enter the spend ledger with cost "not measured" (never $0: they used the agent's plan); `fiu cost` lists them separately; the README says "Generated by your coding agent".
 - **Not in v1.0:** an IDE "Socratic coach" rule (part of the deferred Socratic coach), installers for agents other than Claude Code.
 
 ### 11.2 v2: Habit and automation
@@ -330,7 +330,7 @@ Turn Drills into a habit: Workouts are pre-generated from your commits in the ba
 #### 11.2.1 Cost visibility (implemented in v1.0)
 
 - Every LLM call's usage is recorded: input, output, and cached tokens, and the model that actually answered (a refusal fallback may switch models).
-- Dollars are **estimates** from a price table built into each Fiutsu release, overridable per model in config. A model with no known price shows tokens only, marked "cost unknown".
+- Dollars are **estimates** from a price table built into each Fiu release, overridable per model in config. A model with no known price shows tokens only, marked "cost unknown".
 - A Workout's cost is the sum of **all** its generation attempts, including rejected ones. It is stored in `workout.json` and shown in its README ("Generated for ≈ $0.38 over 2 attempts"), the runner's header, and the `fiu train` picker.
 - A **spend ledger** in `state.json` records every generation, including those that produced no Workout (not Verified, not worth practicing).
 - **`fiu cost [--since <date>]`** (default: this month) splits spend into: Workouts attempted; Workouts never attempted, including Discarded ("money left on the table"); generations that produced nothing; and background versus manual. Until Attempts exist (§11.2.2), v1 splits Workouts into *finished* (Completed or Abandoned) and *not finished*.
@@ -341,8 +341,8 @@ Turn Drills into a habit: Workouts are pre-generated from your commits in the ba
 
 Per [ADR 0003](./docs/adr/0003-workouts-are-immutable-attempts-hold-outcomes.md):
 
-- A **Workout** (`.fiutsu/workouts/<id>/`) is an immutable, Verified definition; it never moves or changes. `done/` goes away.
-- An **Attempt** is one try at a Workout, in a fresh copy at `.fiutsu/attempts/<workout-id>/<n>/`. Outcomes (Completed, Abandoned), Hints used, and **runs** (test runs triggered by saves; v1's `attempts` counter) belong to the Attempt. Finished Attempts are kept, with the human's final code.
+- A **Workout** (`.fiu/workouts/<id>/`) is an immutable, Verified definition; it never moves or changes. `done/` goes away.
+- An **Attempt** is one try at a Workout, in a fresh copy at `.fiu/attempts/<workout-id>/<n>/`. Outcomes (Completed, Abandoned), Hints used, and **runs** (test runs triggered by saves; v1's `attempts` counter) belong to the Attempt. Finished Attempts are kept, with the human's final code.
 - At most one open Attempt per Workout: `fiu train <id>` resumes it (with its code, runs, and Hints used), or starts a new one. Redoing a Workout is always explicit; `fiu train` with no id offers open Attempts first, then the queue.
 - The runner watches the Attempt directory, reads the incident report and Reference Solution from the Workout, and treats the test file as edited when it differs from the Workout's own (never-edited) test file.
 - **Discarded** is a Workout-level state meaning archived: hidden from the queue and not counted against its cap, but kept and restorable (`fiu discard <id>`, `fiu restore <id>`). It is recorded in `state.json` (`"discarded": { "<id>": { "at", "reason" } }`); the Workout's files don't move. Workouts from commits expire into it after 14 days (configurable).
@@ -356,14 +356,14 @@ Per [ADR 0003](./docs/adr/0003-workouts-are-immutable-attempts-hold-outcomes.md)
 
 #### 11.2.4 Background generation from commits (implemented)
 
-- **Opt-in only.** `fiu auto on [--yes] [--queue-cap <n>] [--daily-limit <n>] [--ai-only]` asks one consent covering background spending, its caps, and sending the changed file to the provider (with your average cost per Drill once there is history), records it in `.fiutsu/config.json` (`auto` plus the send-code `consent`), and installs the hook. `fiu auto off` removes exactly what Fiutsu added. `fiu auto status` shows on/off, today's budget used, the queue size, and the latest failures. `fiu init` never enables it, only mentions it.
-- **The hook.** `.git/hooks/post-commit` (untracked): written if absent, otherwise a clearly marked block is appended and the user's lines are never rewritten. With `core.hooksPath` set (husky, lefthook), Fiutsu prints the snippet to add instead of editing tracked files. The hook only starts `fiu refill --background --commit <sha>` detached (`nohup`, absolute paths to `node` and `fiu`, git's commit-time variables such as `GIT_INDEX_FILE` cleared first); the commit never waits. `fiu auto off` keeps custom caps for next time. `fiu refill` can also be run by hand.
+- **Opt-in only.** `fiu auto on [--yes] [--queue-cap <n>] [--daily-limit <n>] [--ai-only]` asks one consent covering background spending, its caps, and sending the changed file to the provider (with your average cost per Drill once there is history), records it in `.fiu/config.json` (`auto` plus the send-code `consent`), and installs the hook. `fiu auto off` removes exactly what Fiu added. `fiu auto status` shows on/off, today's budget used, the queue size, and the latest failures. `fiu init` never enables it, only mentions it.
+- **The hook.** `.git/hooks/post-commit` (untracked): written if absent, otherwise a clearly marked block is appended and the user's lines are never rewritten. With `core.hooksPath` set (husky, lefthook), Fiu prints the snippet to add instead of editing tracked files. The hook only starts `fiu refill --background --commit <sha>` detached (`nohup`, absolute paths to `node` and `fiu`, git's commit-time variables such as `GIT_INDEX_FILE` cleared first); the commit never waits. `fiu auto off` keeps custom caps for next time. `fiu refill` can also be run by hand.
 - **Which commits.** Every commit by you is a candidate; commits with known AI `Co-Authored-By` trailers (Claude, Copilot, Cursor, …) get priority, and config can restrict generation to them. Skipped before any LLM call: merges; commits made mid-rebase or mid-cherry-pick; other authors' commits; commits touching only docs, config, lockfiles, tests, generated or vendored code; tiny diffs (fewer than 5 changed lines in the chosen file); bulk changes (more than 300 changed lines in the chosen file: an initial commit or a large refactor is not one focused change; drill a part of it with `fiu drill <file>#<symbol>`).
 - **What a commit becomes.** At most one Drill: among changed files a Language Profile recognises (minus tests, generated, and vendored paths), the one with the most changed lines. The model gets that file as of the commit plus its diff, and builds the Drill around the change.
 - **No paying twice.** At most one queued Workout from commits per source file; the backlog collapses entries for the same file.
 - **Caps.** Nothing is generated while the queue holds 3 Workouts, and at most 5 generations (retries included) run per day. Both are configurable. The queue cap counts every waiting Workout, whatever made it (the cap exists to stop spending on Drills that pile up unsolved), so `fiu auto on` and `fiu auto status` say plainly when generation is *paused* because the queue is full, and how to resume it (attempt or `fiu discard` a Workout, or raise the cap).
 - **`fiu refill [--commit <sha>]`** (default `HEAD`): run by hand it behaves like `fiu drill` (may ask consent, ignores the caps, opens the runner); `--background` (what the hook runs) never prompts, needs `fiu auto on` and consent, and obeys the caps. Commits already turned into a Drill or permanently skipped are remembered (`state.json` → `refill.processed`) so nobody pays twice; cap-related skips are *deferred*, not remembered, so a later `fiu refill` can still use the commit. When fewer than 3 generations are left for the day, the generation gets only that many attempts, so the limit is never overshot. The Drill's Source Anchors are pinned to the commit it came from.
-- **Running unattended.** Never prompts. A per-repo lock allows one generator at a time; commits arriving meanwhile join a backlog that keeps the newest 5. With no consent, no `fiu auto on`, or no API key, it skips and logs. Results go to `.fiutsu/log` (one JSON line per outcome: generated, skipped, deferred, not-worth-practicing, failed; `fiu log` prints them); the next `fiu quick`/`fiu train` shows a one-line summary of background failures not yet shown. `fiu quick` with nothing ready offers to run `fiu refill` in the foreground. Stale commit Workouts are expired (Discarded) when `fiu refill` or `fiu quick` runs. Docs recommend keeping the API key in the user config, since commits made from GUI tools may not see shell environment variables.
+- **Running unattended.** Never prompts. A per-repo lock allows one generator at a time; commits arriving meanwhile join a backlog that keeps the newest 5. With no consent, no `fiu auto on`, or no API key, it skips and logs. Results go to `.fiu/log` (one JSON line per outcome: generated, skipped, deferred, not-worth-practicing, failed; `fiu log` prints them); the next `fiu quick`/`fiu train` shows a one-line summary of background failures not yet shown. `fiu quick` with nothing ready offers to run `fiu refill` in the foreground. Stale commit Workouts are expired (Discarded) when `fiu refill` or `fiu quick` runs. Docs recommend keeping the API key in the user config, since commits made from GUI tools may not see shell environment variables.
 
 ### 11.3 v3: Onboarding and team sharing
 
@@ -377,18 +377,18 @@ For the **newcomer to a codebase** (a new hire, a contributor, a future you): so
 - **Choosing the steps.** A static, language-neutral pass shortlists about 10 candidate files (size, branching density; tests, generated, and vendored files excluded). One inexpensive LLM call sees their paths and outlines, picks 3 to 5, orders them foundations first, and writes the *why* lines.
 - **Generation is up front**, after showing the estimated cost (steps × the recent average cost per Drill) and asking for confirmation. A step that can't be Verified is replaced by the next shortlisted file.
 - **Agent mode.** The agent replaces the ordering call: `prepare_track(module)` returns a track id, the static shortlist (paths with sizes and outlines), and the same ordering rules; the agent creates each step, in Track order, with `prepare_drill` / `submit_drill`, passing `{ trackId, why }` (a step must be a shortlisted file not already in the Track, at most 5 steps); a step that ends without a Drill is recorded as dropped; `finish_track(trackId, title)` writes the Track once it has at least 3 Verified steps, in the order they were saved. With fewer it reports what failed and saves no Track; the Verified Drills remain ordinary Workouts. Because the agent names the Track only at the end, its Drills' READMEs say *Part of a Track on `<module>`: why*. The skill's description now also triggers on requests to learn, explore, or onboard onto a module; the skill delegates the whole Track to a subagent.
-- **Track Drills** have Origin `explore`: they stay out of `fiu quick`, out of the background queue cap, and never expire. Each records its Track (`workout.json` → `track`) and its README opens with *Part of the Track "…": why*; step order lives only in the Track's manifest (`.fiutsu/tracks/<track-id>.json`), since a dropped step would make a number in an immutable Workout wrong for good.
+- **Track Drills** have Origin `explore`: they stay out of `fiu quick`, out of the background queue cap, and never expire. Each records its Track (`workout.json` → `track`) and its README opens with *Part of the Track "…": why*; step order lives only in the Track's manifest (`.fiu/tracks/<track-id>.json`), since a dropped step would make a number in an immutable Workout wrong for good.
 - **Recording.** The ordering call's cost enters the spend ledger with `result: "track-plan"` (`fiu cost` shows a *Planning Tracks* line). The ordering call also returns up to 3 alternates, best first, each with its *why*: a step that can't be Verified (or isn't worth practicing) is replaced by the next alternate in the same position. `fiu explore` needs a module directory with at least 3 eligible source files (15 to 3,000 lines; tests, generated, and vendored files excluded).
 - **`fiu track [<track-id>]`** shows a Track's progress step by step and opens the next unattempted step with the usual runner and Attempts.
 
 #### 11.3.2 Team sharing (implemented)
 
-Per [ADR 0006](./docs/adr/0006-workouts-shared-on-a-dedicated-branch.md), Workouts are shared on a dedicated `fiutsu/workouts` branch, reaching exactly the people who can read the repository.
+Per [ADR 0006](./docs/adr/0006-workouts-shared-on-a-dedicated-branch.md), Workouts are shared on a dedicated `fiu/workouts` branch, reaching exactly the people who can read the repository.
 
 - **Explicit.** `fiu share <id>... [--remote <name>]` publishes Workouts or Tracks (a Track with all its steps); `fiu fetch [--remote <name>] [--no-sandbox]` brings in what teammates shared. Generating never publishes on its own.
-- **Layout.** The branch holds `workouts/<id>/…` (each Workout's definition files) and `tracks/<track-id>.json`. Locally Fiutsu keeps its copy in a hidden ref, `refs/fiutsu/workouts`, so no local branch appears. Content is compared by a fingerprint of the definition files that ignores `workout.json`'s `id` and `sharedBy`, so sharing or fetching the same Workout again is a no-op, and a renamed import is recognised next time. Fetched files are staged inside `.fiutsu/` and moved into place only after they re-verify; fetched Track manifests are remapped to the steps' local ids.
+- **Layout.** The branch holds `workouts/<id>/…` (each Workout's definition files) and `tracks/<track-id>.json`. Locally Fiu keeps its copy in a hidden ref, `refs/fiu/workouts`, so no local branch appears. Content is compared by a fingerprint of the definition files that ignores `workout.json`'s `id` and `sharedBy`, so sharing or fetching the same Workout again is a no-op, and a renamed import is recognised next time. Fetched files are staged inside `.fiu/` and moved into place only after they re-verify; fetched Track manifests are remapped to the steps' local ids.
 - **Only definitions travel:** incident report, Starting Code, tests, Reference Solution, Hints, Source Anchors, `workout.json` (cost included), and Track manifests, each stamped with who shared it (git `user.name` and `user.email`). Attempts, `state.json`, the spend ledger, and config never leave the machine.
-- **The branch.** Fiutsu writes it with git plumbing: the user's working tree, index, and current branch are never touched. It pushes to `origin` (configurable). If the push is rejected because a teammate pushed first, it fetches, unions both sets (each Workout is its own folder), and pushes again. A fetched Workout with the same id as a local one but different content is imported under a suffixed id; identical content is a no-op. Docs note that pushing a new branch can trigger CI on some setups.
+- **The branch.** Fiu writes it with git plumbing: the user's working tree, index, and current branch are never touched. It pushes to `origin` (configurable). If the push is rejected because a teammate pushed first, it fetches, unions both sets (each Workout is its own folder), and pushes again. A fetched Workout with the same id as a local one but different content is imported under a suffixed id; identical content is a no-op. Docs note that pushing a new branch can trigger CI on some setups.
 - **Re-verified on fetch.** Each incoming Workout runs through the Verified gate in the local sandbox (no LLM); failures (toolchain differences, corrupted or tampered files) are skipped and reported.
 - **What can't be shared.** `fiu share` refuses Workouts made from uncommitted code, and warns (but shares) when the anchored commit isn't on any remote branch yet ("push your branch so teammates' source links work").
 - **In the queue.** Fetched Workouts become *queued* for the recipient, keep their Origin, and count toward the background queue cap (unsolved Drills are unsolved, whoever generated them); fetched Track Drills don't. Expiry applies only to the user's own background Drills, never to fetched or Track ones.
@@ -426,13 +426,13 @@ A **Kata** trains *writing*: rebuild a missing piece of logic from its contract 
 Practice in time already lost: a slow build or test run.
 
 - **`fiu quick --while "<cmd>"`** runs `<cmd>` through the user's `$SHELL -c` (`/bin/sh` if unset) from the current directory, in the background, and serves the queue's best Quick Workout meanwhile. The command is the user's own, not Workout code: it runs exactly as if typed, with the full environment and no sandbox (ADR 0002 covers Workout code only; `--no-sandbox` still applies only to the Workout's tests). Its stdin is `/dev/null`, so a command that prompts fails instead of hanging.
-- **Output** goes to `.fiutsu/while/last.log` (overwritten each time), never into the runner. Its path is printed at the start and the end; the last 20 lines are shown when the command fails.
+- **Output** goes to `.fiu/while/last.log` (overwritten each time), never into the runner. Its path is printed at the start and the end; the last 20 lines are shown when the command fails.
 - **Status** is event lines, not a redrawn bar: a notice at the start; the moment the command ends, a line with a terminal bell (`✓ npm test finished in 3m02s`, or `✗ npm test failed (exit 1) after 41s` and the log tail); and an `[s]` key in the runner, while a command is attached, for the elapsed time and the last lines of the log.
 - **The command finishes first:** the Workout carries on; nothing is cut off. `[q]` leaves the Attempt open as usual.
-- **The Workout finishes first:** with another Quick Workout ready, "Another Quick Workout while `npm test` runs? [y]"; otherwise (or on any other key) Fiutsu waits for the command, showing the elapsed time, then reports it.
-- **Interrupting:** `[q]` and Ctrl+C in the runner leave the Workout and never touch the command. `[q]` or Ctrl+C while waiting for the command afterwards stops it (SIGINT to its process group, SIGKILL 5 s later). If Fiutsu fails mid-way (a sandbox error, say), it reports the error and still waits for the command.
+- **The Workout finishes first:** with another Quick Workout ready, "Another Quick Workout while `npm test` runs? [y]"; otherwise (or on any other key) Fiu waits for the command, showing the elapsed time, then reports it.
+- **Interrupting:** `[q]` and Ctrl+C in the runner leave the Workout and never touch the command. `[q]` or Ctrl+C while waiting for the command afterwards stops it (SIGINT to its process group, SIGKILL 5 s later). If Fiu fails mid-way (a sandbox error, say), it reports the error and still waits for the command.
 - **Exit code:** `fiu quick --while` exits with the command's exit code (128 + the signal number when it was stopped by one), so `fiu quick --while "make" && ./deploy` behaves like `make && ./deploy`.
-- **Nothing to serve** (no Quick Workout ready, no interactive terminal, or no Fiutsu workspace in this repository): the command runs in the foreground with its output passed through and its exit code returned, plus at most one dim note. No generation is offered: Fiutsu never stands between the user and their command, so an alias like `t='fiu quick --while "npm test"'` is safe anywhere.
+- **Nothing to serve** (no Quick Workout ready, no interactive terminal, or no Fiu workspace in this repository): the command runs in the foreground with its output passed through and its exit code returned, plus at most one dim note. No generation is offered: Fiu never stands between the user and their command, so an alias like `t='fiu quick --while "npm test"'` is safe anywhere.
 - Only `fiu quick` takes `--while` for now.
 
 ### 11.7 v3.4: Real bugs (implemented)
@@ -441,7 +441,7 @@ Practice in time already lost: a slow build or test run.
 
 Sometimes the bug a Drill "injects" is already in the developer's code. While making the unit self-contained, the model carries the original's faulty logic into the Starting Code and writes a corrected Reference Solution. This came up in dogfooding: a Python `NormalizeContext` joins sorted tags with `if index < len(part)-1:` (the tag's length, not the number of tags), so `["a", "b", "c"]` gives `"abc"`. The Drill rewrote the code around that line (`sorted(set(...))` instead of a dict) but kept the comparison, and its Reference Solution compared with `len(unique)`. Nothing flagged it: the Verified gate compares the Starting Code with the Reference Solution, never with the source.
 
-Fiutsu now **notices such a bug and reports it after the Attempt**. It doesn't go looking for them. Choosing units because they look buggy would turn comprehension practice into an LLM bug-finder, and extraction (fakes for clocks and I/O, renamed variables) makes false positives easy. Whether to aim for them is decided later, on the precision measured below.
+Fiu now **notices such a bug and reports it after the Attempt**. It doesn't go looking for them. Choosing units because they look buggy would turn comprehension practice into an LLM bug-finder, and extraction (fakes for clocks and I/O, renamed variables) makes false positives easy. Whether to aim for them is decided later, on the precision measured below.
 
 - **Two signals.**
   - *Source match* (Drills only, deterministic). Split the Verified gate's single changed region (§6, check 4) into its Starting Code side (the buggy lines) and its Reference Solution side (the fixed lines), and normalize every line. A line is *significant* when it is at least 8 characters long once normalized, so `}`, `else:`, and `return` never match on their own. The source matches when every significant buggy line equals some normalized line of the source file as sent to the model, the buggy side has at least one significant line, and no significant fixed line appears in the source. A bug that only removes lines (a dropped `await`) has no buggy side, so it never matches here.
@@ -462,7 +462,7 @@ Fiutsu now **notices such a bug and reports it after the Attempt**. It doesn't g
 
 ### 11.8 v4.0: Predictions (implemented)
 
-*v4.0.0 was tagged on 2026-10-29, package still private. Verified for real on 2026-10-29 with headless Claude Code (agent mode): five Predictions, three on an SSTorytime Python file (`NChannel`, `NormalizeContext`, `STTypeDBChannel`) and two on Fiutsu's own TypeScript (`refill.ts`, `nextQuickWorkout`), all Verified on the first submission. Their true answers match the real code (checked by hand for the two Fiutsu ones), no Scenario or option used names from the code, and option lengths stayed within about 10 characters of each other. `NormalizeContext`'s true answer is its real bug (a trailing comma), reported as `originalDefect`. Not yet run for real: a Prediction in an interactive `fiu train` (covered by tests), API mode, and the gate's rejections (covered by tests; no real submission was rejected).*
+*v4.0.0 was tagged on 2026-10-29, package still private. Verified for real on 2026-10-29 with headless Claude Code (agent mode): five Predictions, three on an SSTorytime Python file (`NChannel`, `NormalizeContext`, `STTypeDBChannel`) and two on Fiu's own TypeScript (`refill.ts`, `nextQuickWorkout`), all Verified on the first submission. Their true answers match the real code (checked by hand for the two Fiu ones), no Scenario or option used names from the code, and option lengths stayed within about 10 characters of each other. `NormalizeContext`'s true answer is its real bug (a trailing comma), reported as `originalDefect`. Not yet run for real: a Prediction in an interactive `fiu train` (covered by tests), API mode, and the gate's rejections (covered by tests; no real submission was rejected).*
 
 A **Prediction** trains *knowing what the system does* without reading code: the skill steering agents, triaging incidents, and checking behaviour against a spec all depend on. It is for engineering managers, architects, and developers who never open a source file, and for anyone else as a warm-up. Per [ADR 0007](./docs/adr/0007-answers-are-measured-never-asserted.md), every outcome it offers is measured by running code.
 
@@ -491,7 +491,7 @@ A right answer **Completes** the Attempt; a wrong one reveals the truth and reco
 
 - The **Scenario**: plain English with concrete values ("3 Workouts, the cap is 3"), asking what the system does.
 - The **Reference Solution**: one unit extracted from the source and made self-contained, as for a Drill (stdlib only, inline fakes). Its behaviour is the true outcome.
-- Three **Variants**, one per wrong option: the Reference Solution with one region of at most 3 lines changed, modelling a plausible misunderstanding (a boundary, an ordering, what is skipped, deferred, or kept, what is changed in place). Fiutsu builds each one from a snippet replacement `{ original, changed }`, where `original` occurs exactly once in the Reference Solution.
+- Three **Variants**, one per wrong option: the Reference Solution with one region of at most 3 lines changed, modelling a plausible misunderstanding (a boundary, an ordering, what is skipped, deferred, or kept, what is changed in place). Fiu builds each one from a snippet replacement `{ original, changed }`, where `original` occurs exactly once in the Reference Solution.
 - Four **options**, each with its outcome text, the name of the one test that pins it down, and for a wrong option its Variant and the misunderstanding it stands for. The true option's Variant and misunderstanding are empty strings: providers' structured output support for optional fields varies.
 - A test file with **one test per option**, each asserting that option's outcome.
 - An explanation of the true behaviour, Source Anchors, and `originalDefect` (§11.7). No Hints.
@@ -506,7 +506,7 @@ A right answer **Completes** the Attempt; a wrong one reveals the truth and reco
 
 So the gate runs the tests four times: once against the Reference Solution, once against each Variant. It also checks that each option's `testName` matches exactly one test and that no test belongs to no option. "Exactly one option's test passes against each version" makes the four outcomes distinct, and ties each to exactly one version of the code.
 
-**What the model writes.** `PredictionOutputSchema` shares the common fields (slug, title, pillar, minutes, Source Anchors, Reference Solution, tests, `originalDefect`), drops Starting Code, Hints, and the README (Fiutsu writes that itself), and adds `scenario`, `explanation`, and `options[]`: `{ text, testName, correct, variant: { original, changed }, misunderstanding }`. Checked afterwards as `[schema]` feedback:
+**What the model writes.** `PredictionOutputSchema` shares the common fields (slug, title, pillar, minutes, Source Anchors, Reference Solution, tests, `originalDefect`), drops Starting Code, Hints, and the README (Fiu writes that itself), and adds `scenario`, `explanation`, and `options[]`: `{ text, testName, correct, variant: { original, changed }, misunderstanding }`. Checked afterwards as `[schema]` feedback:
 
 - exactly 4 options, exactly one `correct`, the correct one without a Variant, every other with one;
 - each `original` occurs exactly once in the Reference Solution and changes something, each wrong option has a misunderstanding, and no two options share a `testName`;
@@ -516,21 +516,21 @@ So the gate runs the tests four times: once against the Reference Solution, once
 
 **Entry points.**
 
-- `fiu predict [<file>[#symbol] | <dir>] [--yes] [--no-sandbox] [--no-train]`. With a directory (the repository root when no path is given), Fiutsu picks the file itself: the most logic-dense file in that directory's shortlist (§11.3.1) that has never been Practised (§11.4). People who don't read code don't know file names; `fiu predict src/sharing` reads as "ask me about sharing".
+- `fiu predict [<file>[#symbol] | <dir>] [--yes] [--no-sandbox] [--no-train]`. With a directory (the repository root when no path is given), Fiu picks the file itself: the most logic-dense file in that directory's shortlist (§11.3.1) that has never been Practised (§11.4). People who don't read code don't know file names; `fiu predict src/sharing` reads as "ask me about sharing".
 - Agent mode: `prepare_drill` takes `kind: 'prediction'` (no new tools); `/fiu-drill <target> prediction` asks for one.
 - On request only for now: `fiu auto`, commit Workouts, and Tracks stay Drills until Predictions have been dogfooded. A config setting to have `fiu auto` and `fiu quick` favour Predictions (e.g. `"kinds": ["prediction"]`) is the expected next step.
 
-**Everywhere else** Predictions are Workouts like any other. Every Prediction is Quick (at most 5 minutes; `--quick` doesn't apply), so `fiu quick` and `fiu quick --while` serve them. Ids start with `prediction_`. `README.md`, written by Fiutsu rather than the model, holds the Scenario and the options sorted alphabetically (so the order they were written in, true one first, gives nothing away), for browsing and sharing. The answer, explanation, misunderstandings, and Source Anchors live in `workout.json`, and the Reference Solution and tests in `.solution/`; there is no code file to work on, and Variants are rebuilt from their snippets whenever they are needed. An Attempt stores its shuffled `order` and its `answer` (indices into the options), and opens no sandbox. Finishing one counts as Practised in `fiu map`, and `fiu map --json` records which kinds each file was practised with, so a separate "system fluency" view can come later from real data. Cost, the spend ledger, `fiu share`, and re-verification on fetch follow `workout.json`'s `kind`. Every Language Profile works unchanged.
+**Everywhere else** Predictions are Workouts like any other. Every Prediction is Quick (at most 5 minutes; `--quick` doesn't apply), so `fiu quick` and `fiu quick --while` serve them. Ids start with `prediction_`. `README.md`, written by Fiu rather than the model, holds the Scenario and the options sorted alphabetically (so the order they were written in, true one first, gives nothing away), for browsing and sharing. The answer, explanation, misunderstandings, and Source Anchors live in `workout.json`, and the Reference Solution and tests in `.solution/`; there is no code file to work on, and Variants are rebuilt from their snippets whenever they are needed. An Attempt stores its shuffled `order` and its `answer` (indices into the options), and opens no sandbox. Finishing one counts as Practised in `fiu map`, and `fiu map --json` records which kinds each file was practised with, so a separate "system fluency" view can come later from real data. Cost, the spend ledger, `fiu share`, and re-verification on fetch follow `workout.json`'s `kind`. Every Language Profile works unchanged.
 
 **Not in v4.0:** Predictions from commits, `fiu auto`, or Tracks; the `"kinds"` setting; architecture questions answered from the import graph (a likely later kind, also measured); incident-triage and diagram Workouts; Hints for Predictions.
 
 ### 11.9 v4.1: Predictions from commits (implemented)
 
-*Verified for real on 2026-10-29 on five commits from Fiutsu's own history, with Fiutsu's commit prompt and schema answered by headless Claude Code through a test harness (API mode has no key here, and agent mode doesn't make these yet), then Fiutsu's own checks, gate, and saving. Four became Predictions (`parsers.ts`, `schema.ts`, `auto.ts`, `train.ts`); the text-only commit (`texts.ts`) was judged not worth practising, with a sound reason. Anchoring rejected two first attempts whose Previous Version rewrote the changed lines around the model's own fakes (one also invented a helper the old file never had); both passed on retry by copying the old lines as they are. One saved Scenario assumed a setting the product rejects (a personal preference for Katas, which `kinds` doesn't accept), a reminder that faithfulness is only as good as the extraction (ADR 0007). Not yet run for real: `fiu refill` through the API, and the fallback with a real model (covered by tests).*
+*Verified for real on 2026-10-29 on five commits from Fiu's own history, with Fiu's commit prompt and schema answered by headless Claude Code through a test harness (API mode has no key here, and agent mode doesn't make these yet), then Fiu's own checks, gate, and saving. Four became Predictions (`parsers.ts`, `schema.ts`, `auto.ts`, `train.ts`); the text-only commit (`texts.ts`) was judged not worth practising, with a sound reason. Anchoring rejected two first attempts whose Previous Version rewrote the changed lines around the model's own fakes (one also invented a helper the old file never had); both passed on retry by copying the old lines as they are. One saved Scenario assumed a setting the product rejects (a personal preference for Katas, which `kinds` doesn't accept), a reminder that faithfulness is only as good as the extraction (ADR 0007). Not yet run for real: `fiu refill` through the API, and the fallback with a real model (covered by tests).*
 
 When an agent changes how the system behaves, the people relying on it keep the old picture until something surprises them. A **Prediction from a commit** asks what the code does *now*, in a situation the commit changed, and offers the old behaviour as one of the wrong answers. That wrong answer isn't invented: it is what the code did before the commit, measured by running it, and anchored to the file as it was. It follows [ADR 0007](./docs/adr/0007-answers-are-measured-never-asserted.md) and reuses commit selection (§11.2.4), the Prediction gate (§11.8), and the v3.4 source match (§11.7).
 
-**The `kinds` setting.** Whether someone reads code is a fact about the person, not the repository, so the setting is personal: `"kinds": ["prediction"]` in the user-level config (`~/.config/fiutsu/`), which a repository's `.fiutsu/config.json` can override. The default is `["drill"]`, so nothing changes for existing users. It takes `drill` and `prediction`: Katas stay on request only (§11.5). The list is a preference with fallbacks, never a filter:
+**The `kinds` setting.** Whether someone reads code is a fact about the person, not the repository, so the setting is personal: `"kinds": ["prediction"]` in the user-level config (`~/.config/fiu/`), which a repository's `.fiu/config.json` can override. The default is `["drill"]`, so nothing changes for existing users. It takes `drill` and `prediction`: Katas stay on request only (§11.5). The list is a preference with fallbacks, never a filter:
 
 - **Commit generation** (`fiu refill`, from the hook or by hand) makes the first kind listed, and falls back to the next one when a commit doesn't fit (below).
 - **`fiu quick`** serves queued Quick Workouts of the first kind listed first, then the rest in the existing order (from AI-written code first, then newest). With `["prediction"]`, Drills are still served when no Prediction is ready.
@@ -546,12 +546,12 @@ When an agent changes how the system behaves, the people relying on it keep the 
 **Verified, in addition to §11.8:**
 
 1. **Measured:** against `previous`, only the old-behaviour option's test passes and every other test fails by assertion, exactly as for a Variant. So the gate runs the tests five times: the Reference Solution, `previous`, and two Variants.
-2. **Anchored:** every region where `previous` differs from the Reference Solution must have a significant line (§11.7's normalisation and 8-character floor) found only in the file before the commit: in it, and not in the file after. Where `previous` has nothing (the commit added lines), a Reference Solution line found only in the file after it anchors the region instead. One line per region, not every line, because extraction renames things around a change (the dogfooded `NormalizeContext` Drill rewrote everything but its bug line); a line found in the old file alone is still evidence the region is the commit's change. Fiutsu reads the old file with `git show <sha>^:<path>`. This is the only mechanical evidence that the old-behaviour option really is the old behaviour rather than a fourth invented Variant, so a failure is retry feedback.
+2. **Anchored:** every region where `previous` differs from the Reference Solution must have a significant line (§11.7's normalisation and 8-character floor) found only in the file before the commit: in it, and not in the file after. Where `previous` has nothing (the commit added lines), a Reference Solution line found only in the file after it anchors the region instead. One line per region, not every line, because extraction renames things around a change (the dogfooded `NormalizeContext` Drill rewrote everything but its bug line); a line found in the old file alone is still evidence the region is the commit's change. Fiu reads the old file with `git show <sha>^:<path>`. This is the only mechanical evidence that the old-behaviour option really is the old behaviour rather than a fourth invented Variant, so a failure is retry feedback.
 3. **Distinct:** `previous` differs from the Reference Solution and from every Variant.
 
-**When a commit doesn't fit.** A commit that changed no behaviour (a refactor, a rename, a restructuring) has no Scenario with a different outcome: the model answers `worthPracticing: false`, and Fiutsu falls back to the next kind in `kinds` (with `["prediction", "drill"]`, a Drill from the same commit). A file the commit added has no "before" and falls back the same way. The fallback is a second model call, counted against the daily limit; if the limit runs out before it, the commit is *deferred* (not remembered), like any cap. With no fallback kind, the commit is skipped and remembered (`refill.processed`), so nobody pays for it twice.
+**When a commit doesn't fit.** A commit that changed no behaviour (a refactor, a rename, a restructuring) has no Scenario with a different outcome: the model answers `worthPracticing: false`, and Fiu falls back to the next kind in `kinds` (with `["prediction", "drill"]`, a Drill from the same commit). A file the commit added has no "before" and falls back the same way. The fallback is a second model call, counted against the daily limit; if the limit runs out before it, the commit is *deferred* (not remembered), like any cap. With no fallback kind, the commit is skipped and remembered (`refill.processed`), so nobody pays for it twice.
 
-**After answering**, on top of §11.8's reveal, a line written by Fiutsu rather than the model:
+**After answering**, on top of §11.8's reveal, a line written by Fiu rather than the model:
 
 ```text
 What changed: commit 1a2b3c4d5e6f ("Defer commits when the queue is full"), co-written by an AI assistant.
@@ -568,16 +568,16 @@ Picking the old behaviour gets *"That was true until commit 1a2b3c4d5e6f."* in p
 
 ### 11.10 v4.2: The Atlas (implemented)
 
-*Verified for real on 2026-10-30 in agent mode, with headless Claude Code driving `prepare_atlas` and `submit_atlas` through a test harness (API mode has no key here; covered by mock-model tests, and estimated at ≈ $0.73 for Fiutsu's 64 files with the default model). On a copy of Fiutsu it described 17 folders and 64 files in 37 turns, every submission accepted first time; on the SSTorytime copy, one folder in 5 turns. The entries were accurate and specific. Of nine goal searches, eight put the target a reader of the code would choose first; "how a drill is verified" didn't, which exposed a stemming bug (*verified* missed *verify*) and methods scoring on their class's name, both fixed (the gate now ranks among the top results, behind the generate-and-verify loop). Constructors filled key-function slots and are now left out. One entry described a function's intent rather than its real bug (`NormalizeContext`, §11.7): the case ADR 0008 accepts. Not yet run for real: `fiu atlas build` through the API, and sharing the Atlas between real teammates (covered by tests on scratch remotes).*
+*Verified for real on 2026-10-30 in agent mode, with headless Claude Code driving `prepare_atlas` and `submit_atlas` through a test harness (API mode has no key here; covered by mock-model tests, and estimated at ≈ $0.73 for Fiu's 64 files with the default model). On a copy of Fiu it described 17 folders and 64 files in 37 turns, every submission accepted first time; on the SSTorytime copy, one folder in 5 turns. The entries were accurate and specific. Of nine goal searches, eight put the target a reader of the code would choose first; "how a drill is verified" didn't, which exposed a stemming bug (*verified* missed *verify*) and methods scoring on their class's name, both fixed (the gate now ranks among the top results, behind the generate-and-verify loop). Constructors filled key-function slots and are now left out. One entry described a function's intent rather than its real bug (`NormalizeContext`, §11.7): the case ADR 0008 accepts. Not yet run for real: `fiu atlas build` through the API, and sharing the Atlas between real teammates (covered by tests on scratch remotes).*
 
-On a large codebase it is hard to choose what to practise: `fiu drill <file>#symbol` assumes you already know the file and the symbol, which is what Fiutsu is meant to teach. The **Atlas** is a map of the repository that says what things are for, from the repository's overall organisation down to each file's key functions, so that "I want to understand retries" becomes `fiu drill src/queue/retry.go#retryWithBackoff`. Per [ADR 0008](./docs/adr/0008-the-atlas-is-orientation-never-verified.md) it is orientation, not a Workout: labelled as written by a model, never Verified, never input to the gate.
+On a large codebase it is hard to choose what to practise: `fiu drill <file>#symbol` assumes you already know the file and the symbol, which is what Fiu is meant to teach. The **Atlas** is a map of the repository that says what things are for, from the repository's overall organisation down to each file's key functions, so that "I want to understand retries" becomes `fiu drill src/queue/retry.go#retryWithBackoff`. Per [ADR 0008](./docs/adr/0008-the-atlas-is-orientation-never-verified.md) it is orientation, not a Workout: labelled as written by a model, never Verified, never input to the gate.
 
 **What it holds.**
 
 - **The skeleton**, computed locally and free: the files `fiu map` shows (tracked, recognised by a Language Profile) and their folders; line counts; each file's symbols with line ranges, found by the declaration regex (a Language Profile may override it with `declarationPattern`), named exactly as `#symbol` accepts them (a method as `Class.method`); a logic score per file and per function; the human's map state.
 - **Atlas Entries**, written by a model: an **overview** of the repository (a few lines: how the codebase is organised); one line per folder; one or two lines per drillable file; one line for each **key function**, the top 5 of a file by logic score among symbols of at least 5 lines. Other symbols are listed by name only. Tests and generated files are listed but not described; files over 3,000 lines are described and marked *too long to drill*.
 - **Keyed by content.** Each entry records the git blob hash of what it describes (a folder: its list of files). An entry whose hash no longer matches is *stale*: shown with `≈`, kept until refreshed. Nothing refreshes on its own, and background generation never touches the Atlas. "Once per release" is a habit, not a mechanism: running `fiu atlas build` at release time costs only what changed since the last run.
-- Stored in `.fiutsu/atlas.json`.
+- Stored in `.fiu/atlas.json`.
 
 **Building it.**
 
@@ -593,13 +593,13 @@ On a large codebase it is hard to choose what to practise: `fiu drill <file>#sym
 - **Agent mode:** `/fiu-drill <goal>` (words rather than a path) reads the Atlas through `search_atlas(goal)`, proposes 2 to 3 targets, and asks before generating.
 - **Tracks:** when an Atlas exists, `fiu explore`'s ordering call (and `prepare_track` in agent mode) sees the files' entries in place of raw outlines; `fiu explore --about "<goal>"` picks the module through the same search (the folder of the best-matching files).
 
-**Sharing.** `fiu share --atlas` publishes `atlas.json` on the `fiutsu/workouts` branch (ADR 0006), unioned with a teammate's on a rejected push like Workouts. `fiu fetch` merges it: for the same hash the local entry wins; a fetched entry fills a gap, and replaces a local entry that is stale when the fetched one matches the code. Entries carry no practice data.
+**Sharing.** `fiu share --atlas` publishes `atlas.json` on the `fiu/workouts` branch (ADR 0006), unioned with a teammate's on a rejected push like Workouts. `fiu fetch` merges it: for the same hash the local entry wins; a fetched entry fills a gap, and replaces a local entry that is stale when the fetched one matches the code. Entries carry no practice data.
 
 **Not in v4.2:** model-understood search in API mode (the agent understands the wording in agent mode); a real parser; describing every function; refreshing on commit.
 
 ### 11.11 v4.3: Prediction Series and mixed Tracks (implemented)
 
-*Verified for real on 2026-10-31 in agent mode, with headless Claude Code calling Fiutsu's tools through a test harness (API mode has no key here; covered by mock-model tests). Three Series of 3 questions, on `config.ts#resolveConfig`, `queue.ts#nextQuickWorkout`, and the SSTorytime copy's `NChannel`, were all Verified on the first submission, each question asking about a different rule (settings precedence for prices, preferred kinds, and provider; the queue's ranking, exclusions, and size limits; three text-size boundaries), for $0.51 to $1.01 of agent spend each. A Track on `src/background` came out as the suggested arc: a Prediction on `log.ts`, a Drill on `commits.ts`, a Kata on `refill.ts`, every step Verified first time. One overlap the checks don't see: the SSTorytime Series' first question asks what an earlier single Prediction on the same file asked (distinctness is checked within a Series, not against Workouts already saved). Not yet run for real: a Series and a mixed Track through the API.*
+*Verified for real on 2026-10-31 in agent mode, with headless Claude Code calling Fiu's tools through a test harness (API mode has no key here; covered by mock-model tests). Three Series of 3 questions, on `config.ts#resolveConfig`, `queue.ts#nextQuickWorkout`, and the SSTorytime copy's `NChannel`, were all Verified on the first submission, each question asking about a different rule (settings precedence for prices, preferred kinds, and provider; the queue's ranking, exclusions, and size limits; three text-size boundaries), for $0.51 to $1.01 of agent spend each. A Track on `src/background` came out as the suggested arc: a Prediction on `log.ts`, a Drill on `commits.ts`, a Kata on `refill.ts`, every step Verified first time. One overlap the checks don't see: the SSTorytime Series' first question asks what an earlier single Prediction on the same file asked (distinctness is checked within a Series, not against Workouts already saved). Not yet run for real: a Series and a mixed Track through the API.*
 
 Two extensions of what exists. A Prediction asks one question about a unit, yet most of its cost is reading the unit and writing its Reference Solution: a **Series** asks several questions about the same unit for little more. A Track teaches a module through Drills only, yet reading what code does (a Prediction) and writing it (a Kata) are part of knowing a module too: **mixed Tracks** choose a kind per step.
 
@@ -617,7 +617,7 @@ Two extensions of what exists. A Prediction asks one question about a unit, yet 
 
 **Mixed Tracks.**
 
-- **A kind per step.** The planning call (and the agent, after `prepare_track`) chooses each step's kind beside its pillar. The rules suggest an arc: open with a **Prediction** on what the module does, **Drills** on its foundations, and close with a **Kata** on the file that ties it together. A Track of 3 or more steps must use at least two kinds when more than one is allowed: checked on Fiutsu's own plan; in agent mode, a rule the agent is given (each step's kind is checked against the allowed ones).
+- **A kind per step.** The planning call (and the agent, after `prepare_track`) chooses each step's kind beside its pillar. The rules suggest an arc: open with a **Prediction** on what the module does, **Drills** on its foundations, and close with a **Kata** on the file that ties it together. A Track of 3 or more steps must use at least two kinds when more than one is allowed: checked on Fiu's own plan; in agent mode, a rule the agent is given (each step's kind is checked against the allowed ones).
 - **Your `kinds`.** When the personal `kinds` setting lists only `prediction`, every step is a Prediction. `fiu explore --kinds drill,kata` sets the allowed kinds for one Track.
 - **When a step can't be Verified.** The next alternate takes its place with the same kind; with no alternates left, the step falls back to a Drill on the same file.
 - **Estimates** price each step from your recent average for its kind, falling back to the overall average.
@@ -644,7 +644,7 @@ For the people Predictions serve, the dangerous state isn't not knowing how the 
 
 ### 11.13 v5.0: Diagnosis (implemented)
 
-*v5.0.0 was tagged on 2026-11-01, package still private. Verified for real in agent mode, with headless Claude Code calling Fiutsu's tools through a test harness (API mode has no key here; covered by mock-model tests). The first pass made 4 Diagnoses (`queue.ts`, `refill.ts`, `commits.ts` as a Track step, and the SSTorytime copy's `NormalizeContext`), each Verified on the first submission for about $0.40 of agent spend, but they were too easy: only one Cause shared words with the incident, or the incident held a comparison pointing at it, so they could be answered without any picture of the system. No mechanical check can see this, so the prompt now requires wrong Causes a reasonable person would suspect from the incident, and incidents written as users report them; 3 regenerated Diagnoses were clearly harder and still Verified first time ($0.45 to $0.65). On `NormalizeContext` the model reported the file's real bug (§11.7), though the Diagnosis was about something else. The Track on `src/background` came out as a Prediction, a Diagnosis, and a Kata. Not yet done: `fiu diagnose` through the API, and real people answering, which is what will show whether these are the right difficulty.*
+*v5.0.0 was tagged on 2026-11-01, package still private. Verified for real in agent mode, with headless Claude Code calling Fiu's tools through a test harness (API mode has no key here; covered by mock-model tests). The first pass made 4 Diagnoses (`queue.ts`, `refill.ts`, `commits.ts` as a Track step, and the SSTorytime copy's `NormalizeContext`), each Verified on the first submission for about $0.40 of agent spend, but they were too easy: only one Cause shared words with the incident, or the incident held a comparison pointing at it, so they could be answered without any picture of the system. No mechanical check can see this, so the prompt now requires wrong Causes a reasonable person would suspect from the incident, and incidents written as users report them; 3 regenerated Diagnoses were clearly harder and still Verified first time ($0.45 to $0.65). On `NormalizeContext` the model reported the file's real bug (§11.7), though the Diagnosis was about something else. The Track on `src/background` came out as a Prediction, a Diagnosis, and a Kata. Not yet done: `fiu diagnose` through the API, and real people answering, which is what will show whether these are the right difficulty.*
 
 Predictions ask what the system does; incidents ask the opposite: something happened, why? A **Diagnosis** gives someone who doesn't read code a practice incident in plain English and four possible causes, and every link between a cause and a Symptom is measured. It follows [ADR 0007](./docs/adr/0007-answers-are-measured-never-asserted.md).
 
@@ -663,7 +663,7 @@ The gate proves that among these four, only the true Cause produces the incident
 
 **Answering.**
 
-- Fiutsu, not the model, opens with *Practice incident: this didn't happen. The code here was changed on purpose.* Readers who can't see the code could otherwise believe production has this bug.
+- Fiu, not the model, opens with *Practice incident: this didn't happen. The code here was changed on purpose.* Readers who can't see the code could otherwise believe production has this bug.
 - One answer, Causes shuffled per Attempt, then *How sure were you?* (§11.12). Right is Completed; wrong is Abandoned.
 - The reveal: the true Cause and why it produces the Symptom; for a wrong answer, what the chosen Cause would have shown up as instead; where this lives; after a wrong answer, `[d]` for the code difference behind the true Cause.
 - **When the bug might be real.** If the true Cause's changed lines are already in the source, or the model reports a defect in the original, the §11.7 notice follows the Attempt.
@@ -674,7 +674,7 @@ The gate proves that among these four, only the true Cause produces the incident
 
 ### 11.14 v5.1: What-if Predictions (implemented)
 
-*Verified for real on 2026-11-01 in agent mode, with headless Claude Code calling Fiutsu's tools through a test harness (API mode has no key here; covered by mock-model tests). Five requests: letting `fiu quick` serve Track steps, expiring teammates' shared Workouts, a change the model proposed for `resolveConfig` (combining preferred kinds), raising SSTorytime's long-text limit, and, on purpose, retrying API calls in `config.ts`. Each of the four that fit was modelled in 1 to 3 changed lines matching the request, with a Scenario where today and the change differ, for $0.41 to $0.63 of agent spend; three took one submission and the SSTorytime one took two (the harness doesn't keep the feedback, so the first rejection's reason isn't known). The misfit was judged not worth practising, and its reason correctly named where failed API calls are handled. Not yet done: `fiu predict --what-if` through the API, a case where the model misreads a sentence, and real people using one to make a decision.*
+*Verified for real on 2026-11-01 in agent mode, with headless Claude Code calling Fiu's tools through a test harness (API mode has no key here; covered by mock-model tests). Five requests: letting `fiu quick` serve Track steps, expiring teammates' shared Workouts, a change the model proposed for `resolveConfig` (combining preferred kinds), raising SSTorytime's long-text limit, and, on purpose, retrying API calls in `config.ts`. Each of the four that fit was modelled in 1 to 3 changed lines matching the request, with a Scenario where today and the change differ, for $0.41 to $0.63 of agent spend; three took one submission and the SSTorytime one took two (the harness doesn't keep the feedback, so the first rejection's reason isn't known). The misfit was judged not worth practising, and its reason correctly named where failed API calls are handled. Not yet done: `fiu predict --what-if` through the API, a case where the model misreads a sentence, and real people using one to make a decision.*
 
 Someone steering agents decides what to ask for before anyone writes code: *what would happen if we raised the cap?* A **What-if** is a Prediction about a **Proposed Change** that hasn't been made. It is a Prediction from a commit (§11.9) pointing forward: the code with the change takes the place of "after", and today's code the place of "before".
 
@@ -683,7 +683,7 @@ Someone steering agents decides what to ask for before anyone writes code: *what
 - **Anchored to today.** Every region where `previous` differs from `referenceSolution` must have a significant line found in the source file and not in `referenceSolution` (where the change only adds lines, a `referenceSolution` line found nowhere in the source anchors it). Otherwise the model could invent a "today" to fit the question.
 - **At most 10 changed lines** between the two, checked. A bigger change can't be modelled faithfully in one self-contained file. The model answers `worthPracticing: false`, saying why, when the change is larger, too vague to pin down, or about behaviour that isn't in this file; nothing is saved and there is no fallback.
 - **The model's reading is shown.** Running code proves what the changed code does; that the code matches the sentence is the model's word (ADR 0007). So before answering, the human sees their sentence and the model's plain-English reading: *Modelled as: …*.
-- **The reveal** states both sides, whatever the answer: *Today: … With this change: …*, then the explanation, where it lives, and Fiutsu's own line: *Measured on a self-contained copy of this unit, not your whole system. Nothing in your repository changed.* After any answer, `[d]` shows the code change as modelled.
+- **The reveal** states both sides, whatever the answer: *Today: … With this change: …*, then the explanation, where it lives, and Fiu's own line: *Measured on a self-contained copy of this unit, not your whole system. Nothing in your repository changed.* After any answer, `[d]` shows the code change as modelled.
 - **With the rest.** It stays in the queue if unanswered, `fiu quick` can serve it, and it counts in `fiu stats` and Blind Spots. It is shared and re-verified like any Prediction; on fetch the anchoring is skipped, as the sharer's source isn't there. Always one question: never a Series or a Track step.
 
 **Not in v5.1:** several Scenarios for one change; changes spanning several files.
@@ -700,7 +700,7 @@ Each item needs its own design round before implementation.
 - **Spaced repetition:** resurfacing attempted Workouts on a schedule.
 - **A public Workout library** for open-source codebases (a hosted service; a separate decision from team sharing).
 - **`fiu drill` with no path:** auto-pick the riskiest unpracticed file.
-- **Opt-in editor integration:** disabling AI completions inside `.fiutsu/`.
+- **Opt-in editor integration:** disabling AI completions inside `.fiu/`.
 - **LLM judge pass:** for Drill subtlety, if ratings show it's needed.
 - **Local models** (e.g. Ollama).
 - **Languages without a built-in test runner** (needs a new ADR).
@@ -716,7 +716,7 @@ Each item needs its own design round before implementation.
 
 ## 13. Implementation Roadmap (v2)
 
-1. ~~**Workouts and Attempts**~~ Done (§11.2.2): immutable Workouts; Attempts in `.fiutsu/attempts/<id>/<n>/` with their own outcome, runs, Hints used, and rating; the runner works on an Attempt (resume or start); `fiu discard` / `fiu restore`; `fiu cost` splits attempted from never attempted; `list_workouts` reports each Workout's status.
+1. ~~**Workouts and Attempts**~~ Done (§11.2.2): immutable Workouts; Attempts in `.fiu/attempts/<id>/<n>/` with their own outcome, runs, Hints used, and rating; the runner works on an Attempt (resume or start); `fiu discard` / `fiu restore`; `fiu cost` splits attempted from never attempted; `list_workouts` reports each Workout's status.
 2. ~~**The queue and `fiu quick`**~~ Done (§11.2.3): queue selection, `fiu quick`, `fiu drill --quick`. The failure summary line and the `fiu refill` offer move to phase 3, which introduces the background log and `fiu refill`.
 3. ~~**Background generation from commits**~~ Done (§11.2.4): commit selection and the commit-diff prompt, `fiu refill [--commit <sha>]` with the lock, backlog, caps, and log; `fiu auto on|off|status` with the hook; expiry of Workouts from commits.
 
@@ -724,5 +724,5 @@ Each item needs its own design round before implementation.
 
 1. ~~**Tracks**~~ Done: the static shortlist, the ordering call, up-front generation with cost confirmation and step replacement, Track manifests, Origin `explore` (excluded from `fiu quick`, the cap, and expiry), `fiu explore`, `fiu track`.
 2. ~~**Tracks in agent mode**~~ Done: `prepare_track`, `{ trackId, why }` on `prepare_drill`, `finish_track`, and the skill's guidance.
-3. ~~**Team sharing**~~ Done: the `fiutsu/workouts` branch via git plumbing, `fiu share` (with the uncommitted-code refusal and unpushed-commit warning), `fiu fetch` (union, id clashes, re-verification), "shared by" stamps, and the queue and expiry rules for fetched Workouts.
+3. ~~**Team sharing**~~ Done: the `fiu/workouts` branch via git plumbing, `fiu share` (with the uncommitted-code refusal and unpushed-commit warning), `fiu fetch` (union, id clashes, re-verification), "shared by" stamps, and the queue and expiry rules for fetched Workouts.
 

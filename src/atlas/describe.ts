@@ -26,7 +26,7 @@ export const AtlasOutputSchema = z.object({
 });
 export type AtlasOutput = z.infer<typeof AtlasOutputSchema>;
 
-/** Shared by Fiutsu's own calls and agent mode's prepare_atlas. */
+/** Shared by Fiu's own calls and agent mode's prepare_atlas. */
 export const ATLAS_RULES = `You write the Atlas of a codebase: short orientation notes that tell a developer what each folder, file, and key function is for, so they can choose what to study. You are shown one folder at a time, deepest folders first, so a folder's subfolders are already described.
 
 Write for someone who has not read the code. Say what each thing is for and what it is responsible for, in plain words, naming the domain concepts it deals with (orders, retries, snapshots, consent), not the syntax (no "exports a function that"). Describe only what the code you are shown does: never guess at behaviour you can't see, and never judge the code's quality.

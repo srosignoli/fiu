@@ -10,17 +10,17 @@ import type { WorkspacePaths } from '../workspace.ts';
 import { readLog, type LogEntry } from './log.ts';
 import { countsTowardQueueCap, generationsToday } from './refill.ts';
 
-const BEGIN = '# >>> fiutsu >>>';
-const END = '# <<< fiutsu <<<';
-/** Marks a hook file Fiutsu created, so `fiu auto off` may delete it once its block is gone. */
-const CREATED_BY_FIUTSU = '# Created by Fiutsu (fiu auto on).';
+const BEGIN = '# >>> fiu >>>';
+const END = '# <<< fiu <<<';
+/** Marks a hook file Fiu created, so `fiu auto off` may delete it once its block is gone. */
+const CREATED_BY_FIU = '# Created by Fiu (fiu auto on).';
 
 const quote = (word: string) => `'${word.replaceAll("'", `'\\''`)}'`;
 
 /**
  * The marked hook block: starts `fiu refill --background` for the new commit, fully detached, so the
  * commit never waits. Git sets variables during a commit (e.g. GIT_INDEX_FILE) that would confuse
- * Fiutsu's own git calls, so they're cleared first.
+ * Fiu's own git calls, so they're cleared first.
  */
 export function hookBlock(fiuCommand: string[]): string {
   const command = [...fiuCommand, 'refill', '--background', '--commit'].map(quote).join(' ');
@@ -58,7 +58,7 @@ export async function installHook(repoRoot: string, fiuCommand: string[]): Promi
   const existing = existsSync(path) ? await readFile(path, 'utf8') : undefined;
   const content =
     existing === undefined
-      ? `#!/bin/sh\n${CREATED_BY_FIUTSU}\n\n${block}\n`
+      ? `#!/bin/sh\n${CREATED_BY_FIU}\n\n${block}\n`
       : `${appendable(removeBlock(existing))}${block}\n`;
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content);
@@ -66,26 +66,27 @@ export async function installHook(repoRoot: string, fiuCommand: string[]): Promi
   return { status: 'installed', path, created: existing === undefined };
 }
 
-/** Removes exactly the marked block; deletes the hook file only if Fiutsu created it and nothing else remains. */
+/** Removes exactly the marked block; deletes the hook file only if Fiu created it and nothing else remains. */
 export async function removeHook(repoRoot: string): Promise<{ removed: boolean; path: string }> {
   const path = await postCommitPath(repoRoot);
   if (!existsSync(path)) return { removed: false, path };
   const existing = await readFile(path, 'utf8');
   const remaining = removeBlock(existing);
   if (remaining === existing) return { removed: false, path };
-  const leftover = remaining.replace('#!/bin/sh', '').replace(CREATED_BY_FIUTSU, '').trim();
-  if (existing.includes(CREATED_BY_FIUTSU) && leftover === '') await rm(path);
+  const leftover = remaining.replace('#!/bin/sh', '').replace(CREATED_BY_FIU, '').trim();
+  if (existing.includes(CREATED_BY_FIU) && leftover === '') await rm(path);
   else await writeFile(path, remaining);
   return { removed: true, path };
 }
 
-/** The hook's markers up to v5.1, when Fiutsu was called Kintsugi. */
-const LEGACY_BEGIN = '# >>> kintsugi >>>';
-const LEGACY_END = '# <<< kintsugi <<<';
-const LEGACY_CREATED_BY = '# Created by Kintsugi (kin auto on).';
+/** The hook's markers under the project's former names: Fiutsu (v6.0) and Kintsugi (up to v5.1). */
+const FORMER_HOOKS = [
+  { begin: '# >>> fiutsu >>>', end: '# <<< fiutsu <<<', createdBy: '# Created by Fiutsu (fiu auto on).' },
+  { begin: '# >>> kintsugi >>>', end: '# <<< kintsugi <<<', createdBy: '# Created by Kintsugi (kin auto on).' },
+];
 
 /**
- * Replaces a block installed before the rename (it starts the old command) with the current one, in
+ * Replaces a block installed under a former name (it starts the old command) with the current one, in
  * place, never touching the user's own lines. Returns whether there was one to replace.
  */
 export async function migrateLegacyHook(repoRoot: string, fiuCommand: string[]): Promise<boolean> {
@@ -93,12 +94,15 @@ export async function migrateLegacyHook(repoRoot: string, fiuCommand: string[]):
   const path = await postCommitPath(repoRoot);
   if (!existsSync(path)) return false;
   const existing = await readFile(path, 'utf8');
-  const start = existing.indexOf(LEGACY_BEGIN);
-  const end = existing.indexOf(LEGACY_END);
-  if (start === -1 || end < start) return false;
-  const replaced = existing.slice(0, start) + hookBlock(fiuCommand) + existing.slice(end + LEGACY_END.length);
-  await writeFile(path, replaced.replace(LEGACY_CREATED_BY, CREATED_BY_FIUTSU));
-  return true;
+  for (const former of FORMER_HOOKS) {
+    const start = existing.indexOf(former.begin);
+    const end = existing.indexOf(former.end);
+    if (start === -1 || end < start) continue;
+    const replaced = existing.slice(0, start) + hookBlock(fiuCommand) + existing.slice(end + former.end.length);
+    await writeFile(path, replaced.replace(former.createdBy, CREATED_BY_FIU));
+    return true;
+  }
+  return false;
 }
 
 export async function hookInstalled(repoRoot: string): Promise<boolean> {
@@ -115,7 +119,7 @@ function removeBlock(text: string): string {
 
 const appendable = (text: string) => (text === '' ? '' : text.endsWith('\n\n') ? text : text.endsWith('\n') ? `${text}\n` : `${text}\n\n`);
 
-/** Turns background generation on or off in .fiutsu/config.json, keeping every other setting (custom caps included). */
+/** Turns background generation on or off in .fiu/config.json, keeping every other setting (custom caps included). */
 export async function setAuto(configFile: string, enabled: boolean, caps: Partial<NonNullable<RepoConfig['auto']>> = {}, now = new Date()): Promise<void> {
   const raw = existsSync(configFile) ? JSON.parse(await readFile(configFile, 'utf8')) : {};
   raw.auto = { ...raw.auto, ...caps, enabled, ...(enabled ? { consentedAt: now.toISOString() } : {}) };
@@ -193,7 +197,7 @@ export async function enableAuto(options: EnableAutoOptions): Promise<HookInstal
     if (!options.confirm) throw new AutoConsentRequiredError();
     const average = averageSpend((await readState(paths)).spend);
     const message = [
-      `After each of your commits, Fiutsu will send the most-changed source file to ${provider} (${model}) and generate a Quick Drill in the background, at your API key's expense.`,
+      `After each of your commits, Fiu will send the most-changed source file to ${provider} (${model}) and generate a Quick Drill in the background, at your API key's expense.`,
       `Limits: at most ${caps.queueCap} Workouts waiting in the queue, and at most ${caps.dailyLimit} generations a day (retries included)${caps.aiOnly ? ', only for AI-authored commits' : ''}.`,
       ...(average ? [`Your Drills have averaged ${formatUsd(average.usd)} (last ${average.count}).`] : []),
       'Turn background generation on?',

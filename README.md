@@ -14,7 +14,7 @@ Workouts support two paths: hands-on code fixes in an editor (**Drill**, **Kata*
 | :--- | :--- | :--- | :--- |
 | **Drill** | Editor | find and fix one realistic bug injected into working code | `fiu drill <file>[#symbol]` |
 | **Kata** | Editor | rebuild a removed piece of application logic from a brief | `fiu kata <file>[#symbol]` |
-| **Prediction** | Terminal | read a Scenario and predict which of four outcomes the code produces (`--count N` for a Series) | `fiu predict <file>` |
+| **Prediction** | Terminal | read a Scenario and predict which of four outcomes the code produces (`--questions N` for a Series) | `fiu predict <file>` |
 | **What-if** | Terminal | predict how a proposed change would alter system behavior | `fiu predict <file> --what-if "<change>"` |
 | **Diagnosis** | Terminal | read a practice incident and choose which of four Causes explains it | `fiu diagnose <file>` |
 
@@ -48,7 +48,7 @@ Ask Claude Code for a Workout (or run `/fiu-drill src/queue.ts` and `/fiu-atlas`
 ## Key workflows
 
 - `fiu atlas` / `fiu atlas <file>` / `fiu atlas search "<goal>"`: browse the codebase Atlas, see what a file uses, what uses it, and what changes with it, or find the files behind a goal.
-- `fiu explore <dir>` / `fiu track --goal "<goal>"`: build a multi-step Track across a module or data flow.
+- `fiu explore <dir>` / `fiu explore --about "<goal>"` / `fiu track`: build or continue a multi-step Track across a module or goal.
 - `fiu quick [--while "<cmd>"]`: solve a Workout right away, or while an agent runs or a long build or pipeline finishes.
 - `fiu map`: inspect comprehension coverage and locate unpractised hotspots.
 - `fiu stats`: track your Prediction accuracy, confidence calibration, and **Blind Spots**.
@@ -75,19 +75,19 @@ The binary is `fiu`. See [SPEC.md](./SPEC.md) for the specification, [GLOSSARY.m
 
 ## Blog & Tutorial Series
 
-- [Fiutsu: A Nose for Code You Never Typed](https://www.simonerosignoli.eu/posts/fiutsu-introduction/) — why comprehension debt matters and how the Verified Gate works.
-- [Tutorial 1: Workspace Setup, the Codebase Atlas, and Low-Cost Subagents](https://www.simonerosignoli.eu/posts/fiutsu-getting-started-and-mcp/)
-- [Tutorial 2: Troubleshooting Real Code with Drills and `fiu train`](https://www.simonerosignoli.eu/posts/fiutsu-drills-and-train/)
-- [Tutorial 3: Rebuilding Core Application Logic with Katas](https://www.simonerosignoli.eu/posts/fiutsu-katas/)
-- [Tutorial 4: Onboarding onto a Module with Mixed and Goal-Driven Tracks](https://www.simonerosignoli.eu/posts/fiutsu-explore-and-tracks/)
-- [Tutorial 5: Turning Idle Agent Wait Time into Practice with Quick Workouts](https://www.simonerosignoli.eu/posts/fiutsu-quick-workouts-and-wait-time/)
-- [Tutorial 6: Sharing the Atlas and Workouts on Git and Mapping Comprehension](https://www.simonerosignoli.eu/posts/fiutsu-team-sharing-and-map/)
-- [Tutorial 7: Mastering Your System Without Opening an IDE Using Predictions, What-Ifs, Diagnoses, and Calibration](https://www.simonerosignoli.eu/posts/fiutsu-predictions/)
+- [Fiu: A Nose for Code You Never Typed](https://www.simonerosignoli.eu/posts/fiu-introduction/) — why comprehension debt matters and how the Verified Gate works.
+- [Tutorial 1: Workspace Setup, the Codebase Atlas, and Low-Cost Subagents](https://www.simonerosignoli.eu/posts/fiu-getting-started-and-mcp/)
+- [Tutorial 2: Troubleshooting Real Code with Drills and `fiu train`](https://www.simonerosignoli.eu/posts/fiu-drills-and-train/)
+- [Tutorial 3: Rebuilding Core Application Logic with Katas](https://www.simonerosignoli.eu/posts/fiu-katas/)
+- [Tutorial 4: Onboarding onto a Module with Mixed and Goal-Driven Tracks](https://www.simonerosignoli.eu/posts/fiu-explore-and-tracks/)
+- [Tutorial 5: Turning Idle Agent Wait Time into Practice with Quick Workouts](https://www.simonerosignoli.eu/posts/fiu-quick-workouts-and-wait-time/)
+- [Tutorial 6: Sharing the Atlas and Workouts on Git and Mapping Comprehension](https://www.simonerosignoli.eu/posts/fiu-team-sharing-and-map/)
+- [Tutorial 7: Mastering Your System Without Opening an IDE Using Predictions, What-Ifs, Diagnoses, and Calibration](https://www.simonerosignoli.eu/posts/fiu-predictions/)
 
 ## Formerly Fiutsu and Kintsugi
 
-This project was called Fiutsu in v6.0 and Kintsugi up to v5.1; the blog posts above use the Fiutsu name. The first time you run `fiu` it moves your existing state for you (see SPEC.md, §3.1). If you used the Claude Code integration, run `fiu agent install claude` once to replace it. The `fiutsu` binary is gone: if you installed with `npm link`, run `npm link` again from this repository.
+This project was called Fiutsu in v6.0 and Kintsugi up to v5.1. The first time you run `fiu` it moves your existing state for you (see SPEC.md, §3.1). If you used the Claude Code integration, run `fiu agent install claude` once to replace it. The `fiutsu` binary is gone: if you installed with `npm link`, run `npm link` again from this repository.
 
 ## License
 
-MIT
+[Apache-2.0](./LICENSE)

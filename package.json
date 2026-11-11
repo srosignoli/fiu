@@ -3,7 +3,7 @@
   "version": "7.1.0",
   "private": true,
   "description": "A nose for code you never typed: real code from the repository, turned into small, verified practice Workouts.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "fiu": "dist/cli.js"

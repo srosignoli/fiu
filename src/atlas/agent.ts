@@ -4,7 +4,8 @@ import { z } from 'zod';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { applyAtlasOutput, ATLAS_RULES, AtlasOutputSchema, checkAtlasOutput, folderPrompt, type AtlasOutput } from './describe.ts';
 import { atlasScope, buildSkeleton, foldersBottomUp, type Skeleton } from './skeleton.ts';
-import { folderWork, readAtlas, writeAtlas, type Atlas } from './store.ts';
+import { readAtlasOverlay, savable } from './overlay.ts';
+import { folderWork, writeAtlas, type Atlas } from './store.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 
 export type PreparedAtlas =
@@ -36,7 +37,8 @@ const pendingFolders = (atlas: Atlas, skeleton: Skeleton, scope: string) =>
 export async function prepareAtlas(repoRoot: string, paths: WorkspacePaths, profiles: readonly LanguageProfile[], dir: string | undefined): Promise<PreparedAtlas> {
   const skeleton = await buildSkeleton(repoRoot, profiles);
   const scope = atlasScope(repoRoot, repoRoot, dir, skeleton);
-  const atlas = await readAtlas(paths);
+  // Files with a current Understand-Anything entry need nothing from the agent (ADR 0010).
+  const { build: atlas } = await readAtlasOverlay(paths, skeleton);
   const pending = pendingFolders(atlas, skeleton, scope);
   if (pending.length === 0) return { status: 'up-to-date', scope };
   const folder = skeleton.folders.get(pending[0]!)!;
@@ -66,11 +68,11 @@ export async function submitAtlas(
   const skeleton = await buildSkeleton(repoRoot, profiles);
   const path = atlasScope(repoRoot, repoRoot, folderPath || undefined, skeleton);
   const folder = skeleton.folders.get(path)!;
-  const atlas = await readAtlas(paths);
+  const { build: atlas, own } = await readAtlasOverlay(paths, skeleton);
   const { files } = folderWork(atlas, skeleton, folder);
   const problems = checkAtlasOutput(skeleton, folder, files, entries);
   if (problems.length > 0) return { status: 'rejected', feedback: `Fix these and submit again:\n${problems.map((p) => `- ${p}`).join('\n')}` };
   applyAtlasOutput(atlas, skeleton, folder, entries, now);
-  await writeAtlas(paths, atlas);
+  await writeAtlas(paths, savable(atlas, own));
   return { status: 'saved', folder: path, pending: pendingFolders(atlas, skeleton, atlasScope(repoRoot, repoRoot, scope ?? (path || undefined), skeleton)) };
 }

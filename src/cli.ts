@@ -425,7 +425,7 @@ atlas
   .action(async (goal: string[], options: { all?: boolean }) => {
     const { searchAtlasCommand } = await import('./commands/atlas.ts');
     const { SEARCH_RESULTS, targetOf } = await import('./atlas/search.ts');
-    const { results, described } = await searchAtlasCommand(process.cwd(), goal.join(' '));
+    const { results, described, notice } = await searchAtlasCommand(process.cwd(), goal.join(' '));
     const color = process.stdout.isTTY === true && !process.env.NO_COLOR;
     const dim = (text: string) => (color ? `\x1b[2m${text}\x1b[0m` : text);
     const marks = { red: '●', amber: '◐', green: '✓', grey: '·' } as const;
@@ -437,12 +437,13 @@ atlas
     const lines: string[] = [];
     for (const result of shown) {
       lines.push(`${marks[result.state]} ${targetOf(result)}`);
-      if (result.text) lines.push(dim(`    ${result.stale ? '≈ ' : ''}${result.text.replace(/\n/g, ' ')}`));
+      if (result.text) lines.push(dim(`    ${result.stale ? '≈ ' : ''}${result.text.replace(/\n/g, ' ')}${result.source ? ' (UA)' : ''}`));
       lines.push(result.tooLong ? dim('    too long to drill: its file is over 3,000 lines') : `    fiu drill ${targetOf(result)}`);
     }
     if (shown.length < results.length) lines.push(dim(`… and ${results.length - shown.length} more: --all`));
     lines.push('', dim('● complex, never practised   ◐ out of date or AI-changed   ✓ practised. Swap drill for kata (rebuild it) or predict (say what it does, no code reading).'));
     if (!described) lines.push(dim('Matched on names only: `fiu atlas build` (or /fiu-atlas) adds what each file and function is for.'));
+    if (notice) lines.push(dim(notice));
     console.log(lines.join('\n'));
   });
 
@@ -460,10 +461,11 @@ atlas
     } finally {
       ui.settle();
     }
-    if (result.status === 'up-to-date') return log.success('The Atlas is up to date: nothing is missing or stale.');
+    const uaNote = (n: number) => (n > 0 ? ` ${n} file(s) use Understand-Anything's current descriptions instead, marked (UA).` : '');
+    if (result.status === 'up-to-date') return log.success(`The Atlas is up to date: nothing is missing or stale.${uaNote(result.fromUa)}`);
     if (result.status === 'declined') return log.info('Nothing described.');
     for (const failure of result.failed) log.warn(`Couldn't describe ${failure.folder || 'the repository overview'}:\n${failure.problems.map((p) => `- ${p}`).join('\n')}`);
-    log.success(`Described ${result.folders} folder(s) and ${result.files} file(s), ${describeCost(result.cost)}. See them with \`fiu map\`, or search with \`fiu atlas search "<goal>"\`.`);
+    log.success(`Described ${result.folders} folder(s) and ${result.files} file(s), ${describeCost(result.cost)}.${uaNote(result.fromUa)} See them with \`fiu map\`, or search with \`fiu atlas search "<goal>"\`.`);
     if (result.failed.length > 0) process.exitCode = 1;
   });
 

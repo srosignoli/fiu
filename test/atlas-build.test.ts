@@ -77,7 +77,7 @@ describe('fiu atlas build', () => {
     assert.equal(report.atlas.count, 4);
     assert.deepEqual(report.byOrigin, {});
 
-    assert.deepEqual((await build(dir, [])).result, { status: 'up-to-date' });
+    assert.deepEqual((await build(dir, [])).result, { status: 'up-to-date', fromUa: 0 });
   });
 
   it('re-describes only what changed', async () => {
@@ -141,5 +141,43 @@ describe('checkAtlasOutput', () => {
     assert.match(check({ ...DB, files: [{ ...DB.files[0]!, text: 'x'.repeat(201) }] })[0]!, /201 characters; at most 200/);
     const root = skeleton.folders.get('')!;
     assert.deepEqual(checkAtlasOutput(skeleton, root, [], { folder: 'a\nb\nc\nd\ne', files: [] }), []);
+  });
+});
+
+describe("fiu atlas build with Understand-Anything's graph", () => {
+  it('skips files with a current UA entry, still writes their folder, and keeps the stale Fiu entry UA hides', async () => {
+    const { writeAtlas } = await import('../src/atlas/store.ts');
+    const { ensureWorkspace } = await import('../src/workspace.ts');
+    const dir = await repo();
+    const paths = workspacePaths(dir);
+    await ensureWorkspace(paths);
+    const head = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim();
+    await mkdir(join(dir, '.ua'));
+    await writeFile(
+      join(dir, '.ua/knowledge-graph.json'),
+      JSON.stringify({ project: { gitCommitHash: head }, nodes: [{ id: 'file:src/db/store.ts', type: 'file', filePath: 'src/db/store.ts', summary: 'Looks records up by id.' }] }),
+    );
+    const stale = emptyAtlas();
+    stale.files['src/db/store.ts'] = { hash: 'old', text: 'An old Fiu description.', writtenAt: '2026-01-01T00:00:00.000Z', functions: {} };
+    await writeAtlas(paths, stale);
+
+    const { result, prompts, steps } = await build(dir, [{ folder: 'Data access.', files: [] }, UI, SRC, ROOT]);
+    assert.equal(result.status, 'built');
+    assert.equal(result.status === 'built' && result.fromUa, 1);
+    assert.deepEqual(steps, ['Describing src/db', 'Describing src/ui (1 file(s))', 'Describing src', 'Describing the repository overview (1 file(s))']);
+    // The folder is described with UA's line for the file it skipped.
+    assert.match(prompts[0]!, /src\/db\/store\.ts: Looks records up by id\./);
+
+    const saved = await readAtlas(paths);
+    assert.equal(saved.folders['src/db']!.text, 'Data access.');
+    assert.deepEqual(saved.files['src/db/store.ts'], stale.files['src/db/store.ts'], "Fiu's own stale entry is kept, UA's never saved");
+    assert.deepEqual((await build(dir, [])).result, { status: 'up-to-date', fromUa: 1 });
+
+    // Off: the file is Fiu's to describe again.
+    await writeFile(paths.configFile, JSON.stringify({ understandAnything: false }));
+    assert.equal(planAtlasCalls(await readAtlas(paths), await buildSkeleton(dir, profiles()), '').length, 1);
+    const again = await build(dir, [DB]);
+    assert.deepEqual(again.steps, ['Describing src/db (1 file(s))']);
+    assert.equal(again.result.status === 'built' && again.result.fromUa, 0);
   });
 });

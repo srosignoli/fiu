@@ -13,7 +13,8 @@ import { profileForFile } from '../languages/registry.ts';
 import { preflight } from '../languages/run.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { MAX_STEPS, MIN_STEPS, trackKinds, trackRules, withAtlas } from '../explore/plan.ts';
-import { readAtlas } from '../atlas/store.ts';
+import { readAtlasOverlay } from '../atlas/overlay.ts';
+import { buildSkeleton } from '../atlas/skeleton.ts';
 import { repoRelativeDir, shortlist } from '../explore/shortlist.ts';
 import { saveTrack, trackId, type TrackStep } from '../explore/tracks.ts';
 import { verifySandbox } from '../sandbox/canary.ts';
@@ -171,7 +172,7 @@ export class AgentDrills {
     await ensureWorkspace(paths);
     await excludeWorkspaceFromGit(repoRoot);
     const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(this.#configEnv()));
-    const candidates = withAtlas(await shortlist(repoRoot, module, config.profiles), await readAtlas(paths));
+    const candidates = withAtlas(await shortlist(repoRoot, module, config.profiles), (await readAtlasOverlay(paths, await buildSkeleton(repoRoot, config.profiles))).atlas);
     if (candidates.length < MIN_STEPS) {
       throw new AgentRequestError(`${module || 'The repository'} has ${candidates.length} source file(s) worth drilling; a Track needs at least ${MIN_STEPS}.`);
     }
@@ -208,9 +209,9 @@ export class AgentDrills {
     const { results, described } = await searchAtlasCommand(repoRoot, goal, { configEnv: this.#configEnv() });
     return {
       described,
-      results: results.slice(0, SEARCH_RESULTS).map(({ path, symbol, text, stale, state, tooLong }) => ({
+      results: results.slice(0, SEARCH_RESULTS).map(({ path, symbol, text, source, stale, state, tooLong }) => ({
         target: targetOf({ path, symbol }),
-        ...(text ? { atlas: stale ? `${text} (written before the code last changed)` : text } : {}),
+        ...(text ? { atlas: `${text}${stale ? ' (written before the code last changed)' : ''}${source ? ' (from Understand-Anything, not Fiu)' : ''}` } : {}),
         practice: state === 'green' ? 'practised' : state === 'amber' ? 'out of date or AI-changed' : state === 'red' ? 'complex, never practised' : 'never practised',
         ...(tooLong ? { tooLong: 'in a file over 3,000 lines: Fiu can\'t make a Workout from it' } : {}),
       })),

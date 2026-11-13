@@ -9,7 +9,8 @@ import { estimateCost, formatUsd, type ModelUsage } from '../cost/usage.ts';
 import { MissingApiKeyError, resolveApiKey } from '../credentials.ts';
 import { MIN_STEPS, planTrack, trackKinds, withAtlas, type PlannedStep, type TrackPlan } from '../explore/plan.ts';
 import { NOUN, type WorkoutKind } from '../synthesis/schema.ts';
-import { readAtlas } from '../atlas/store.ts';
+import { readAtlasOverlay } from '../atlas/overlay.ts';
+import { buildSkeleton } from '../atlas/skeleton.ts';
 import { ExploreTargetError, repoRelativeDir, shortlist } from '../explore/shortlist.ts';
 import { saveTrack, trackId, type TrackRecord, type TrackStep } from '../explore/tracks.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
@@ -99,7 +100,7 @@ export async function explore(
     throw error;
   }
 
-  const candidates = withAtlas(await shortlist(repoRoot, module, config.profiles), await readAtlas(paths));
+  const candidates = withAtlas(await shortlist(repoRoot, module, config.profiles), (await readAtlasOverlay(paths, await buildSkeleton(repoRoot, config.profiles))).atlas);
   if (candidates.length < MIN_STEPS) {
     throw new ExploreTargetError(
       `${module || 'The repository'} has ${candidates.length} source file(s) worth drilling; a Track needs at least ${MIN_STEPS}. Try a larger module, or \`fiu drill <file>\`.`,

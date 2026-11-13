@@ -9,6 +9,11 @@ const EntrySchema = z.object({
   hash: z.string(),
   text: z.string(),
   writtenAt: z.string(),
+  /**
+   * Set only in memory, on an entry read from another tool's output (ADR 0010): such an entry is shown
+   * with its source and never saved to `.fiu/atlas.json`.
+   */
+  source: z.literal('understand-anything').optional(),
 });
 const FileEntrySchema = EntrySchema.extend({
   /** One line per key function, by symbol name. */
@@ -29,13 +34,20 @@ export const emptyAtlas = (): Atlas => ({ version: 1, folders: {}, files: {} });
 
 export async function readAtlas(paths: Pick<WorkspacePaths, 'atlasFile'>): Promise<Atlas> {
   if (!existsSync(paths.atlasFile)) return emptyAtlas();
-  return AtlasSchema.parse(JSON.parse(await readFile(paths.atlasFile, 'utf8')));
+  return ownEntries(AtlasSchema.parse(JSON.parse(await readFile(paths.atlasFile, 'utf8'))));
+}
+
+/** Only the entries Fiu wrote: never one read from another tool (ADR 0010). */
+export function ownEntries(atlas: Atlas): Atlas {
+  const own = <E extends AtlasEntry>(record: Record<string, E>) => Object.fromEntries(Object.entries(record).filter(([, entry]) => entry.source === undefined));
+  return { version: 1, folders: own(atlas.folders), files: own(atlas.files) };
 }
 
 export async function writeAtlas(paths: Pick<WorkspacePaths, 'atlasFile'>, atlas: Atlas): Promise<void> {
   const sorted = (record: Record<string, unknown>) => Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
+  const own = ownEntries(atlas);
   const temporary = `${paths.atlasFile}.tmp`;
-  await writeFile(temporary, JSON.stringify({ version: 1, folders: sorted(atlas.folders), files: sorted(atlas.files) }, null, 2) + '\n');
+  await writeFile(temporary, JSON.stringify({ version: 1, folders: sorted(own.folders), files: sorted(own.files) }, null, 2) + '\n');
   await rename(temporary, paths.atlasFile);
 }
 

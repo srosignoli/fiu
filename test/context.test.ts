@@ -10,7 +10,7 @@ import { resolveConfig } from '../src/config.ts';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
 import { profiles } from '../src/languages/registry.ts';
 import { diffLines } from '../src/verify/diff.ts';
-import { answerPicker, answerTexts, aroundThisCode, distinctiveTokens, leakChecker, MODEL_WORD, NO_DESCRIPTIONS, otherVersions, targetNames } from '../src/workouts/context.ts';
+import { answerPicker, answerTexts, aroundThisCode, distinctiveTokens, leakChecker, MODEL_WORD, MODEL_WORD_UA, NO_DESCRIPTIONS, otherVersions, targetNames } from '../src/workouts/context.ts';
 import { saveDrill, sourceRevision } from '../src/workouts/save.ts';
 import { ensureWorkspace, workspacePaths } from '../src/workspace.ts';
 import { goodDiagnosis, goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
@@ -159,6 +159,27 @@ describe('Around this code', () => {
     ]);
     assert.equal(section.dropped, 0);
     assert.doesNotMatch(section.lines.join('\n'), /Picks the next job/, "the target function's own entry never appears");
+  });
+
+  it("uses Understand-Anything's entry when Fiu has none: marked, labelled, and through the same filter", async () => {
+    const { repo, paths, around } = await scheduler();
+    const { stdout: head } = await execa('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    const graph = (summary: string) =>
+      JSON.stringify({ project: { gitCommitHash: head.trim() }, nodes: [{ id: 'file:src/queue.ts', type: 'file', filePath: 'src/queue.ts', summary }] });
+    await mkdir(join(repo, '.ua'));
+    await writeFile(join(repo, '.ua/knowledge-graph.json'), graph('The queue jobs wait in. Second sentence.'));
+    const section = (await around())!;
+    assert.ok(section.lines.includes('- **This file:** The queue jobs wait in. (UA)'));
+    assert.equal(section.lines.at(-1), MODEL_WORD_UA);
+
+    await writeFile(join(repo, '.ua/knowledge-graph.json'), graph('Holds the jobs; pickNext chooses which runs.'));
+    const filtered = (await around())!;
+    assert.equal(filtered.dropped, 1);
+    assert.doesNotMatch(filtered.lines.join('\n'), /pickNext|This file/);
+
+    await writeFile(paths.configFile, JSON.stringify({ understandAnything: false }));
+    await writeFile(join(repo, '.ua/knowledge-graph.json'), graph('The queue jobs wait in.'));
+    assert.doesNotMatch((await around())!.lines.join('\n'), /This file/);
   });
 
   it('drops a description that names the target, and counts it', async () => {

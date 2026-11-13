@@ -2,7 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadLinks, NO_LINKS } from '../atlas/links.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
-import { entryState, readAtlas } from '../atlas/store.ts';
+import { fromUa, readAtlasOverlay, UA_LABEL, UA_MARK } from '../atlas/overlay.ts';
+import { entryState } from '../atlas/store.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { profileForFile } from '../languages/registry.ts';
 import { diffLines } from '../verify/diff.ts';
@@ -22,6 +23,8 @@ export interface Debrief {
   /** The target functions, with what the Atlas says each is for. */
   target: { name: string; text?: string }[];
   file?: { text: string; stale: boolean };
+  /** The file's entry, and so its functions', came from Understand-Anything's graph (ADR 0010). */
+  fromUa?: boolean;
   /** Files that use this one and mention a target function by name, with the names each mentions. */
   callers: { path: string; calls: string[] }[];
   usedBy: string[];
@@ -49,7 +52,7 @@ export async function buildDebrief({ paths, record, sourceChanged, profiles }: D
   const skeleton = await buildSkeleton(paths.repoRoot, profiles);
   const file = skeleton.files.get(path);
   if (!file) return debrief;
-  const atlas = await readAtlas(paths);
+  const { atlas } = await readAtlasOverlay(paths, skeleton);
   const links = await loadLinks(paths, skeleton, profiles);
   const own = links.files[path] ?? NO_LINKS;
   const hubs = new Set(links.hubs);
@@ -58,6 +61,7 @@ export async function buildDebrief({ paths, record, sourceChanged, profiles }: D
   const target = await findTarget(paths, record, file.symbols, profiles);
   debrief.target = target.map((name) => ({ name, ...(entry?.functions[name] ? { text: entry.functions[name] } : {}) }));
   if (entry) debrief.file = { text: entry.text.replace(/\s*\n\s*/g, ' '), stale: entryState(entry, file.hash) === 'stale' };
+  if (fromUa(entry)) debrief.fromUa = true;
 
   debrief.usedBy = own.importedBy;
   const spoken = [...new Set(target.map((name) => name.split('.').pop()!))];
@@ -127,8 +131,11 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const listed = (paths: string[]) => paths.slice(0, LISTED).join(', ') + (paths.length > LISTED ? `, and ${paths.length - LISTED} more` : '');
 const DESCRIPTIONS_NOTE = 'Descriptions are written by a model from the code, not Verified; links and signals are computed from imports and git history.';
 const LINKS_NOTE = 'Links and signals are computed from imports and git history.';
+const DESCRIPTIONS_NOTE_UA = `Descriptions are written by a model from the code, not Verified (those marked ${UA_MARK} by ${UA_LABEL}); links and signals are computed from imports and git history.`;
 const hasDescriptions = (d: Debrief) => d.target.some((t) => t.text) || d.file !== undefined;
-const note = (d: Debrief) => (hasDescriptions(d) ? DESCRIPTIONS_NOTE : LINKS_NOTE);
+const note = (d: Debrief) => (!hasDescriptions(d) ? LINKS_NOTE : d.fromUa ? DESCRIPTIONS_NOTE_UA : DESCRIPTIONS_NOTE);
+/** After a description from Understand-Anything. */
+const ua = (d: Debrief) => (d.fromUa ? ` ${UA_MARK}` : '');
 /** Which users call which target function: "all call x" when every user calls the one target. */
 function calling(d: Debrief, code: (text: string) => string): string {
   if (d.callers.length === 0) return '';
@@ -148,7 +155,7 @@ export function renderDebriefText(d: Debrief): string {
   if (d.anchors.length > 0) lines.push('  Where this lives:', ...d.anchors.map((a) => `    ${a.path}:${a.startLine}-${a.endLine}: ${a.explanation}`));
   const described = d.target.filter((t) => t.text);
   if (described.length > 0 || d.file) {
-    lines.push('  What it is for:', ...described.map((t) => `    #${t.name}  ${t.text}`), ...(d.file ? [`    This file: ${d.file.text}${d.file.stale ? ' (written before the code last changed)' : ''}`] : []));
+    lines.push('  What it is for:', ...described.map((t) => `    #${t.name}  ${t.text}${ua(d)}`), ...(d.file ? [`    This file: ${d.file.text}${d.file.stale ? ' (written before the code last changed)' : ''}${ua(d)}`] : []));
   }
   if (d.usedBy.length > 0) lines.push(`  Used by: ${listed(d.usedBy)}${calling(d, (s) => s)}`);
   if (d.signals.length > 0) lines.push('  Tensions:', ...d.signals.map((s) => `    ${s}`));
@@ -167,7 +174,7 @@ export function renderDebriefMarkdown(d: Debrief, record: WorkoutRecord): string
   if (d.anchors.length > 0) lines.push('## Where this lives', '', ...d.anchors.map((a) => `- \`${a.path}:${a.startLine}-${a.endLine}\`: ${a.explanation}`), '');
   const described = d.target.filter((t) => t.text);
   if (described.length > 0 || d.file) {
-    lines.push('## What it is for', '', ...described.map((t) => `- \`${t.name}\`: ${t.text}`), ...(d.file ? [`- This file: ${d.file.text}${d.file.stale ? ' *(written before the code last changed)*' : ''}`] : []), '');
+    lines.push('## What it is for', '', ...described.map((t) => `- \`${t.name}\`: ${t.text}${ua(d)}`), ...(d.file ? [`- This file: ${d.file.text}${d.file.stale ? ' *(written before the code last changed)*' : ''}${ua(d)}`] : []), '');
   }
   if (d.usedBy.length > 0) {
     lines.push('## Used by', '', `${d.usedBy.map((p) => `\`${p}\``).join(', ')}${calling(d, (s) => `\`${s}\``)}`, '');

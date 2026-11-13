@@ -3,7 +3,9 @@ import { dirname, join } from 'node:path';
 import { execa } from 'execa';
 import { existsSync } from 'node:fs';
 import { buildSkeleton } from '../atlas/skeleton.ts';
-import { entryState, readAtlas, staleCounts } from '../atlas/store.ts';
+import { readAtlasOverlay, uaNotice } from '../atlas/overlay.ts';
+import { findUaDir } from '../atlas/ua.ts';
+import { entryState, staleCounts } from '../atlas/store.ts';
 import { blindSpots, firstAnswers } from './stats.ts';
 import { isAiAuthored } from '../background/commits.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
@@ -52,6 +54,8 @@ export interface FileEntry {
 export interface AtlasNote {
   text: string;
   stale: boolean;
+  /** Set when the entry is Understand-Anything's, not Fiu's (ADR 0010). */
+  source?: 'understand-anything';
 }
 
 export interface DirEntry {
@@ -77,7 +81,7 @@ export interface MapReport {
   dirs: DirEntry[];
   suggestions: Suggestion[];
   /** Present once an Atlas exists: its overview, and how much of it is stale. */
-  atlas?: { overview?: AtlasNote; staleFiles: number; staleFolders: number };
+  atlas?: { overview?: AtlasNote; staleFiles: number; staleFolders: number; notice?: string };
 }
 
 export interface MapOptions {
@@ -153,11 +157,13 @@ export async function buildMap(cwd: string, scopePath = '', { configEnv = { env:
 
   const dirs = groupByDirectory(files);
   const report: MapReport = { repository: repo, scope, dirs, suggestions: suggest(dirs) };
-  if (existsSync(paths.atlasFile)) {
-    const atlas = await readAtlas(paths);
+  // The skeleton costs a read of every file: only when there is an Atlas, Fiu's or Understand-Anything's, to show.
+  if (existsSync(paths.atlasFile) || findUaDir(repo) !== undefined) {
     const skeleton = await buildSkeleton(repo, config.profiles);
-    const note = (entry: { text: string; hash: string } | undefined, hash: string | undefined): AtlasNote | undefined =>
-      entry && hash !== undefined ? { text: entry.text, stale: entryState(entry, hash) === 'stale' } : undefined;
+    const { atlas, build, ua } = await readAtlasOverlay(paths, skeleton);
+    const notice = uaNotice(ua);
+    const note = (entry: { text: string; hash: string; source?: 'understand-anything' } | undefined, hash: string | undefined): AtlasNote | undefined =>
+      entry && hash !== undefined ? { text: entry.text, stale: entryState(entry, hash) === 'stale', ...(entry.source ? { source: entry.source } : {}) } : undefined;
     for (const dir of dirs) {
       const folder = note(atlas.folders[dir.path], skeleton.folders.get(dir.path)?.hash);
       if (folder) dir.atlas = folder;
@@ -166,9 +172,10 @@ export async function buildMap(cwd: string, scopePath = '', { configEnv = { env:
         if (described) file.atlas = described;
       }
     }
-    const stale = staleCounts(atlas, skeleton);
+    // What `fiu atlas build` would refresh: files with a current Understand-Anything entry aren't counted.
+    const stale = staleCounts(build, skeleton);
     const overview = note(atlas.folders[''], skeleton.folders.get('')?.hash);
-    report.atlas = { ...(overview ? { overview } : {}), staleFiles: stale.files, staleFolders: stale.folders };
+    if (existsSync(paths.atlasFile) || notice) report.atlas = { ...(overview ? { overview } : {}), staleFiles: stale.files, staleFolders: stale.folders, ...(notice ? { notice } : {}) };
   }
   return report;
 }

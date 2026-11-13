@@ -6,7 +6,8 @@ import { loadLinks } from '../atlas/links.ts';
 import { atlasScope, buildSkeleton, foldersBottomUp, type Skeleton, type SkeletonFolder } from '../atlas/skeleton.ts';
 import type { AtlasView } from '../atlas/render.ts';
 import { searchAtlas } from '../atlas/search.ts';
-import { folderWork, readAtlas, writeAtlas, type Atlas } from '../atlas/store.ts';
+import { folderWork, writeAtlas, type Atlas } from '../atlas/store.ts';
+import { coveredByUa, readAtlasOverlay, savable, uaNotice } from '../atlas/overlay.ts';
 import { buildMap } from '../map/map.ts';
 import { repoRelativeDir } from '../explore/shortlist.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
@@ -36,10 +37,11 @@ export interface AtlasCall {
   wantFolder: boolean;
 }
 
+/** `fromUa`: files left undescribed because Understand-Anything's entry is current (ADR 0010). */
 export type AtlasBuildResult =
-  | { status: 'up-to-date' }
+  | { status: 'up-to-date'; fromUa: number }
   | { status: 'declined'; calls: number }
-  | { status: 'built'; folders: number; files: number; failed: { folder: string; problems: string[] }[]; cost: Cost };
+  | { status: 'built'; folders: number; files: number; failed: { folder: string; problems: string[] }[]; cost: Cost; fromUa: number };
 
 /** Every call a build of `scope` makes, deepest folders first: files in batches, the folder's entry with the last. */
 export function planAtlasCalls(atlas: Atlas, skeleton: Skeleton, scope: string): AtlasCall[] {
@@ -95,9 +97,11 @@ export async function buildAtlas(
 
   const skeleton = await buildSkeleton(repoRoot, config.profiles);
   const scope = atlasScope(repoRoot, cwd, path, skeleton);
-  const atlas = await readAtlas(paths);
+  // Files with a current Understand-Anything entry are left as they are: no tokens spent on them (ADR 0010).
+  const { build: atlas, own } = await readAtlasOverlay(paths, skeleton);
+  const fromUa = coveredByUa(atlas, own, skeleton, scope);
   const calls = planAtlasCalls(atlas, skeleton, scope);
-  if (calls.length === 0) return { status: 'up-to-date' };
+  if (calls.length === 0) return { status: 'up-to-date', fromUa };
 
   let apiKey: string;
   try {
@@ -127,7 +131,8 @@ export async function buildAtlas(
     if (!ui.confirm) throw new ConsentRequiredError(config.provider);
     const prompts = await Promise.all(calls.map(async (c) => folderPrompt(skeleton, atlas, c.folder, c.files, await read(c.files), { wantFolder: c.wantFolder })));
     const estimate = describeCost(estimateAtlasCost(calls, prompts, config.model, config.prices));
-    const question = `Describe ${folderCount} folder(s) and ${fileCount} file(s) in ${where}: ${calls.length} call(s) to ${config.model}, estimated ${estimate}. Go ahead?`;
+    const skipped = fromUa > 0 ? ` (${fromUa} more file(s) already have a current Understand-Anything description, and are skipped)` : '';
+    const question = `Describe ${folderCount} folder(s) and ${fileCount} file(s) in ${where}${skipped}: ${calls.length} call(s) to ${config.model}, estimated ${estimate}. Go ahead?`;
     if (!(await ui.confirm(question))) return { status: 'declined', calls: calls.length };
   }
 
@@ -166,11 +171,11 @@ export async function buildAtlas(
       continue;
     }
     applyAtlasOutput(atlas, skeleton, call.folder, result.output, now(), { wantFolder: call.wantFolder });
-    await writeAtlas(paths, atlas);
+    await writeAtlas(paths, savable(atlas, own));
     described.files += call.files.length;
     if (call.wantFolder) described.folders++;
   }
-  return { status: 'built', ...described, failed, cost: estimateCost(mergeByModel(usage), config.prices) };
+  return { status: 'built', ...described, failed, cost: estimateCost(mergeByModel(usage), config.prices), fromUa };
 }
 
 /** `fiu atlas search "<goal>"`: files and symbols for a goal, local and free, with the map state of each. */
@@ -179,10 +184,11 @@ export async function searchAtlasCommand(cwd: string, goal: string, { configEnv 
   const paths = workspacePaths(repoRoot);
   const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(configEnv));
   const skeleton = await buildSkeleton(repoRoot, config.profiles);
-  const atlas = await readAtlas(paths);
+  const { atlas, extras, ua } = await readAtlasOverlay(paths, skeleton);
   const map = await buildMap(repoRoot, '', { configEnv });
   const states = new Map(map.dirs.flatMap((d) => d.files.map((f) => [f.path, f.state] as const)));
-  return { results: searchAtlas(goal, skeleton, atlas, states), described: Object.keys(atlas.files).length > 0 };
+  const notice = uaNotice(ua);
+  return { results: searchAtlas(goal, skeleton, atlas, states, extras), described: Object.keys(atlas.files).length > 0, ...(notice ? { notice } : {}) };
 }
 
 /** `fiu atlas [<path>]`: what the Atlas holds for the repository, one folder, or one file (with its links). */
@@ -191,10 +197,11 @@ export async function atlasView(cwd: string, path: string | undefined, { configE
   const paths = workspacePaths(repoRoot);
   const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(configEnv));
   const skeleton = await buildSkeleton(repoRoot, config.profiles);
-  const atlas = await readAtlas(paths);
+  const { atlas, ua } = await readAtlasOverlay(paths, skeleton);
+  const notice = uaNotice(ua);
   const file = path === undefined ? undefined : repoRelativeDir(repoRoot, resolve(cwd, path));
   if (file !== undefined && skeleton.files.has(file)) {
-    return { name: basename(repoRoot), scope: file, file, skeleton, atlas, links: await loadLinks(paths, skeleton, config.profiles) };
+    return { name: basename(repoRoot), scope: file, file, skeleton, atlas, links: await loadLinks(paths, skeleton, config.profiles), ...(notice ? { notice } : {}) };
   }
-  return { name: basename(repoRoot), scope: atlasScope(repoRoot, cwd, path, skeleton), skeleton, atlas };
+  return { name: basename(repoRoot), scope: atlasScope(repoRoot, cwd, path, skeleton), skeleton, atlas, ...(notice ? { notice } : {}) };
 }

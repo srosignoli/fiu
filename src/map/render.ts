@@ -18,8 +18,9 @@ export function renderMap(report: MapReport, { color }: RenderOptions): string {
   const legend = `${paint('red', '●')} complex, never practised   ${paint('amber', '◐')} out of date or AI-changed   ${paint('green', '✓')} practised${hasBlind ? `   ${paint('red', '⚠')} Blind Spot: you were certain, and wrong` : ''}`;
 
   // An Atlas entry, dimmed, on the line under what it describes; ≈ when the code changed since.
-  const note = (indent: string, atlas: { text: string; stale: boolean } | undefined) =>
-    atlas ? atlas.text.split('\n').map((line, i) => paint('grey', `${indent}${i === 0 && atlas.stale ? '≈ ' : ''}${line}`)) : [];
+  // (UA) after an entry from Understand-Anything (ADR 0010).
+  const note = (indent: string, atlas: { text: string; stale: boolean; source?: string } | undefined) =>
+    atlas ? `${atlas.text}${atlas.source ? ' (UA)' : ''}`.split('\n').map((line, i) => paint('grey', `${indent}${i === 0 && atlas.stale ? '≈ ' : ''}${line}`)) : [];
 
   // Drilling into one directory: its files. Otherwise: every directory with something to say.
   const single = report.scope && report.dirs.length === 1 && report.dirs[0]!.path === report.scope;
@@ -49,6 +50,7 @@ export function renderMap(report: MapReport, { color }: RenderOptions): string {
     const changed = [report.atlas.staleFiles > 0 ? `${report.atlas.staleFiles} file(s)` : '', report.atlas.staleFolders > 0 ? `${report.atlas.staleFolders} folder(s)` : ''].filter(Boolean).join(' and ');
     lines.push('', paint('grey', `Atlas: ${changed} changed since described (≈): \`fiu atlas build\` to refresh.`));
   }
+  if (report.atlas?.notice) lines.push('', paint('grey', report.atlas.notice));
 
   if (report.suggestions.length > 0) {
     lines.push('', 'Next:');

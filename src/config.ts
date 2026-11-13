@@ -40,6 +40,8 @@ export const RepoConfigSchema = z.strictObject({
   kinds: KindsSchema.optional(),
   /** False turns off "Around this code" in new Workouts' READMEs (default on, §11.15). */
   context: z.boolean().optional(),
+  /** False stops Fiu reading Understand-Anything's knowledge graph when the repository has one (default on, ADR 0010). */
+  understandAnything: z.boolean().optional(),
   /** Team sharing: the remote the `fiu/workouts` branch lives on (default `origin`). */
   share: z.strictObject({ remote: z.string().min(1).optional() }).optional(),
   /** Background generation from commits (`fiu auto on`): its consent and caps. */

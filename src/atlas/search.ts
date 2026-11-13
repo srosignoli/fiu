@@ -10,6 +10,8 @@ export interface SearchResult {
   symbol?: string;
   /** The Atlas entry, when there is one. */
   text?: string;
+  /** Set when the entry is Understand-Anything's (ADR 0010). */
+  source?: 'understand-anything';
   stale: boolean;
   state: FileState;
   tooLong: boolean;
@@ -64,9 +66,16 @@ const RANK: Record<FileState, number> = { red: 0, amber: 1, grey: 2, green: 3 };
 /**
  * Files and symbols for a goal, best first: local and free. A match in a name (file path or symbol)
  * counts double over a match in an Atlas entry or in a method's class; among equals, functions before types, then the human's
- * map state, never-practised code first. Works on names alone before any entry is written.
+ * map state, never-practised code first. Works on names alone before any entry is written. `extras` are
+ * further words for a file (Understand-Anything's tags and layer), matched like its entry.
  */
-export function searchAtlas(goal: string, skeleton: Skeleton, atlas: Atlas, states: Map<string, FileState>): SearchResult[] {
+export function searchAtlas(
+  goal: string,
+  skeleton: Skeleton,
+  atlas: Atlas,
+  states: Map<string, FileState>,
+  extras: ReadonlyMap<string, { tags: string[]; layer?: string }> = new Map(),
+): SearchResult[] {
   const wanted = [...new Set(words(goal))];
   if (wanted.length === 0) return [];
   const results: SearchResult[] = [];
@@ -75,13 +84,16 @@ export function searchAtlas(goal: string, skeleton: Skeleton, atlas: Atlas, stat
     const entry = atlas.files[file.path];
     const stale = entryState(entry, file.hash) === 'stale';
     const state = states.get(file.path) ?? 'grey';
-    const fileScore = score(wanted, [[2, words(file.path)], [1, entry ? words(entry.text) : []]]);
-    if (fileScore > 0) results.push({ path: file.path, ...(entry ? { text: entry.text } : {}), stale, state, tooLong: file.tooLong, callable: true, score: fileScore });
+    const extra = extras.get(file.path);
+    const extraWords = extra ? words([...extra.tags, extra.layer ?? ''].join(' ')) : [];
+    const source = entry?.source ? { source: entry.source } : {};
+    const fileScore = score(wanted, [[2, words(file.path)], [1, entry ? words(entry.text) : []], [1, extraWords]]);
+    if (fileScore > 0) results.push({ path: file.path, ...(entry ? { text: entry.text, ...source } : {}), stale, state, tooLong: file.tooLong, callable: true, score: fileScore });
     for (const symbol of file.symbols) {
       const text = entry?.functions[symbol.name];
       const dot = symbol.name.lastIndexOf('.');
       const symbolScore = score(wanted, [[2, words(symbol.name.slice(dot + 1))], [1, words(symbol.name.slice(0, Math.max(dot, 0)))], [1, text ? words(text) : []]]);
-      if (symbolScore > 0) results.push({ path: file.path, symbol: symbol.name, ...(text ? { text } : {}), stale, state, tooLong: file.tooLong, callable: symbol.callable, score: symbolScore });
+      if (symbolScore > 0) results.push({ path: file.path, symbol: symbol.name, ...(text ? { text, ...source } : {}), stale, state, tooLong: file.tooLong, callable: symbol.callable, score: symbolScore });
     }
   }
   return results.sort((a, b) => b.score - a.score || Number(b.callable) - Number(a.callable) || RANK[a.state] - RANK[b.state] || Number(!!b.text) - Number(!!a.text) || a.path.localeCompare(b.path) || (a.symbol ?? '').localeCompare(b.symbol ?? ''));

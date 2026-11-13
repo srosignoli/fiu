@@ -2,7 +2,8 @@ import { posix } from 'node:path';
 import { loadLinks, NO_LINKS } from '../atlas/links.ts';
 import { words } from '../atlas/search.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
-import { entryState, readAtlas } from '../atlas/store.ts';
+import { fromUa, readAtlasOverlay, UA_LABEL, UA_MARK } from '../atlas/overlay.ts';
+import { entryState } from '../atlas/store.ts';
 import { extractSymbols } from '../atlas/symbols.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import type { DiagnosisCause, PredictionOption, WorkoutKind } from '../synthesis/schema.ts';
@@ -25,6 +26,8 @@ export interface AroundThisCode {
 /** Top entries per link row: any more and the section becomes reading homework. */
 const PER_ROW = 3;
 export const MODEL_WORD = '*Descriptions are written by a model from the code, not Verified; links are computed from imports and git history.*';
+/** When a description came from Understand-Anything's graph (ADR 0010). */
+export const MODEL_WORD_UA = `*Descriptions are written by a model from the code, not Verified (those marked ${UA_MARK} by ${UA_LABEL}); links are computed from imports and git history.*`;
 export const NO_DESCRIPTIONS = '*Links are computed from imports and git history. Run `fiu atlas build` for what these files are for.*';
 const STALE = ' *(written before the code last changed)*';
 
@@ -85,7 +88,7 @@ export async function aroundThisCode(options: AroundOptions): Promise<AroundThis
   const skeleton = await buildSkeleton(paths.repoRoot, profiles);
   const file = skeleton.files.get(sourcePath);
   if (!file) return undefined;
-  const atlas = await readAtlas(paths);
+  const { atlas } = await readAtlasOverlay(paths, skeleton);
   const links = await loadLinks(paths, skeleton, profiles);
   const own = links.files[sourcePath] ?? NO_LINKS;
   const hubs = new Set(links.hubs);
@@ -95,13 +98,15 @@ export async function aroundThisCode(options: AroundOptions): Promise<AroundThis
   const picksAnswer = options.answer ? answerPicker(options.answer) : () => false;
   const leaks = (text: string) => named(text) || picksAnswer(text);
   let dropped = 0;
-  const describe = (label: string, text: string | undefined, stale: boolean): string[] => {
+  let fromUnderstandAnything = false;
+  const describe = (label: string, text: string | undefined, stale: boolean, ua = false): string[] => {
     if (!text) return [];
     if (leaks(text)) {
       dropped++;
       return [];
     }
-    return [`- **${label}:** ${text.replace(/\s*\n\s*/g, ' ').trim()}${stale ? STALE : ''}`];
+    if (ua) fromUnderstandAnything = true;
+    return [`- **${label}:** ${text.replace(/\s*\n\s*/g, ' ').trim()}${stale ? STALE : ''}${ua ? ` ${UA_MARK}` : ''}`];
   };
 
   const folderPath = posix.dirname(sourcePath) === '.' ? '' : posix.dirname(sourcePath);
@@ -110,7 +115,7 @@ export async function aroundThisCode(options: AroundOptions): Promise<AroundThis
   const fileEntry = atlas.files[sourcePath];
   const descriptions = [
     ...describe(`Folder \`${folderPath}/\``, folderEntry?.text, folder !== undefined && entryState(folderEntry, folder.hash) === 'stale'),
-    ...(options.kind === 'prediction' ? [] : describe('This file', fileEntry?.text, entryState(fileEntry, file.hash) === 'stale')),
+    ...(options.kind === 'prediction' ? [] : describe('This file', fileEntry?.text, entryState(fileEntry, file.hash) === 'stale', fromUa(fileEntry))),
   ];
 
   const row = (label: string, paths: string[]): string[] =>
@@ -122,7 +127,7 @@ export async function aroundThisCode(options: AroundOptions): Promise<AroundThis
   ];
 
   if (descriptions.length === 0 && linkRows.length === 0) return dropped > 0 ? { lines: [], dropped } : undefined;
-  const label = descriptions.length > 0 ? MODEL_WORD : NO_DESCRIPTIONS;
+  const label = descriptions.length === 0 ? NO_DESCRIPTIONS : fromUnderstandAnything ? MODEL_WORD_UA : MODEL_WORD;
   return { lines: ['## Around this code', '', ...descriptions, ...linkRows, '', label], dropped };
 }
 

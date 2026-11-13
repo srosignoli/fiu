@@ -69,7 +69,7 @@ The section at the top of a Workout's README about what surrounds its target: wh
 _Avoid_: Context (too vague), hint (it must never help with the task)
 
 **Debrief**:
-What `fiu train` shows after an Attempt finishes, and keeps as `debrief.md`: where the code lives, what the target is for, who calls it, its tensions, and neighbours to practise next. Computed from today's code; nothing in it is Verified.
+What `fiu train` shows after an Attempt finishes, and keeps as `debrief.md`: where the code lives, what the target is for, which business flows it is a step of (when Understand-Anything's domain graph is there), who calls it, its tensions, and neighbours to practise next. Computed from today's code; nothing in it is Verified.
 _Avoid_: Reveal (that's the answer and its explanation, shown just before), summary
 
 **Starting Code**:

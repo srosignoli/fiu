@@ -14,6 +14,12 @@ import { tempGitRepo } from './helpers.ts';
 const names = (source: string) => extractSymbols(source).map((s) => `${s.name}:${s.startLine}-${s.endLine}`);
 
 describe('extractSymbols', () => {
+  it('finds a constant whose function starts on the next line, and not one whose value is an expression', () => {
+    const source = `const total =\n  (a + b) * 2;\nexport const preferCurrent =\n  (skeleton: Skeleton) =>\n  (kind: string): string => {\n    return kind;\n  };\nconst g =\n  async function () {\n    return 1;\n  };\n`;
+    assert.deepEqual(names(source), ['preferCurrent:3-7', 'g:8-11']);
+  });
+
+
   it('finds TypeScript functions, classes with their methods, arrow constants, and types', () => {
     const source = `import { x } from './x.ts';
 

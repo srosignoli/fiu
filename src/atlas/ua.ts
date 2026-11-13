@@ -16,6 +16,8 @@ import { entryState, type EntryState } from './store.ts';
 /** Where UA keeps its graph, in UA's own order: the legacy directory wins when it exists. */
 export const UA_DIRS = ['.understand-anything', '.ua'] as const;
 const GRAPH_FILE = 'knowledge-graph.json';
+/** Written by UA's `/understand-domain`: business domains, flows, and their ordered steps. Optional. */
+const DOMAIN_FILE = 'domain-graph.json';
 
 /** The Atlas's own length limit for an entry (§11.10). */
 const MAX_TEXT = 200;
@@ -65,6 +67,36 @@ export interface ForeignAtlas {
   tour: ForeignTourStep[];
   /** Code nodes (file, function, class) read, how many resolved to the skeleton, and entries skipped as unreadable. */
   counts: { codeNodes: number; matched: number; skipped: number };
+  /** Business flows from `domain-graph.json`, steps in order; empty when there is none. */
+  flows: ForeignFlow[];
+}
+
+/** One step of a flow: where it runs, when UA's path is a file of the skeleton. */
+export interface ForeignStep {
+  name: string;
+  path?: string;
+  /** 1-based, inclusive, at the commit UA analysed. */
+  lineRange?: [number, number];
+  /** The file is as it was at that commit, so the line range still holds. */
+  current: boolean;
+}
+
+/** A business flow: what starts it, its domain, and its steps in order. */
+export interface ForeignFlow {
+  name: string;
+  domain?: string;
+  /** What starts the flow, as UA wrote it (`fiu drill <path>`, `POST /orders`). */
+  entry?: string;
+  steps: ForeignStep[];
+}
+
+/** Where a flow passes through some code: the step, and whether it is that code or only its file. */
+export interface FlowMatch {
+  flow: ForeignFlow;
+  /** 0-based index of the step in the flow. */
+  index: number;
+  /** `code`: the step's lines overlap the code; `file`: the step is elsewhere in the same file, or the file changed since. */
+  where: 'code' | 'file';
 }
 
 export type ForeignAtlasResult =
@@ -94,6 +126,21 @@ type Node = z.infer<typeof NodeSchema>;
 
 const CODE_TYPES = new Set(['file', 'function', 'class']);
 
+const DomainNodeSchema = z.object({
+  id: text,
+  type: text,
+  name: text,
+  filePath: text.optional(),
+  lineRange: z.tuple([z.number().int().min(1), z.number().int().min(1)]).optional().catch(undefined),
+  domainMeta: z.object({ entryPoint: z.string().optional() }).optional().catch(undefined),
+});
+const DomainEdgeSchema = z.object({ source: text, target: text, type: text, weight: z.number().optional().catch(undefined) });
+const DomainGraphSchema = z.object({
+  project: z.object({ gitCommitHash: z.string().optional() }).optional().catch(undefined),
+  nodes: z.array(z.unknown()).optional().catch(undefined),
+  edges: z.array(z.unknown()).optional().catch(undefined),
+});
+
 /** The directory holding UA's graph, if any, relative to the repository root. */
 export function findUaDir(repoRoot: string): string | undefined {
   return UA_DIRS.find((dir) => existsSync(join(repoRoot, dir, GRAPH_FILE)));
@@ -113,7 +160,73 @@ export async function readForeignAtlas(repoRoot: string, skeleton: Skeleton): Pr
   if (!graph.success || !graph.data.nodes) return { status: 'unreadable', dir, reason: 'no nodes list' };
   const commit = graph.data.project?.gitCommitHash?.trim() || undefined;
   const hashes = commit ? await blobHashesAt(repoRoot, commit) : undefined;
-  return resolveGraph(graph.data, { dir, skeleton, ...(hashes ? { hashes } : {}) });
+  const result = resolveGraph(graph.data, { dir, skeleton, ...(hashes ? { hashes } : {}) });
+  if (result.status === 'read') result.atlas.flows = await readFlows(repoRoot, dir, skeleton, commit, hashes);
+  return result;
+}
+
+/** The domain graph's flows, or none when it is absent or unreadable: an extra, never a failure. */
+async function readFlows(repoRoot: string, dir: string, skeleton: Skeleton, graphCommit: string | undefined, graphHashes: Map<string, string> | undefined): Promise<ForeignFlow[]> {
+  const path = join(repoRoot, dir, DOMAIN_FILE);
+  if (!existsSync(path)) return [];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(path, 'utf8'));
+  } catch {
+    return [];
+  }
+  const graph = DomainGraphSchema.safeParse(raw);
+  if (!graph.success) return [];
+  const commit = graph.data.project?.gitCommitHash?.trim() || graphCommit;
+  const hashes = commit === graphCommit ? graphHashes : commit ? await blobHashesAt(repoRoot, commit) : undefined;
+  return resolveFlows(graph.data, { skeleton, ...(hashes ? { hashes } : {}) });
+}
+
+/**
+ * Pure: the flows of a domain graph, each step in order (by its `flow_step` edge's weight, ties in the
+ * order written), with its domain and what starts it. A step keeps its path only when the skeleton has
+ * that file, and is current when the file is unchanged since the commit UA analysed.
+ */
+export function resolveFlows(graph: z.infer<typeof DomainGraphSchema>, { skeleton, hashes }: { skeleton: Skeleton; hashes?: Map<string, string> }): ForeignFlow[] {
+  const parse = <T>(schema: z.ZodType<T>, items: unknown[] | undefined): T[] => (items ?? []).flatMap((item) => (schema.safeParse(item).success ? [schema.parse(item)] : []));
+  const nodes = new Map(parse(DomainNodeSchema, graph.nodes).map((node) => [node.id, node]));
+  const edges = parse(DomainEdgeSchema, graph.edges);
+  const flows: ForeignFlow[] = [];
+  for (const flow of nodes.values()) {
+    if (flow.type !== 'flow') continue;
+    const domain = edges.map((e) => (e.type === 'contains_flow' && e.target === flow.id ? nodes.get(e.source) : undefined)).find((n) => n?.type === 'domain');
+    const steps = edges
+      .map((edge, order) => ({ edge, order }))
+      .filter(({ edge }) => edge.type === 'flow_step' && edge.source === flow.id && nodes.get(edge.target)?.type === 'step')
+      .sort((a, b) => (a.edge.weight ?? 0) - (b.edge.weight ?? 0) || a.order - b.order)
+      .map(({ edge }): ForeignStep => {
+        const step = nodes.get(edge.target)!;
+        const path = step.filePath ? normalise(step.filePath) : undefined;
+        const file = path === undefined ? undefined : skeleton.files.get(path);
+        const range = step.lineRange && step.lineRange[0] <= step.lineRange[1] ? step.lineRange : undefined;
+        return { name: step.name.trim(), ...(file ? { path: file.path } : {}), ...(file && range ? { lineRange: range } : {}), current: file !== undefined && hashes?.get(file.path) === file.hash };
+      });
+    if (steps.length === 0) continue;
+    const entry = flow.domainMeta?.entryPoint?.trim();
+    flows.push({ name: flow.name.trim(), ...(domain ? { domain: domain.name.trim() } : {}), ...(entry ? { entry } : {}), steps });
+  }
+  return flows;
+}
+
+/**
+ * Where flows pass through some code of a file: the steps whose lines overlap `ranges` (today's lines of
+ * the target), when the file is unchanged since UA analysed it; otherwise a step elsewhere in the file.
+ * Overlapping steps first, at most one match per flow.
+ */
+export function flowsThrough(flows: ForeignFlow[], path: string, ranges: { startLine: number; endLine: number }[]): FlowMatch[] {
+  const matches: FlowMatch[] = [];
+  for (const flow of flows) {
+    const inFile = flow.steps.map((step, index) => ({ step, index })).filter(({ step }) => step.path === path);
+    if (inFile.length === 0) continue;
+    const overlapping = inFile.find(({ step }) => step.current && step.lineRange && ranges.some((r) => step.lineRange![0] <= r.endLine && step.lineRange![1] >= r.startLine));
+    matches.push(overlapping ? { flow, index: overlapping.index, where: 'code' } : { flow, index: inFile[0]!.index, where: 'file' });
+  }
+  return matches.sort((a, b) => Number(a.where === 'file') - Number(b.where === 'file'));
 }
 
 /**
@@ -204,6 +317,7 @@ export function resolveGraph(
     layers,
     tour,
     counts: { codeNodes, matched, skipped },
+    flows: [],
   };
   const warning =
     codeNodes >= MIN_NODES_TO_JUDGE && matched / codeNodes < MIN_MATCH_RATIO
@@ -258,8 +372,18 @@ export function firstSentence(text: string | undefined): string | undefined {
   if (!flat) return undefined;
   const end = flat.search(/[.!?](\s|$)/);
   const sentence = end >= 0 ? flat.slice(0, end + 1) : flat;
-  return sentence.length <= MAX_TEXT ? sentence : `${sentence.slice(0, MAX_TEXT - 1).replace(/\s+\S*$/, '')}…`;
+  if (sentence.length <= MAX_TEXT) return sentence;
+  // Too long: end at the last clause that fits (a comma, semicolon, colon, or dash), else at a word.
+  const room = sentence.slice(0, MAX_TEXT - 1);
+  const balanced = (end: number) => (room.slice(0, end).match(/[([{]/g) ?? []).length === (room.slice(0, end).match(/[)\]}]/g) ?? []).length;
+  for (let end = room.length; end >= MIN_CLAUSE; end--) {
+    if (/^(, |; |: | — | - )/.test(room.slice(end)) && balanced(end)) return `${room.slice(0, end)}…`;
+  }
+  return `${room.replace(/\s+\S*$/, '')}…`;
 }
+
+/** A clause shorter than this says too little to stand for the sentence: cut at a word instead. */
+const MIN_CLAUSE = 80;
 
 /** Every file's blob hash at a commit, or undefined when the commit isn't in this clone. */
 async function blobHashesAt(repoRoot: string, commit: string): Promise<Map<string, string> | undefined> {

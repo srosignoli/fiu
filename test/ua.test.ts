@@ -170,6 +170,11 @@ describe('resolveGraph', () => {
 });
 
 describe('firstSentence', () => {
+  it('cuts an overlong sentence at its last clause that fits, outside brackets', () => {
+    const long = `Implements the install command: writes the stamped skill (and its slash commands, the end-of-task block) at user or project scope, registers the MCP server with the agent, and records what it wrote so that uninstall can remove exactly that.`;
+    assert.equal(firstSentence(long), 'Implements the install command: writes the stamped skill (and its slash commands, the end-of-task block) at user or project scope, registers the MCP server with the agent…');
+  });
+
   it('keeps the first sentence, on one line, within 200 characters', () => {
     assert.equal(firstSentence('Does a thing.\nThen more. And more.'), 'Does a thing.');
     assert.equal(firstSentence('Handles v1.2 configs without a full stop'), 'Handles v1.2 configs without a full stop');
@@ -279,5 +284,174 @@ describe('prepare_atlas with Understand-Anything', async () => {
     const prepared = await prepareAtlas(dir, paths, profiles(), undefined);
     assert.equal(prepared.status, 'ready');
     assert.deepEqual(prepared.status === 'ready' && [prepared.folder, prepared.files], ['src', []]);
+  });
+});
+
+describe("Understand-Anything's flows", async () => {
+  const { readFile: read } = await import('node:fs/promises');
+  const { flowsThrough, resolveFlows } = await import('../src/atlas/ua.ts');
+  const FIXTURE = join(import.meta.dirname, 'fixtures/ua/refill-domain-graph.json');
+
+  /** A repository holding the files the fixture's steps run in, with UA's graphs analysed at its commit. */
+  async function refillRepo() {
+    const dir = await tempGitRepo();
+    for (const path of ['src/background/refill.ts', 'src/background/commits.ts', 'src/synthesis/generate.ts', 'src/background/log.ts']) {
+      await mkdir(join(dir, path, '..'), { recursive: true });
+      await writeFile(join(dir, path), `export function f() {\n  return '${path}';\n}\n`);
+    }
+    await execa('git', ['add', '.'], { cwd: dir });
+    await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], { cwd: dir });
+    const commit = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim();
+    const domain = JSON.parse(await read(FIXTURE, 'utf8'));
+    domain.project.gitCommitHash = commit;
+    await mkdir(join(dir, '.ua'));
+    await writeFile(join(dir, '.ua/knowledge-graph.json'), JSON.stringify({ project: { gitCommitHash: commit }, nodes: [] }));
+    await writeFile(join(dir, '.ua/domain-graph.json'), JSON.stringify(domain));
+    return dir;
+  }
+
+  it('reads a real domain graph: steps in order, with their domain, entry point, files and lines', async () => {
+    const dir = await refillRepo();
+    const result = await readForeignAtlas(dir, await buildSkeleton(dir, profiles()));
+    assert.equal(result.status, 'read');
+    if (result.status !== 'read') return;
+    assert.equal(result.atlas.flows.length, 1);
+    const [flow] = result.atlas.flows;
+    assert.equal(flow!.name, 'Refill the Queue from a Commit');
+    assert.equal(flow!.domain, 'Background Generation');
+    assert.match(flow!.entry ?? '', /fiu refill --background/);
+    assert.deepEqual(
+      flow!.steps.map((s) => [s.name, s.path, s.lineRange?.[0], s.current]),
+      [
+        ['Expire stale Workouts', 'src/background/refill.ts', 270, true],
+        ['Acquire the repository lock', 'src/background/refill.ts', 301, true],
+        ['Read and screen the commit', 'src/background/commits.ts', 22, true],
+        ['Choose the target file', 'src/background/commits.ts', 66, true],
+        ['Enforce queue and daily caps', 'src/background/refill.ts', 264, true],
+        ['Generate a Quick Workout', 'src/synthesis/generate.ts', 59, true],
+        ['Log the outcome', 'src/background/log.ts', 23, true],
+      ],
+    );
+
+    // A step is matched by its lines while the file is as UA read it; once it changes, only by its file.
+    assert.deepEqual(flowsThrough(result.atlas.flows, 'src/background/commits.ts', [{ startLine: 66, endLine: 98 }]).map((m) => [m.index, m.where]), [[3, 'code']]);
+    assert.deepEqual(flowsThrough(result.atlas.flows, 'src/background/commits.ts', [{ startLine: 1, endLine: 5 }]).map((m) => [m.index, m.where]), [[2, 'file']]);
+    assert.deepEqual(flowsThrough(result.atlas.flows, 'src/other.ts', [{ startLine: 1, endLine: 5 }]), []);
+    await writeFile(join(dir, 'src/background/commits.ts'), 'export function changed() {}\n');
+    const changed = await readForeignAtlas(dir, await buildSkeleton(dir, profiles()));
+    const flows = changed.status === 'read' ? changed.atlas.flows : [];
+    assert.deepEqual(flowsThrough(flows, 'src/background/commits.ts', [{ startLine: 66, endLine: 98 }]).map((m) => [m.index, m.where]), [[2, 'file']]);
+  });
+
+  it('orders tied weights as written, and skips what it cannot read', async () => {
+    const dir = await refillRepo();
+    const skeleton = await buildSkeleton(dir, profiles());
+    const flows = resolveFlows(
+      {
+        nodes: [
+          { id: 'flow:f', type: 'flow', name: 'F' },
+          { id: 'step:a', type: 'step', name: 'A', filePath: './src/background/log.ts', lineRange: [9, 3] },
+          { id: 'step:b', type: 'step', name: 'B', filePath: 'elsewhere.py' },
+          { id: 'step:c', type: 'step', name: 'C' },
+          'nonsense',
+          { id: 'flow:empty', type: 'flow', name: 'Empty' },
+        ],
+        edges: [
+          { source: 'flow:f', target: 'step:a', type: 'flow_step', weight: 0.1 },
+          { source: 'flow:f', target: 'step:c', type: 'flow_step', weight: 0.1 },
+          { source: 'flow:f', target: 'step:b', type: 'flow_step', weight: 0.05 },
+          { source: 'flow:f', target: 'step:missing', type: 'flow_step', weight: 0.2 },
+        ],
+      },
+      { skeleton },
+    );
+    assert.deepEqual(flows, [
+      {
+        name: 'F',
+        steps: [
+          { name: 'B', current: false },
+          // An inverted range is dropped; without hashes, nothing is current.
+          { name: 'A', path: 'src/background/log.ts', current: false },
+          { name: 'C', current: false },
+        ],
+      },
+    ]);
+  });
+
+  it('puts the flow in the Debrief: which step, the steps around it, and the next one to practise', async () => {
+    const { buildDebrief, renderDebriefMarkdown, renderDebriefText } = await import('../src/workouts/debrief.ts');
+    const { ensureWorkspace, workspacePaths } = await import('../src/workspace.ts');
+    const dir = await refillRepo();
+    const paths = workspacePaths(dir);
+    await ensureWorkspace(paths);
+    const lines = Array.from({ length: 280 }, (_, i) => (i === 269 ? 'export async function expireStaleWorkouts() {' : i === 277 ? '}' : ''));
+    await writeFile(join(dir, 'src/background/refill.ts'), `${lines.join('\n')}\n`);
+    await execa('git', ['add', '.'], { cwd: dir });
+    await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'refill'], { cwd: dir });
+    // UA analysed this commit.
+    const commit = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim();
+    const domain = JSON.parse(await read(FIXTURE, 'utf8'));
+    domain.project.gitCommitHash = commit;
+    await writeFile(join(dir, '.ua/domain-graph.json'), JSON.stringify(domain));
+    await writeFile(join(dir, '.ua/knowledge-graph.json'), JSON.stringify({ project: { gitCommitHash: commit }, nodes: [] }));
+
+    const record = {
+      id: 'drill_r',
+      title: 'Old Workouts never leave',
+      source: { path: 'src/background/refill.ts', dirty: false, symbol: 'expireStaleWorkouts' },
+      sourceAnchors: [{ path: 'src/background/refill.ts', startLine: 270, endLine: 278, explanation: 'Stale Workouts are discarded here.' }],
+    } as unknown as import('../src/workouts/save.ts').WorkoutRecord;
+    const debrief = await buildDebrief({ paths, record, sourceChanged: false, profiles: profiles() });
+    assert.deepEqual(debrief.flows, [
+      {
+        name: 'Refill the Queue from a Commit',
+        domain: 'Background Generation',
+        entry: debrief.flows[0]!.entry,
+        step: 1,
+        of: 7,
+        stepName: 'Expire stale Workouts',
+        where: 'code',
+        stale: false,
+        after: { name: 'Acquire the repository lock', path: 'src/background/refill.ts' },
+      },
+    ]);
+    // The next step in another file: the lock is in this one, so none to suggest from this flow.
+    assert.equal(debrief.tryNext.some((t) => t.why.includes('next step')), false);
+
+    const text = renderDebriefText(debrief);
+    assert.match(text, /Where it runs:\n {4}This code is step 1 of 7, "Expire stale Workouts", in "Refill the Queue from a Commit" \(Background Generation\) \(UA\)\n {6}starts with: .*fiu refill --background.*\n {6}after: Acquire the repository lock \(src\/background\/refill\.ts\)/);
+    assert.match(text, /Flows are Understand-Anything's reading of the code \(marked \(UA\)\), not Verified\./);
+    assert.match(renderDebriefMarkdown(debrief, record), /## Where it runs\n\n- This code is step 1 of 7/);
+
+    // Turned off: no flows.
+    await writeFile(paths.configFile, JSON.stringify({ understandAnything: false }));
+    assert.deepEqual((await buildDebrief({ paths, record, sourceChanged: false, profiles: profiles() })).flows, []);
+  });
+
+  it('suggests the next step of the flow when it runs in another file', async () => {
+    const { buildDebrief } = await import('../src/workouts/debrief.ts');
+    const { ensureWorkspace, workspacePaths } = await import('../src/workspace.ts');
+    const dir = await refillRepo();
+    const paths = workspacePaths(dir);
+    await ensureWorkspace(paths);
+    // chooseTarget on lines 66-98, as the fixture's step 4 says; UA analysed this commit.
+    const lines = Array.from({ length: 100 }, (_, i) => (i === 65 ? 'export async function chooseTarget() {' : i === 97 ? '}' : ''));
+    await writeFile(join(dir, 'src/background/commits.ts'), `${lines.join('\n')}\n`);
+    await execa('git', ['add', '.'], { cwd: dir });
+    await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'commits'], { cwd: dir });
+    const commit = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim();
+    const domain = JSON.parse(await read(FIXTURE, 'utf8'));
+    domain.project.gitCommitHash = commit;
+    await writeFile(join(dir, '.ua/domain-graph.json'), JSON.stringify(domain));
+
+    const record = {
+      id: 'drill_c',
+      title: 'The wrong file gets a Workout',
+      source: { path: 'src/background/commits.ts', dirty: false, symbol: 'chooseTarget' },
+      sourceAnchors: [{ path: 'src/background/commits.ts', startLine: 66, endLine: 98, explanation: 'The target file is chosen here.' }],
+    } as unknown as import('../src/workouts/save.ts').WorkoutRecord;
+    const debrief = await buildDebrief({ paths, record, sourceChanged: false, profiles: profiles() });
+    assert.deepEqual([debrief.flows[0]?.step, debrief.flows[0]?.where, debrief.flows[0]?.before?.name], [4, 'code', 'Read and screen the commit']);
+    assert.ok(debrief.tryNext.some((t) => t.command === 'fiu predict src/background/refill.ts' && t.why === 'it is the next step of "Refill the Queue from a Commit" (UA)'));
   });
 });

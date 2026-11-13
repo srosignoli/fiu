@@ -55,10 +55,20 @@ function sameWord(a: string, b: string): boolean {
 
 /**
  * A goal's score against named fields: each goal word scores its best field's weight (a name 2, an
- * entry or a method's class 1), so a word found twice counts once.
+ * entry or a method's class 1), so a word found twice counts once, times how rare the word is.
  */
-function score(goal: string[], fields: [weight: number, words: string[]][]): number {
-  return goal.reduce((sum, g) => sum + Math.max(0, ...fields.filter(([, found]) => found.some((w) => sameWord(g, w))).map(([weight]) => weight)), 0);
+function score(goal: string[], fields: [weight: number, words: string[]][], rarity: Map<string, number>): number {
+  return goal.reduce((sum, g) => sum + (rarity.get(g) ?? 1) * Math.max(0, ...fields.filter(([, found]) => found.some((w) => sameWord(g, w))).map(([weight]) => weight)), 0);
+}
+
+/**
+ * How much each goal word tells files apart: log(1 + files / files mentioning it), as inverse document
+ * frequency does. A word most files mention ("drill" in Fiu) counts for less than one few do ("verify"),
+ * so a match on the rare word outranks a match on the common one.
+ */
+function rarities(goal: string[], fileWords: string[][]): Map<string, number> {
+  const files = Math.max(fileWords.length, 1);
+  return new Map(goal.map((g) => [g, Math.log(1 + files / Math.max(1, fileWords.filter((found) => found.some((w) => sameWord(g, w))).length))]));
 }
 
 const RANK: Record<FileState, number> = { red: 0, amber: 1, grey: 2, green: 3 };
@@ -78,21 +88,30 @@ export function searchAtlas(
 ): SearchResult[] {
   const wanted = [...new Set(words(goal))];
   if (wanted.length === 0) return [];
+  const described = [...skeleton.files.values()].filter((file) => file.described);
+  const extraWordsOf = (path: string) => {
+    const extra = extras.get(path);
+    return extra ? words([...extra.tags, extra.layer ?? ''].join(' ')) : [];
+  };
+  const rarity = rarities(
+    wanted,
+    described.map((file) => {
+      const entry = atlas.files[file.path];
+      return [...words(file.path), ...(entry ? words([entry.text, ...Object.values(entry.functions)].join(' ')) : []), ...file.symbols.flatMap((s) => words(s.name)), ...extraWordsOf(file.path)];
+    }),
+  );
   const results: SearchResult[] = [];
-  for (const file of skeleton.files.values()) {
-    if (!file.described) continue;
+  for (const file of described) {
     const entry = atlas.files[file.path];
     const stale = entryState(entry, file.hash) === 'stale';
     const state = states.get(file.path) ?? 'grey';
-    const extra = extras.get(file.path);
-    const extraWords = extra ? words([...extra.tags, extra.layer ?? ''].join(' ')) : [];
     const source = entry?.source ? { source: entry.source } : {};
-    const fileScore = score(wanted, [[2, words(file.path)], [1, entry ? words(entry.text) : []], [1, extraWords]]);
+    const fileScore = score(wanted, [[2, words(file.path)], [1, entry ? words(entry.text) : []], [1, extraWordsOf(file.path)]], rarity);
     if (fileScore > 0) results.push({ path: file.path, ...(entry ? { text: entry.text, ...source } : {}), stale, state, tooLong: file.tooLong, callable: true, score: fileScore });
     for (const symbol of file.symbols) {
       const text = entry?.functions[symbol.name];
       const dot = symbol.name.lastIndexOf('.');
-      const symbolScore = score(wanted, [[2, words(symbol.name.slice(dot + 1))], [1, words(symbol.name.slice(0, Math.max(dot, 0)))], [1, text ? words(text) : []]]);
+      const symbolScore = score(wanted, [[2, words(symbol.name.slice(dot + 1))], [1, words(symbol.name.slice(0, Math.max(dot, 0)))], [1, text ? words(text) : []]], rarity);
       if (symbolScore > 0) results.push({ path: file.path, symbol: symbol.name, ...(text ? { text, ...source } : {}), stale, state, tooLong: file.tooLong, callable: symbol.callable, score: symbolScore });
     }
   }

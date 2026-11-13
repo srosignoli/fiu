@@ -68,14 +68,30 @@ describe('searchAtlas', () => {
 
     const atlas = await describe_(dir);
     const results = searchAtlas('retrying failed jobs', skeleton, atlas, states);
-    // retry.ts: its name (2), and "failed job" in its entry (1 each). runJob: its name (2) and "failed" (1);
-    // retryWithBackoff ties it, but runJob was never practised.
-    assert.deepEqual(results.slice(0, 3).map((r) => [targetOf(r), r.score]), [
-      ['src/queue/retry.ts', 4],
-      ['src/queue/worker.ts#runJob', 3],
-      ['src/queue/retry.ts#retryWithBackoff', 3],
-    ]);
+    // retry.ts: its name, and "failed job" in its entry. runJob: its name and "failed"; retryWithBackoff
+    // ties it, but runJob was never practised. (Each word's weight is scaled by how rare it is.)
+    assert.deepEqual(results.slice(0, 3).map(targetOf), ['src/queue/retry.ts', 'src/queue/worker.ts#runJob', 'src/queue/retry.ts#retryWithBackoff']);
+    assert.ok(results[0]!.score > results[1]!.score);
+    assert.equal(results[1]!.score, results[2]!.score);
     assert.equal(results[2]!.text, 'Waits longer after each failure before trying again.');
+  });
+
+  it('weights a rare word over a common one', async () => {
+    const dir = await tempGitRepo();
+    const files: Record<string, string> = {
+      'src/drill/a.ts': 'export function drillA() {\n  return 1;\n}\n',
+      'src/drill/b.ts': 'export function drillB() {\n  return 1;\n}\n',
+      'src/drill/c.ts': 'export function drillC() {\n  return 1;\n}\n',
+      'src/verify/gate.ts': 'export function verify() {\n  return 1;\n}\n',
+    };
+    for (const [name, content] of Object.entries(files)) {
+      await mkdir(join(dir, name, '..'), { recursive: true });
+      await writeFile(join(dir, name), content);
+    }
+    await execa('git', ['add', '.'], { cwd: dir });
+    // "drill" names three files of four, "verify" one: the gate comes first.
+    const results = searchAtlas('how a drill is verified', await buildSkeleton(dir, profiles()), emptyAtlas(), new Map());
+    assert.equal(results[0]!.path, 'src/verify/gate.ts');
   });
 
   it('matches a word to its longer forms', async () => {

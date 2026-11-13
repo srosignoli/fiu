@@ -41,6 +41,10 @@ const PATTERNS: Pattern[] = [
   },
 ];
 
+/** A constant whose value starts on the next line, and that value being a function. */
+const SPLIT_CONST = new RegExp(`^(?<indent>\\s*)${MODIFIERS}(?:const|let|var)\\s+(?<name>${IDENT})\\s*(?::[^=]+)?=\\s*$`);
+const SPLIT_VALUE = new RegExp(`^\\s*(?:async\\s*)?(?:function\\b|\\([^)]*\\)\\s*(?::[^=]+)?=>|${IDENT}\\s*=>)`);
+
 const NOT_A_NAME = new Set(['if', 'for', 'while', 'switch', 'catch', 'return', 'function', 'await', 'typeof', 'else', 'do', 'try', 'with', 'new']);
 
 interface Declaration {
@@ -59,6 +63,12 @@ export function extractSymbols(source: string, declarationPattern?: string): Atl
   const patterns: Pattern[] = declarationPattern ? [{ regex: new RegExp(declarationPattern), callable: true }] : PATTERNS;
   const declarations: Declaration[] = [];
   lines.forEach((text, i) => {
+    // `const name =` with the function on the next line (`(skeleton) =>`, `async function`).
+    const split = declarationPattern ? undefined : SPLIT_CONST.exec(text)?.groups;
+    if (split?.name && SPLIT_VALUE.test(lines.slice(i + 1).find((line) => line.trim() !== '') ?? '')) {
+      declarations.push({ name: split.name, line: i + 1, indent: split.indent!.length, callable: true, container: false, method: false });
+      return;
+    }
     for (const pattern of patterns) {
       const groups = pattern.regex.exec(text)?.groups;
       if (!groups?.name || NOT_A_NAME.has(groups.name)) continue;

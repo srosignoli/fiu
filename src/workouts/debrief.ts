@@ -4,6 +4,7 @@ import { loadLinks, NO_LINKS } from '../atlas/links.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
 import { fromUa, readAtlasOverlay, UA_LABEL, UA_MARK } from '../atlas/overlay.ts';
 import { entryState } from '../atlas/store.ts';
+import { flowsThrough, type FlowMatch } from '../atlas/ua.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { profileForFile } from '../languages/registry.ts';
 import { diffLines } from '../verify/diff.ts';
@@ -30,7 +31,26 @@ export interface Debrief {
   usedBy: string[];
   /** Computed tension signals, one sentence each. */
   signals: string[];
+  /** The business flows this code is a step of, from Understand-Anything's domain graph (ADR 0010). */
+  flows: DebriefFlow[];
   tryNext: { command: string; why: string }[];
+}
+
+/** One flow through the target: where it starts, which step this is, and the steps either side. */
+export interface DebriefFlow {
+  name: string;
+  domain?: string;
+  entry?: string;
+  /** 1-based. */
+  step: number;
+  of: number;
+  stepName: string;
+  /** `code`: this step is the target's code; `file`: the step is elsewhere in the target's file. */
+  where: FlowMatch['where'];
+  /** The file changed since UA analysed it. */
+  stale: boolean;
+  before?: { name: string; path?: string };
+  after?: { name: string; path?: string };
 }
 
 export interface DebriefOptions {
@@ -41,18 +61,19 @@ export interface DebriefOptions {
   profiles?: readonly LanguageProfile[];
 }
 
-/** At most this many "Try next" suggestions, and this many files in a list. */
+/** At most this many "Try next" suggestions, and this many files in a list; at most this many flows. */
 const TRY_NEXT = 3;
+const FLOWS = 2;
 const LISTED = 5;
 
 export async function buildDebrief({ paths, record, sourceChanged, profiles }: DebriefOptions): Promise<Debrief> {
-  const debrief: Debrief = { sourceChanged, anchors: record.sourceAnchors, target: [], callers: [], usedBy: [], signals: [], tryNext: [] };
+  const debrief: Debrief = { sourceChanged, anchors: record.sourceAnchors, target: [], callers: [], usedBy: [], signals: [], flows: [], tryNext: [] };
   if (!profiles) return debrief;
   const path = record.source.path;
   const skeleton = await buildSkeleton(paths.repoRoot, profiles);
   const file = skeleton.files.get(path);
   if (!file) return debrief;
-  const { atlas } = await readAtlasOverlay(paths, skeleton);
+  const { atlas, ua } = await readAtlasOverlay(paths, skeleton);
   const links = await loadLinks(paths, skeleton, profiles);
   const own = links.files[path] ?? NO_LINKS;
   const hubs = new Set(links.hubs);
@@ -62,6 +83,26 @@ export async function buildDebrief({ paths, record, sourceChanged, profiles }: D
   debrief.target = target.map((name) => ({ name, ...(entry?.functions[name] ? { text: entry.functions[name] } : {}) }));
   if (entry) debrief.file = { text: entry.text.replace(/\s*\n\s*/g, ' '), stale: entryState(entry, file.hash) === 'stale' };
   if (fromUa(entry)) debrief.fromUa = true;
+  if (ua.status === 'read') {
+    const ranges = file.symbols.filter((s) => target.includes(s.name));
+    debrief.flows = flowsThrough(ua.atlas.flows, path, ranges).slice(0, FLOWS).map(({ flow, index, where }) => {
+      const step = flow.steps[index]!;
+      const neighbour = (i: number) => (flow.steps[i] ? { name: flow.steps[i]!.name, ...(flow.steps[i]!.path ? { path: flow.steps[i]!.path } : {}) } : undefined);
+      const [before, after] = [neighbour(index - 1), neighbour(index + 1)];
+      return {
+        name: flow.name,
+        ...(flow.domain ? { domain: flow.domain } : {}),
+        ...(flow.entry ? { entry: flow.entry } : {}),
+        step: index + 1,
+        of: flow.steps.length,
+        stepName: step.name,
+        where,
+        stale: !step.current,
+        ...(before ? { before } : {}),
+        ...(after ? { after } : {}),
+      };
+    });
+  }
 
   debrief.usedBy = own.importedBy;
   const spoken = [...new Set(target.map((name) => name.split('.').pop()!))];
@@ -87,6 +128,9 @@ export async function buildDebrief({ paths, record, sourceChanged, profiles }: D
   if (caller) suggest(`fiu predict ${caller.path}`, `it calls ${caller.calls[0]}`);
   else if (own.importedBy[0]) suggest(`fiu predict ${own.importedBy[0]}`, 'it uses this file');
   if (hidden[0]) suggest(`fiu diagnose ${hidden[0].path}`, 'it changes with this file, though neither imports the other');
+  // The next step of a flow, in another file: where the work goes after this code.
+  const next = debrief.flows.find((f) => f.after?.path && f.after.path !== path);
+  if (next) suggest(`fiu predict ${next.after!.path}`, `it is the next step of "${next.name}" (UA)`);
   const dependency = own.imports.find((p) => !p.endsWith('/'));
   if (dependency) suggest(`fiu drill ${dependency}`, 'this file uses it');
   return debrief;
@@ -132,8 +176,21 @@ const listed = (paths: string[]) => paths.slice(0, LISTED).join(', ') + (paths.l
 const DESCRIPTIONS_NOTE = 'Descriptions are written by a model from the code, not Verified; links and signals are computed from imports and git history.';
 const LINKS_NOTE = 'Links and signals are computed from imports and git history.';
 const DESCRIPTIONS_NOTE_UA = `Descriptions are written by a model from the code, not Verified (those marked ${UA_MARK} by ${UA_LABEL}); links and signals are computed from imports and git history.`;
+const FLOWS_NOTE = `Flows are ${UA_LABEL}'s reading of the code (marked ${UA_MARK}), not Verified.`;
 const hasDescriptions = (d: Debrief) => d.target.some((t) => t.text) || d.file !== undefined;
-const note = (d: Debrief) => (!hasDescriptions(d) ? LINKS_NOTE : d.fromUa ? DESCRIPTIONS_NOTE_UA : DESCRIPTIONS_NOTE);
+const note = (d: Debrief) =>
+  [!hasDescriptions(d) ? LINKS_NOTE : d.fromUa ? DESCRIPTIONS_NOTE_UA : DESCRIPTIONS_NOTE, ...(d.flows.length > 0 && !d.fromUa ? [FLOWS_NOTE] : [])].join(' ');
+/** Which step of which flow this is: `This code is step 1 of 7, "Expire stale Workouts", in "Refill the Queue from a Commit"`. */
+const flowHead = (f: DebriefFlow) =>
+  `${f.where === 'code' ? 'This code is' : 'This file holds'} step ${f.step} of ${f.of}, "${f.stepName}", in "${f.name}"${f.domain ? ` (${f.domain})` : ''} ${UA_MARK}${f.stale ? ', read before the file last changed' : ''}`;
+const flowSides = (f: DebriefFlow, code: (s: string) => string) => {
+  const side = (s: { name: string; path?: string }) => `${s.name}${s.path ? ` (${code(s.path)})` : ''}`;
+  return [
+    ...(f.entry ? [`starts with: ${code(f.entry)}`] : []),
+    ...(f.before ? [`before: ${side(f.before)}`] : []),
+    ...(f.after ? [`after: ${side(f.after)}`] : []),
+  ];
+};
 /** After a description from Understand-Anything. */
 const ua = (d: Debrief) => (d.fromUa ? ` ${UA_MARK}` : '');
 /** Which users call which target function: "all call x" when every user calls the one target. */
@@ -146,7 +203,7 @@ function calling(d: Debrief, code: (text: string) => string): string {
   return ` (calling ${listed(d.callers.map((c) => `${code(c.path)} → ${c.calls.map(code).join(', ')}`))})`;
 }
 const CHANGED_NOTE = 'The source has changed since this Workout was made: what follows is about today\'s code.';
-const hasContext = (d: Debrief) => d.target.some((t) => t.text) || d.file !== undefined || d.usedBy.length > 0 || d.signals.length > 0 || d.tryNext.length > 0;
+const hasContext = (d: Debrief) => d.target.some((t) => t.text) || d.file !== undefined || d.usedBy.length > 0 || d.signals.length > 0 || d.flows.length > 0 || d.tryNext.length > 0;
 
 /** The Debrief as the terminal shows it. */
 export function renderDebriefText(d: Debrief): string {
@@ -157,6 +214,7 @@ export function renderDebriefText(d: Debrief): string {
   if (described.length > 0 || d.file) {
     lines.push('  What it is for:', ...described.map((t) => `    #${t.name}  ${t.text}${ua(d)}`), ...(d.file ? [`    This file: ${d.file.text}${d.file.stale ? ' (written before the code last changed)' : ''}${ua(d)}`] : []));
   }
+  if (d.flows.length > 0) lines.push('  Where it runs:', ...d.flows.flatMap((f) => [`    ${flowHead(f)}`, ...flowSides(f, (s) => s).map((s) => `      ${s}`)]));
   if (d.usedBy.length > 0) lines.push(`  Used by: ${listed(d.usedBy)}${calling(d, (s) => s)}`);
   if (d.signals.length > 0) lines.push('  Tensions:', ...d.signals.map((s) => `    ${s}`));
   if (d.tryNext.length > 0) {
@@ -175,6 +233,10 @@ export function renderDebriefMarkdown(d: Debrief, record: WorkoutRecord): string
   const described = d.target.filter((t) => t.text);
   if (described.length > 0 || d.file) {
     lines.push('## What it is for', '', ...described.map((t) => `- \`${t.name}\`: ${t.text}${ua(d)}`), ...(d.file ? [`- This file: ${d.file.text}${d.file.stale ? ' *(written before the code last changed)*' : ''}${ua(d)}`] : []), '');
+  }
+  if (d.flows.length > 0) {
+    const code = (s: string) => `\`${s}\``;
+    lines.push('## Where it runs', '', ...d.flows.flatMap((f) => [`- ${flowHead(f)}`, ...flowSides(f, code).map((s) => `  - ${s}`)]), '');
   }
   if (d.usedBy.length > 0) {
     lines.push('## Used by', '', `${d.usedBy.map((p) => `\`${p}\``).join(', ')}${calling(d, (s) => `\`${s}\``)}`, '');

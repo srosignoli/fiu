@@ -135,7 +135,7 @@ describe('the Debrief', () => {
 
 describe('a Debrief from Understand-Anything', () => {
   it('marks its descriptions and says whose they are', () => {
-    const debrief = { sourceChanged: false, anchors: [], target: [{ name: 'pickNext', text: 'Chooses the job to run.' }], file: { text: 'The queue.', stale: false }, fromUa: true, callers: [], usedBy: [], signals: [], tryNext: [] };
+    const debrief = { sourceChanged: false, anchors: [], target: [{ name: 'pickNext', text: 'Chooses the job to run.' }], file: { text: 'The queue.', stale: false }, fromUa: true, callers: [], usedBy: [], signals: [], flows: [], tryNext: [] };
     const text = renderDebriefText(debrief);
     assert.match(text, /#pickNext {2}Chooses the job to run\. \(UA\)/);
     assert.match(text, /This file: The queue\. \(UA\)/);

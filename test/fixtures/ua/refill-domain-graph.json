@@ -1,0 +1,236 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "fiu",
+    "languages": [
+      "typescript"
+    ],
+    "frameworks": [
+      "commander",
+      "zod",
+      "Vercel AI SDK",
+      "Model Context Protocol SDK",
+      "node:test"
+    ],
+    "description": "Fiu is a CLI that keeps developers fluent in code they (or AI agents) did not write, by turning real repository code into small, verified practice Workouts (Drills, Katas, Predictions, What-ifs, Diagnoses), organising them into Tracks, mapping the repository in an Atlas, and tracking comprehension debt.",
+    "analyzedAt": "2026-11-13T09:43:07.000Z",
+    "gitCommitHash": "d6a57704ca706b5a396ad785e90c73208c5b5de1"
+  },
+  "nodes": [
+    {
+      "id": "domain:background-generation",
+      "type": "domain",
+      "name": "Background Generation",
+      "summary": "Practises new code automatically: a post-commit hook runs `fiu refill`, which turns each commit into a Quick Workout under a per-repository lock, queue and daily caps, and logs every outcome.",
+      "tags": [
+        "background",
+        "git-hook",
+        "automation",
+        "queue"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entities": [
+          "Commit",
+          "Post-commit hook",
+          "Backlog",
+          "Quick queue",
+          "Refill log",
+          "Auto caps"
+        ],
+        "businessRules": [
+          "Enabling background generation requires consent to send code to the provider.",
+          "Default caps: queue cap 3, daily limit 5 generations, expiry 14 days, aiOnly off.",
+          "Only one generator runs per repository (lock file); further commits are queued in a backlog of 5.",
+          "Merge commits, commits made during a merge/rebase/cherry-pick/revert, commits by another author, and (with aiOnly) non-AI commits are skipped.",
+          "At most one drillable file per commit is chosen: the recognised source file with the most changed lines.",
+          "Background Workouts that sit in the queue past their expiry are discarded.",
+          "The hook installer only edits Fiu's marked block and never touches the user's own hook lines."
+        ],
+        "crossDomainInteractions": [
+          "Delegates generation to Workout Generation.",
+          "Fills the Quick queue consumed by Training & Practice."
+        ]
+      }
+    },
+    {
+      "id": "flow:refill-from-commit",
+      "type": "flow",
+      "name": "Refill the Queue from a Commit",
+      "summary": "On each commit the hook runs `fiu refill --background`, which turns the commit into a Quick Workout while enforcing locks, skip rules and caps, and logs the outcome.",
+      "tags": [
+        "refill",
+        "commit"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "post-commit hook -> fiu refill --background --commit <sha>",
+        "entryType": "event"
+      }
+    },
+    {
+      "id": "step:refill-from-commit:expire-stale",
+      "type": "step",
+      "name": "Expire stale Workouts",
+      "filePath": "src/background/refill.ts",
+      "lineRange": [
+        270,
+        278
+      ],
+      "summary": "Discards background Workouts that sat in the queue past their expiry.",
+      "tags": [
+        "queue"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:refill-from-commit:acquire-lock",
+      "type": "step",
+      "name": "Acquire the repository lock",
+      "filePath": "src/background/refill.ts",
+      "lineRange": [
+        301,
+        318
+      ],
+      "summary": "Takes the per-repo lock, taking over dead or hung holders; otherwise queues the commit in the backlog.",
+      "tags": [
+        "lock"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:refill-from-commit:read-commit",
+      "type": "step",
+      "name": "Read and screen the commit",
+      "filePath": "src/background/commits.ts",
+      "lineRange": [
+        22,
+        26
+      ],
+      "summary": "Reads the commit, detects AI co-authorship, and skips merges, in-progress operations and other authors.",
+      "tags": [
+        "git",
+        "ai-detection"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:refill-from-commit:choose-target",
+      "type": "step",
+      "name": "Choose the target file",
+      "filePath": "src/background/commits.ts",
+      "lineRange": [
+        66,
+        98
+      ],
+      "summary": "Picks at most one drillable file: the recognised source file with the most changed lines.",
+      "tags": [
+        "target"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:refill-from-commit:enforce-caps",
+      "type": "step",
+      "name": "Enforce queue and daily caps",
+      "filePath": "src/background/refill.ts",
+      "lineRange": [
+        264,
+        267
+      ],
+      "summary": "Defers when the queue cap is reached or today's generation limit is used up.",
+      "tags": [
+        "caps"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:refill-from-commit:generate-quick-workout",
+      "type": "step",
+      "name": "Generate a Quick Workout",
+      "filePath": "src/synthesis/generate.ts",
+      "lineRange": [
+        59,
+        136
+      ],
+      "summary": "Generates, verifies and saves the Workout through the shared pipeline.",
+      "tags": [
+        "synthesis"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:refill-from-commit:log-outcome",
+      "type": "step",
+      "name": "Log the outcome",
+      "filePath": "src/background/log.ts",
+      "lineRange": [
+        23,
+        25
+      ],
+      "summary": "Appends the commit's outcome to the JSON-lines log for later failure summaries.",
+      "tags": [
+        "log"
+      ],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "domain:background-generation",
+      "target": "flow:refill-from-commit",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:expire-stale",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.14
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:acquire-lock",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.29
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:read-commit",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.43
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:choose-target",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.57
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:enforce-caps",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.71
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:generate-quick-workout",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.86
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:log-outcome",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    }
+  ]
+}

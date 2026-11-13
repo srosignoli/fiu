@@ -17,6 +17,8 @@ export interface Candidate {
   outline: string[];
   /** What the Atlas says the file and its key functions are for, when it has an entry: shown in place of the outline. */
   atlas?: string;
+  /** For a Track following a flow: the flow's steps this file runs (`step 3 of 7: Read and screen the commit`). */
+  flowSteps?: string;
 }
 
 export const SHORTLIST_SIZE = 10;
@@ -45,26 +47,35 @@ export async function shortlist(repoRoot: string, modulePath: string, profiles: 
   const { stdout } = await execa('git', ['ls-files', '-z', '--', modulePath || '.'], { cwd: repoRoot });
   const candidates: Candidate[] = [];
   for (const path of stdout.split('\0').filter(Boolean)) {
-    if (!isDrillableSourcePath(path)) continue;
-    let profile: LanguageProfile;
-    try {
-      profile = profileForFile(path, profiles);
-    } catch (error) {
-      if (error instanceof UnsupportedLanguageError) continue;
-      throw error;
-    }
-    const source = await readFile(join(repoRoot, path), 'utf8').catch(() => undefined);
-    if (source === undefined) continue;
-    const scored = logicScore(source);
-    if (!scored) continue;
-    candidates.push({
-      path: path.split(sep).join('/'),
-      profile,
-      ...scored,
-      outline: source.split('\n').filter((line) => DECLARATION.test(line)).slice(0, OUTLINE_LINES).map((line) => line.trim().slice(0, 120)),
-    });
+    const candidate = await candidateFor(repoRoot, path, profiles);
+    if (candidate) candidates.push(candidate);
   }
   return candidates.sort((a, b) => b.score - a.score).slice(0, SHORTLIST_SIZE);
+}
+
+/**
+ * One file as a Track candidate, or undefined when it isn't worth a step: a test or generated file, a
+ * language Fiu doesn't know, or too short or too long to drill.
+ */
+export async function candidateFor(repoRoot: string, path: string, profiles: readonly LanguageProfile[]): Promise<Candidate | undefined> {
+  if (!isDrillableSourcePath(path)) return undefined;
+  let profile: LanguageProfile;
+  try {
+    profile = profileForFile(path, profiles);
+  } catch (error) {
+    if (error instanceof UnsupportedLanguageError) return undefined;
+    throw error;
+  }
+  const source = await readFile(join(repoRoot, path), 'utf8').catch(() => undefined);
+  if (source === undefined) return undefined;
+  const scored = logicScore(source);
+  if (!scored) return undefined;
+  return {
+    path: path.split(sep).join('/'),
+    profile,
+    ...scored,
+    outline: source.split('\n').filter((line) => DECLARATION.test(line)).slice(0, OUTLINE_LINES).map((line) => line.trim().slice(0, 120)),
+  };
 }
 
 /**

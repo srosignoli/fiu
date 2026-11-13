@@ -10,6 +10,7 @@ import { continueTrack, formatProgress } from '../src/commands/track.ts';
 import type { TrainIo } from '../src/commands/train.ts';
 import { emptyAtlas } from '../src/atlas/store.ts';
 import { candidatesPrompt, checkPlan, trackKinds, trackRules, withAtlas, type TrackPlan } from '../src/explore/plan.ts';
+import { findFlow, flowCandidates, flowModule } from '../src/explore/flows.ts';
 import { ExploreTargetError, shortlist } from '../src/explore/shortlist.ts';
 import { listTracks, loadTrack, trackProgress } from '../src/explore/tracks.ts';
 import { TYPESCRIPT } from '../src/languages/builtin.ts';
@@ -21,7 +22,7 @@ import { nextQuickWorkout } from '../src/workouts/queue.ts';
 import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { averageSpend, listWorkouts, loadWorkout, readState } from '../src/workouts/store.ts';
 import { workspacePaths } from '../src/workspace.ts';
-import { tempDir, tempGitRepo } from './helpers.ts';
+import { tempDir, tempGitRepo, writeUaFlows } from './helpers.ts';
 import { goodDiagnosis, goodDrill, goodKata, goodPrediction, scriptedModel, TS_REFERENCE } from './mock-model.ts';
 
 const sandboxWorks = await openSandbox().then(
@@ -144,6 +145,79 @@ describe('checkPlan', () => {
   });
 });
 
+describe('Tracks along a flow', () => {
+  const FLOW = {
+    name: 'Run a Job',
+    domain: 'Scheduling',
+    entry: 'fiu run <job>',
+    steps: [
+      { name: 'Pick the job', path: 'src/core/worker.ts' },
+      { name: 'Load its record', path: 'src/core/store.ts' },
+      { name: 'Note it', path: 'src/core/tiny.ts' },
+      { name: 'Queue the next', path: 'src/core/queue.ts' },
+      { name: 'Save the result', path: 'src/core/store.ts' },
+      { name: 'Tell the user' },
+    ],
+  };
+
+  it("makes candidates of the flow's files, in the order it reaches them, with the steps each runs", async () => {
+    const repo = await repoWithModule(MODULE);
+    const { readForeignAtlas } = await import('../src/atlas/ua.ts');
+    const { buildSkeleton } = await import('../src/atlas/skeleton.ts');
+    await writeUaFlows(repo, [FLOW]);
+    const read = await readForeignAtlas(repo, await buildSkeleton(repo, profiles()));
+    const flow = read.status === 'read' ? read.atlas.flows[0]! : assert.fail();
+    const candidates = await flowCandidates(repo, flow, profiles());
+    // tiny.ts is too short to drill; store.ts counts once, with both its steps.
+    assert.deepEqual(
+      candidates.map((c) => [c.path, c.flowSteps]),
+      [
+        ['src/core/worker.ts', 'step 1 of 6: Pick the job'],
+        ['src/core/store.ts', 'step 2 of 6: Load its record; step 5 of 6: Save the result'],
+        ['src/core/queue.ts', 'step 4 of 6: Queue the next'],
+      ],
+    );
+    const prompt = candidatesPrompt('src/core', candidates, { name: flow.name, domain: 'Scheduling', entry: 'fiu run <job>' });
+    assert.match(prompt, /^Flow: Run a Job\nDomain: Scheduling\nStarts with: fiu run <job>\n\nCandidate files, in the order the flow reaches them/);
+    assert.match(prompt, /- src\/core\/store\.ts \(\d+ lines\)\n {4}In the flow: step 2 of 6: Load its record; step 5 of 6: Save the result/);
+  });
+
+  it("keeps the flow's order, and gives the planner rules that say so", async () => {
+    const repo = await repoWithModule(MODULE);
+    const candidates = await shortlist(repo, 'src/core', profiles());
+    const inOrder = ['src/core/store.ts', 'src/core/queue.ts', 'src/core/worker.ts'].map((path) => candidates.find((c) => c.path === path)!);
+    assert.deepEqual(checkPlan(plan(['src/core/store.ts', 'src/core/queue.ts', 'src/core/worker.ts']), inOrder, ['drill'], { ordered: true }), []);
+    assert.deepEqual(checkPlan(plan(['src/core/queue.ts', 'src/core/store.ts', 'src/core/worker.ts']), inOrder, ['drill'], { ordered: true }), [
+      "keep the steps in the flow's order: src/core/store.ts, src/core/queue.ts, src/core/worker.ts.",
+    ]);
+    // A module Track may reorder freely.
+    assert.deepEqual(checkPlan(plan(['src/core/queue.ts', 'src/core/store.ts', 'src/core/worker.ts']), inOrder, ['drill']), []);
+    const rules = trackRules(['drill', 'kata'], { name: 'Run a Job' });
+    assert.match(rules, /teach a newcomer one business flow/);
+    assert.match(rules, /keep them in the order listed/);
+    assert.doesNotMatch(rules, /foundations first/);
+  });
+
+  it('finds a flow by its name or by words of it, and says which flows there are when it cannot', () => {
+    const flows = [
+      { name: 'Refill the Queue from a Commit', domain: 'Background', steps: [] },
+      { name: 'Build the Atlas', steps: [] },
+      { name: 'View the Atlas', steps: [] },
+    ];
+    assert.equal(findFlow(flows, 'build the atlas').name, 'Build the Atlas');
+    assert.equal(findFlow(flows, 'refill').name, 'Refill the Queue from a Commit');
+    assert.equal(findFlow(flows, 'commits queue').name, 'Refill the Queue from a Commit');
+    assert.throws(() => findFlow(flows, 'atlas'), /matches several flows; name one:\n- Build the Atlas\n- View the Atlas/);
+    assert.throws(() => findFlow(flows, 'payments'), /No flow matches "payments"\. The flows are:\n- Refill/);
+  });
+
+  it('names the folder the flow\'s files share', () => {
+    assert.equal(flowModule(['src/core/a.ts', 'src/core/b/c.ts']), 'src/core');
+    assert.equal(flowModule(['src/a.ts', 'lib/b.ts']), '');
+    assert.equal(flowModule(['src/x/a.ts']), 'src/x');
+  });
+});
+
 describe('averageSpend by kind', () => {
   it('prices a kind from the Workouts of that kind only', () => {
     const entry = (workoutId: string, usd: number) => ({ at: '2026-10-31T00:00:00.000Z', origin: 'manual' as const, generator: 'fiu' as const, source: 'a.ts', result: 'verified' as const, workoutId, generationAttempts: 1, cost: { usage: [], usd, unpricedModels: [], pricesAsOf: '2026-10' } });
@@ -195,6 +269,44 @@ describe(`fiu explore (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
     assert.deepEqual(ledger, ['track-plan', 'verified', 'verified', 'verified']);
     assert.equal((await costReport(repo)).trackPlanning.count, 1);
     assert.deepEqual((await listTracks(paths)).map((t) => t.id), [track.id]);
+  });
+
+  it('builds a Track along a flow: its order kept, its name on the Track and in each prompt', async () => {
+    const repo = await repoWithModule(MODULE);
+    await writeUaFlows(repo, [
+      {
+        name: 'Run a Job',
+        domain: 'Scheduling',
+        steps: [
+          { name: 'Pick the job', path: 'src/core/worker.ts' },
+          { name: 'Load its record', path: 'src/core/store.ts' },
+          { name: 'Queue the next', path: 'src/core/queue.ts' },
+        ],
+      },
+    ]);
+    const flowOrder = ['src/core/worker.ts', 'src/core/store.ts', 'src/core/queue.ts'];
+    // The first plan reorders the flow and is sent back.
+    const { result, prompts } = await run(repo, [plan(three), plan(flowOrder), goodDrill({ slug: 'f1' }), goodDrill({ slug: 'f2' }), goodDrill({ slug: 'f3' })], { flow: 'run a job' });
+    assert.equal(result.status, 'saved', JSON.stringify(result));
+    const track = result.status === 'saved' ? result.track : assert.fail();
+    assert.deepEqual(track.steps.map((s) => s.path), flowOrder);
+    assert.deepEqual([track.flow, track.module], ['Run a Job', 'src/core']);
+    assert.match(track.id, /^track_\d{8}_run-a-job$/);
+    assert.match(prompts[0]!, /Flow: Run a Job.{1,4}Domain: Scheduling/);
+    assert.match(prompts[0]!, /In the flow: step 1 of 3: Pick the job/);
+    // The reordered plan is sent back with the flow's order.
+    assert.match(prompts[1]!, /keep the steps in the flow's order: src\/core\/worker\.ts, src\/core\/store\.ts, src\/core\/queue\.ts\./);
+    assert.match(prompts[2]!, /step 1 of 3 in a Track following the business flow \\"Run a Job\\" through the code/);
+    assert.match(formatProgress(track, (await trackProgress(workspacePaths(repo), track)).steps), /^Track "The job scheduler" \(track_\d{8}_run-a-job\): the flow "Run a Job" \(UA\), 0 of 3 done/);
+  });
+
+  it('says what to do when there are no flows, or the flow is too short for a Track', async () => {
+    const repo = await repoWithModule(MODULE);
+    await assert.rejects(run(repo, [], { flow: 'anything' }), /no Understand-Anything flows: run \/understand and then \/understand-domain/);
+    await writeUaFlows(repo, [{ name: 'Tiny', steps: [{ name: 'One', path: 'src/core/store.ts' }, { name: 'Two', path: 'src/core/tiny.ts' }] }]);
+    await assert.rejects(run(repo, [], { flow: 'tiny' }), /The flow "Tiny" runs through 1 file\(s\) worth drilling; a Track needs at least 3/);
+    await writeFile(join(repo, '.fiu', 'config.json'), JSON.stringify({ understandAnything: false }));
+    await assert.rejects(run(repo, [], { flow: 'tiny' }), /Understand-Anything is turned off/);
   });
 
   it('replaces a step that cannot be Verified with the next alternate, in the same place', async () => {

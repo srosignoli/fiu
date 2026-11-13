@@ -3,15 +3,16 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { SEARCH_RESULTS } from '../atlas/search.ts';
 import { searchAtlasCommand } from './atlas.ts';
-import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
+import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv, type RepoConfig, type ResolvedConfig } from '../config.ts';
 import { ConsentDeclinedError, ConsentRequiredError, hasConsent, recordConsent } from '../consent.ts';
 import { estimateCost, formatUsd, type ModelUsage } from '../cost/usage.ts';
 import { MissingApiKeyError, resolveApiKey } from '../credentials.ts';
-import { MIN_STEPS, planTrack, trackKinds, withAtlas, type PlannedStep, type TrackPlan } from '../explore/plan.ts';
+import { findFlow, flowCandidates, flowModule, readFlows, trackableFlows } from '../explore/flows.ts';
+import { MIN_STEPS, planTrack, trackKinds, withAtlas, type PlannedStep, type TrackFlow, type TrackPlan } from '../explore/plan.ts';
 import { NOUN, type WorkoutKind } from '../synthesis/schema.ts';
 import { readAtlasOverlay } from '../atlas/overlay.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
-import { ExploreTargetError, repoRelativeDir, shortlist } from '../explore/shortlist.ts';
+import { ExploreTargetError, repoRelativeDir, shortlist, type Candidate } from '../explore/shortlist.ts';
 import { saveTrack, trackId, type TrackRecord, type TrackStep } from '../explore/tracks.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { preflight } from '../languages/run.ts';
@@ -29,6 +30,8 @@ export interface ExploreOptions {
   yes: boolean;
   /** --about: choose the module by what the human wants to learn, through the Atlas search, instead of a path. */
   about?: string;
+  /** --flow: follow this business flow from Understand-Anything's domain graph instead of a module (ADR 0010). */
+  flow?: string;
   /** --kinds: the kinds this Track may use, overriding the default (§11.11). */
   kinds?: WorkoutKind[];
   /** False with --no-sandbox. */
@@ -77,6 +80,7 @@ export async function explore(
   { createModel = createModelDefault, configEnv = { env: process.env, home: homedir() }, cacheRoot }: DrillDependencies = {},
 ): Promise<ExploreResult> {
   const repoRoot = await findRepoRoot(cwd);
+  if (options.flow !== undefined) return exploreFlow(repoRoot, options.flow, options, ui, { createModel, configEnv, cacheRoot });
   if (options.about !== undefined) {
     modulePath = await moduleAbout(repoRoot, options.about, configEnv);
     ui.step(`Exploring ${modulePath || 'the repository'}: the module closest to "${options.about}"`);
@@ -106,12 +110,74 @@ export async function explore(
       `${module || 'The repository'} has ${candidates.length} source file(s) worth drilling; a Track needs at least ${MIN_STEPS}. Try a larger module, or \`fiu drill <file>\`.`,
     );
   }
+  return buildTrack({ repoRoot, module, candidates, options, ui, apiKey, config, repoConfig, deps: { createModel, configEnv, cacheRoot } });
+}
+
+/** `fiu explore --flow` with no name: the repository's flows, with how many of each one's files could be steps. */
+export async function listFlows(cwd: string, { configEnv = { env: process.env, home: homedir() } }: Pick<DrillDependencies, 'configEnv'> = {}) {
+  const repoRoot = await findRepoRoot(cwd);
+  const paths = workspacePaths(repoRoot);
+  const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(configEnv));
+  const flows = await readFlows(paths, await buildSkeleton(repoRoot, config.profiles));
+  return trackableFlows(repoRoot, flows, config.profiles);
+}
+
+/**
+ * `fiu explore --flow <name>`: a Track along a business flow from Understand-Anything's domain graph. Its
+ * candidates are the flow's files in the order the flow reaches them, and the plan keeps that order.
+ */
+async function exploreFlow(repoRoot: string, name: string, options: ExploreOptions, ui: DrillUi, deps: DrillDependencies & { configEnv: ConfigEnv }): Promise<ExploreResult> {
+  const paths = workspacePaths(repoRoot);
+  await ensureWorkspace(paths);
+  await excludeWorkspaceFromGit(repoRoot);
+  const repoConfig = await loadRepoConfig(paths.configFile);
+  const userConfig = await loadUserConfig(deps.configEnv);
+  const config = resolveConfig(repoConfig, userConfig);
+  const skeleton = await buildSkeleton(repoRoot, config.profiles);
+  const flow = findFlow(await readFlows(paths, skeleton), name);
+  const candidates = withAtlas(await flowCandidates(repoRoot, flow, config.profiles), (await readAtlasOverlay(paths, skeleton)).atlas);
+  if (candidates.length < MIN_STEPS) {
+    throw new ExploreTargetError(
+      `The flow "${flow.name}" runs through ${candidates.length} file(s) worth drilling; a Track needs at least ${MIN_STEPS}. \`fiu explore --flow\` lists the flows with enough.`,
+    );
+  }
+  let apiKey: string;
+  try {
+    apiKey = resolveApiKey(config.provider, userConfig, deps.configEnv);
+  } catch (error) {
+    if (!(error instanceof MissingApiKeyError)) throw error;
+    error.message += `\nOr build the Track with your coding agent instead: run \`fiu agent install claude\`, then ask it for a Track following the flow "${flow.name}".`;
+    throw error;
+  }
+  ui.step(`Following the flow "${flow.name}"${flow.domain ? ` (${flow.domain})` : ''}: ${candidates.length} of its files can be steps`);
+  const trackFlow: TrackFlow = { name: flow.name, ...(flow.domain ? { domain: flow.domain } : {}), ...(flow.entry ? { entry: flow.entry } : {}) };
+  return buildTrack({ repoRoot, module: flowModule(candidates.map((c) => c.path)), flow: trackFlow, candidates, options, ui, apiKey, config, repoConfig, deps });
+}
+
+interface BuildTrackOptions {
+  repoRoot: string;
+  module: string;
+  flow?: TrackFlow;
+  candidates: Candidate[];
+  options: ExploreOptions;
+  ui: DrillUi;
+  apiKey: string;
+  config: ResolvedConfig;
+  repoConfig: RepoConfig;
+  deps: DrillDependencies & { configEnv: ConfigEnv };
+}
+
+/** From the candidates on: consent, one planning call, a cost confirmation, then every step generated and the Track saved. */
+async function buildTrack({ repoRoot, module, flow, candidates, options, ui, apiKey, config, repoConfig, deps }: BuildTrackOptions): Promise<ExploreResult> {
+  const { createModel = createModelDefault, cacheRoot } = deps;
+  const paths = workspacePaths(repoRoot);
+  const where = flow ? `the flow "${flow.name}"` : module || 'the repository';
 
   if (!hasConsent(repoConfig, config.provider)) {
     if (!options.yes) {
       if (!ui.confirm) throw new ConsentRequiredError(config.provider);
       const granted = await ui.confirm(
-        `Fiu will send outlines of ${candidates.length} files in ${module || 'the repository'}, then the chosen files, to ${config.provider} (${config.model}). Send code from this repository to ${config.provider}?`,
+        `Fiu will send outlines of ${candidates.length} files in ${where}, then the chosen files, to ${config.provider} (${config.model}). Send code from this repository to ${config.provider}?`,
       );
       if (!granted) throw new ConsentDeclinedError();
     }
@@ -121,7 +187,7 @@ export async function explore(
   ui.step(`Choosing the steps among ${candidates.length} files`);
   const { model, providerOptions } = createModel(config.provider, config.model, apiKey);
   const kinds = trackKinds(config.kinds, options.kinds);
-  const planned = await planTrack({ modulePath: module, kinds, candidates, model, modelId: config.model, providerOptions });
+  const planned = await planTrack({ modulePath: module, ...(flow ? { flow } : {}), kinds, candidates, model, modelId: config.model, providerOptions });
   await recordPlanSpend(planned.usage);
   if (!planned.plan) return { status: 'plan-failed', problems: planned.problems };
   const plan = planned.plan;
@@ -139,7 +205,7 @@ export async function explore(
     }
   }
 
-  const id = await trackId(paths, module, new Date());
+  const id = await trackId(paths, module, new Date(), flow?.name);
   const byPath = new Map(candidates.map((c) => [c.path, c]));
   const alternates = [...plan.alternates];
   const steps: TrackStep[] = [];
@@ -179,7 +245,7 @@ export async function explore(
           target: {
             path: step.path,
             source: await readFile(join(repoRoot, step.path), 'utf8'),
-            track: { module, step: position + 1, of: plan.steps.length, why: step.why },
+            track: { module, ...(flow ? { flow: flow.name } : {}), step: position + 1, of: plan.steps.length, why: step.why },
           },
           revision: await sourceRevision(repoRoot, step.path),
           quick: false,
@@ -187,7 +253,7 @@ export async function explore(
           // A Track step is one question, never a Series.
           questions: 1,
           origin: 'explore',
-          track: { id, title: plan.title, module, why: step.why },
+          track: { id, title: plan.title, module, ...(flow ? { flow: flow.name } : {}), why: step.why },
           cacheRoot,
           step: (message) => ui.step(message),
         });
@@ -211,7 +277,7 @@ export async function explore(
   }
 
   if (steps.length < MIN_STEPS) return { status: 'not-enough', workoutIds, dropped };
-  const track: TrackRecord = { id, title: plan.title, module, createdAt: new Date().toISOString(), generator: 'fiu', steps };
+  const track: TrackRecord = { id, title: plan.title, module, ...(flow ? { flow: flow.name } : {}), createdAt: new Date().toISOString(), generator: 'fiu', steps };
   await saveTrack(paths, track);
   return { status: 'saved', track, dropped };
 

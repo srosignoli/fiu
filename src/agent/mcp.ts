@@ -86,9 +86,12 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
     {
       title: 'Prepare a Fiu Track',
       description: PREPARE_TRACK_DESCRIPTION,
-      inputSchema: { module: z.string().describe('A module directory in this repository, relative to its root.') },
+      inputSchema: {
+        module: z.string().optional().describe('A module directory in this repository, relative to its root.'),
+        flow: z.string().optional().describe("Instead of a module: the name of a business flow from Understand-Anything's domain graph to follow, step by step."),
+      },
     },
-    ({ module }) => respond(() => drills.prepareTrack(module)),
+    ({ module, flow }) => respond(() => drills.prepareTrack(module, flow)),
   );
 
   server.registerTool(

@@ -46,6 +46,8 @@ export interface TrackPlacement {
   title?: string;
   /** The module the Track teaches, relative to the repository root. */
   module: string;
+  /** Set when the Track follows a business flow (ADR 0010): its name. */
+  flow?: string;
   why: string;
 }
 
@@ -336,7 +338,11 @@ const aroundLines = (record: WorkoutRecord): string[] => (record.around && recor
 /** A Track step's README opens with its place in the Track. */
 function trackPlacement(record: WorkoutRecord): string[] {
   if (!record.track) return [];
-  const trackName = record.track.title ? `the Track "${record.track.title}"` : `a Track on ${record.track.module || 'this repository'}`;
+  const trackName = record.track.title
+    ? `the Track "${record.track.title}"`
+    : record.track.flow
+      ? `a Track following the flow "${record.track.flow}"`
+      : `a Track on ${record.track.module || 'this repository'}`;
   return [`*Part of ${trackName}: ${record.track.why}*`, ''];
 }
 

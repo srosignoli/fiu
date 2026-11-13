@@ -45,11 +45,35 @@ const KIND_LINES: Record<WorkoutKind, string> = {
   kata: 'kata: one piece of the file removed, to rebuild from a brief. Good for closing a Track: the file that ties the module together.',
 };
 
+/** A Track that follows a business flow from Understand-Anything's domain graph, instead of a module. */
+export interface TrackFlow {
+  name: string;
+  domain?: string;
+  /** What starts the flow. */
+  entry?: string;
+}
+
 /**
  * The rules for ordering a Track: shared by Fiu's own planning call and agent mode's prepare_track.
- * `kinds` are the kinds this Track may use (§11.11).
+ * `kinds` are the kinds this Track may use (§11.11). For a flow, the steps keep the flow's order.
  */
-export function trackRules(kinds: readonly WorkoutKind[] = TRACK_KINDS): string {
+export function trackRules(kinds: readonly WorkoutKind[] = TRACK_KINDS, flow?: TrackFlow): string {
+  return flow ? flowRules(trackRulesFor(kinds)) : trackRulesFor(kinds);
+}
+
+/** The module rules, with the ordering and the newcomer's goal changed to following one flow. */
+function flowRules(rules: string): string {
+  return rules
+    .replace('teach a newcomer one module of a codebase', 'teach a newcomer one business flow of a codebase')
+    .replace(
+      /From the candidate files of the module, choose .*?skip thin wrappers and glue\./s,
+      `The candidate files are the files one business flow of the codebase passes through, listed in the order the flow reaches them, each with the flow's steps it runs. Choose ${MIN_STEPS} to ${MAX_STEPS} steps, each a different file, and keep them in the order listed: the Track follows the flow from what starts it to where it ends, so a newcomer sees how the work travels through the code. Prefer files whose logic carries the flow; skip thin wrappers and glue.`,
+    )
+    .replace('why understanding it matters for the module', 'what this file does in the flow')
+    .replace('in case a step can\'t be made', 'in the flow\'s order, in case a step can\'t be made');
+}
+
+function trackRulesFor(kinds: readonly WorkoutKind[]): string {
   const mix =
     kinds.length > 1
       ? `Use at least two different kinds across the steps. A good arc opens with a Prediction, then uses Diagnoses or Drills on the foundations, and closes with a Kata, when those kinds are allowed and the files suit them.`
@@ -67,11 +91,15 @@ Give each step its pillar (algorithm: data transformation or state logic; patter
 Also list up to ${MAX_ALTERNATES} alternates, best first, in case a step can't be made: an alternate takes the kind of the step it replaces.`;
 }
 
-export function candidatesPrompt(modulePath: string, candidates: Candidate[]): string {
+export function candidatesPrompt(modulePath: string, candidates: Candidate[], flow?: TrackFlow): string {
   const listed = candidates
-    .map((c) => [`- ${c.path} (${c.lines} lines)`, ...(c.atlas ? c.atlas.split('\n') : c.outline).map((line) => `    ${line}`)].join('\n'))
+    .map((c) => [`- ${c.path} (${c.lines} lines)`, ...(c.flowSteps ? [`    In the flow: ${c.flowSteps}`] : []), ...(c.atlas ? c.atlas.split('\n') : c.outline).map((line) => `    ${line}`)].join('\n'))
     .join('\n');
   const what = candidates.some((c) => c.atlas) ? 'what each is for (from the Atlas) or its declarations' : 'their declarations';
+  if (flow) {
+    const about = [`Flow: ${flow.name}`, ...(flow.domain ? [`Domain: ${flow.domain}`] : []), ...(flow.entry ? [`Starts with: ${flow.entry}`] : [])].join('\n');
+    return `${about}\n\nCandidate files, in the order the flow reaches them, with ${what}:\n${listed}`;
+  }
   return `Module: ${modulePath || '(repository root)'}\n\nCandidate files, with ${what}:\n${listed}`;
 }
 
@@ -85,8 +113,11 @@ export function withAtlas(candidates: Candidate[], atlas: Atlas): Candidate[] {
   });
 }
 
-/** The plan's problems against the shortlist and the allowed kinds; empty when it can be used. */
-export function checkPlan(plan: TrackPlan, candidates: Candidate[], kinds: readonly WorkoutKind[] = TRACK_KINDS): string[] {
+/**
+ * The plan's problems against the shortlist and the allowed kinds; empty when it can be used. With
+ * `ordered` (a flow), the steps must keep the candidates' order.
+ */
+export function checkPlan(plan: TrackPlan, candidates: Candidate[], kinds: readonly WorkoutKind[] = TRACK_KINDS, { ordered = false } = {}): string[] {
   const known = new Set(candidates.map((c) => c.path));
   const problems: string[] = [];
   if (plan.title.trim() === '') problems.push('title is empty.');
@@ -100,6 +131,11 @@ export function checkPlan(plan: TrackPlan, candidates: Candidate[], kinds: reado
     if (step.why.trim() === '') problems.push(`the why line for ${step.path} is empty.`);
     if (!kinds.includes(step.kind)) problems.push(`${step.path} is a ${step.kind}, which this Track doesn't allow: use ${kinds.join(', ')}.`);
   }
+  if (ordered) {
+    const position = new Map(candidates.map((c, i) => [c.path, i]));
+    const order = plan.steps.map((s) => position.get(s.path) ?? -1);
+    if (order.some((p, i) => i > 0 && p < order[i - 1]!)) problems.push(`keep the steps in the flow's order: ${candidates.filter((c) => plan.steps.some((s) => s.path === c.path)).map((c) => c.path).join(', ')}.`);
+  }
   const used = new Set(plan.steps.map((s) => s.kind));
   if (kinds.length > 1 && plan.steps.length >= MIN_STEPS && used.size < 2) problems.push(`every step is a ${[...used][0]}: use at least two kinds of ${kinds.join(', ')}.`);
   return problems;
@@ -107,6 +143,8 @@ export function checkPlan(plan: TrackPlan, candidates: Candidate[], kinds: reado
 
 export interface PlanTrackOptions {
   modulePath: string;
+  /** Set for a Track that follows this flow: its candidates are in the flow's order, and the plan keeps it. */
+  flow?: TrackFlow;
   /** The kinds the Track may use. */
   kinds?: readonly WorkoutKind[];
   candidates: Candidate[];
@@ -118,22 +156,22 @@ export interface PlanTrackOptions {
 export type PlanResult = { plan?: TrackPlan; problems: string[]; usage: ModelUsage[] };
 
 /** One inexpensive call (plus one retry on an unusable answer) that picks and orders the Track's steps. */
-export async function planTrack({ modulePath, kinds = TRACK_KINDS, candidates, model, modelId, providerOptions }: PlanTrackOptions): Promise<PlanResult> {
-  const messages: ModelMessage[] = [{ role: 'user', content: candidatesPrompt(modulePath, candidates) }];
+export async function planTrack({ modulePath, flow, kinds = TRACK_KINDS, candidates, model, modelId, providerOptions }: PlanTrackOptions): Promise<PlanResult> {
+  const messages: ModelMessage[] = [{ role: 'user', content: candidatesPrompt(modulePath, candidates, flow) }];
   const usage: ModelUsage[] = [];
   let problems: string[] = [];
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const result = await generateText({
         model,
-        system: trackRules(kinds),
+        system: trackRules(kinds, flow),
         messages,
         output: Output.object({ schema: TrackPlanSchema }),
         providerOptions,
         maxOutputTokens: 4_000,
       });
       usage.push(...usageOf(result, modelId));
-      problems = checkPlan(result.output, candidates, kinds);
+      problems = checkPlan(result.output, candidates, kinds, { ordered: flow !== undefined });
       if (problems.length === 0) return { plan: result.output, problems, usage };
       messages.push(...result.response.messages);
     } catch (error) {

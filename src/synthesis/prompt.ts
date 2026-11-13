@@ -17,8 +17,8 @@ export interface DrillTarget {
   };
   /** A What-if: the change to model, or no sentence to have the model propose one. */
   whatIf?: { sentence?: string };
-  /** This Drill is one step of a Track teaching a module. */
-  track?: { module: string; step: number; of?: number; why: string };
+  /** This Drill is one step of a Track teaching a module, or following a business flow. */
+  track?: { module: string; flow?: string; step: number; of?: number; why: string };
 }
 
 /** Above this, the user should pin a symbol in a smaller file rather than have us truncate silently. */
@@ -213,7 +213,9 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
   const before = target.change?.before !== undefined ? `\n\n<source-before-commit>\n${target.change.before.replace(/\n$/, '')}\n</source-before-commit>` : '';
   const change = target.change ? `\n\n<diff>\n${target.change.diff}\n</diff>${before}` : '';
   const track = target.track
-    ? `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the ${noun} around the logic that makes it matter.`
+    ? target.track.flow
+      ? `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track following the business flow "${target.track.flow}" through the code, in the order the flow runs. What this file does in the flow: ${target.track.why} Build the ${noun} around the logic that does it.`
+      : `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the ${noun} around the logic that makes it matter.`
     : '';
   return `Source file: ${target.path}\n${focus}${target.symbol ? proposed : ''}${track}\n\n<source>\n${numbered}\n</source>${change}`;
 }

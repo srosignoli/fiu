@@ -273,17 +273,30 @@ program
   .description('Build a Track for a module: 3 to 5 Drills, each from a different file, foundations first.')
   .argument('[path]', 'the module directory')
   .option('--about <goal>', 'choose the module by what you want to learn, through the Atlas, instead of a path')
+  .option('--flow [name]', "follow a business flow from Understand-Anything's domain graph instead of a module (no name: list the flows)")
   .option('--kinds <list>', 'the kinds of step to use, e.g. drill,kata (default: all four; only no-code kinds if your kinds setting lists only those)', trackKindList)
   .option('-y, --yes', 'consent to sending code and to the estimated cost without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
   .option('--no-train', 'only build the Track, without opening its first step')
-  .action(async (path: string | undefined, options: { yes: boolean; sandbox: boolean; train: boolean; about?: string; kinds?: WorkoutKind[] }) => {
-    if ((path === undefined) === (options.about === undefined)) throw new Error('Name the module directory, or say what you want to learn with --about "<goal>" (not both).');
-    const { explore } = await import('./commands/explore.ts');
+  .action(async (path: string | undefined, options: { yes: boolean; sandbox: boolean; train: boolean; about?: string; flow?: string | true; kinds?: WorkoutKind[] }) => {
+    if ([path !== undefined, options.about !== undefined, options.flow !== undefined].filter(Boolean).length !== 1) {
+      throw new Error('Name the module directory, say what you want to learn with --about "<goal>", or follow a flow with --flow "<name>" (one of them).');
+    }
+    const { explore, listFlows } = await import('./commands/explore.ts');
+    if (options.flow === true) {
+      const { MIN_STEPS } = await import('./explore/plan.ts');
+      const flows = await listFlows(process.cwd());
+      const color = process.stdout.isTTY === true && !process.env.NO_COLOR;
+      const dim = (text: string) => (color ? `\x1b[2m${text}\x1b[0m` : text);
+      const lines = flows.map(({ flow, files }) => `${files >= MIN_STEPS ? '  ' : dim('· ')}${flow.name}${flow.domain ? dim(` (${flow.domain})`) : ''}  ${dim(`${files} file(s)${files >= MIN_STEPS ? '' : `: a Track needs ${MIN_STEPS}`}`)}`);
+      console.log([`Understand-Anything's flows (UA): fiu explore --flow "<name>"`, ...lines].join('\n'));
+      return;
+    }
+    const flow = typeof options.flow === 'string' ? options.flow : undefined;
     const ui = terminalUi();
     let result;
     try {
-      result = await explore(process.cwd(), path ?? '', options, ui);
+      result = await explore(process.cwd(), path ?? '', { ...options, flow }, ui);
     } finally {
       ui.settle();
     }

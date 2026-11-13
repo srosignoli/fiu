@@ -31,7 +31,7 @@ export const SUBMIT_DESCRIPTION =
   'Submit the Drill, Kata, Prediction, or Diagnosis written for a generationId. Fiu checks it and runs its tests in a sandbox: "saved" returns the Workout id; "rejected" returns feedback to fix before resubmitting; "not-worth-practicing" ends the generation.';
 
 export const PREPARE_TRACK_DESCRIPTION =
-  'Start a Track for a module directory: returns a trackId, the candidate files with their outlines, and the rules for choosing and ordering 3 to 5 steps.';
+  "Start a Track for a module directory, or along a business flow from Understand-Anything's domain graph (flow: its name): returns a trackId, the candidate files with their outlines (for a flow, in the flow's order, with the steps each runs), and the rules for choosing and ordering 3 to 5 steps.";
 
 export const FINISH_TRACK_DESCRIPTION =
   'Save a Track once its steps are created: "saved" returns the trackId to start it with; "not-enough" means fewer than 3 steps were Verified (those stay as ordinary Workouts).';
@@ -71,9 +71,9 @@ ${stamp(version)}
 
 When the user wants to learn a module rather than practise one file, build a Track: 3 to 5 Workouts, each from a different file, foundations first, mixing Predictions, Diagnoses, Drills, and Katas.
 
-1. **Start it.** Call prepare_track with the module directory the user named, or the one their question is about. When they name a topic rather than a directory, call search_atlas with it and use the folder holding most of the best results. Candidates the Atlas describes come with what they are for instead of their declarations.
+1. **Start it.** Call prepare_track with the module directory the user named, or the one their question is about. When they name a topic rather than a directory, call search_atlas with it and use the folder holding most of the best results. When they want to follow how something happens end to end ("how a commit becomes a Workout") and the repository has Understand-Anything's flows, call prepare_track with flow: the flow's name instead; its candidates come in the flow's order, and the steps keep that order. Candidates the Atlas describes come with what they are for instead of their declarations.
 
-2. **Choose and order the steps** from its candidates by its rules: the files the others build on come first, and each step gets a kind from the Track's kinds (at least two different ones when more than one is allowed). Write one line per step saying why it matters for the module.
+2. **Choose and order the steps** from its candidates by its rules: the files the others build on come first (for a flow, the flow's order instead), and each step gets a kind from the Track's kinds (at least two different ones when more than one is allowed). Write one line per step saying why it matters for the module.
 
 3. **Delegate the generation.** Hand it to a subagent with the trackId, the ordered steps with their kinds and why lines, and this brief: "For each step in order, create it with prepare_drill (passing trackId, kind, and why) and submit_drill, following their instructions. If a step can't be Verified, use another candidate in its place with the same kind, or a Drill on the same file when none is left. Then call finish_track with the trackId and a short title naming what the module does. Reply with only the outcome." Without subagents, do the same steps here.
 

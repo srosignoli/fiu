@@ -19,8 +19,10 @@ export interface TrackStep {
 export interface TrackRecord {
   id: string;
   title: string;
-  /** The module directory, relative to the repository root. */
+  /** The module directory, relative to the repository root; for a flow, the folder its files share. */
   module: string;
+  /** Set when the Track follows a business flow from Understand-Anything's domain graph (ADR 0010). */
+  flow?: string;
   createdAt: string;
   generator: Generator;
   steps: TrackStep[];
@@ -57,9 +59,10 @@ export async function loadTrack(paths: WorkspacePaths, id: string): Promise<Trac
   return track;
 }
 
-/** A unique id from the date and the module's name. */
-export async function trackId(paths: WorkspacePaths, module: string, now: Date): Promise<string> {
-  const slug = (module.split('/').filter(Boolean).slice(-2).join('-') || 'repository').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+/** A unique id from the date and the module's name, or the flow's when the Track follows one. */
+export async function trackId(paths: WorkspacePaths, module: string, now: Date, flow?: string): Promise<string> {
+  const name = flow ? flow.split(/\s+/).slice(0, 5).join('-') : module.split('/').filter(Boolean).slice(-2).join('-');
+  const slug = (name || 'repository').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const base = `track_${now.toISOString().slice(0, 10).replaceAll('-', '')}_${slug}`;
   const taken = new Set((await listTracks(paths)).map((t) => t.id));
   let id = base;

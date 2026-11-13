@@ -14,7 +14,7 @@ const MARKS: Record<StepProgress['status'], string> = {
 export function formatProgress(track: TrackRecord, steps: StepProgress[], next?: StepProgress): string {
   const done = steps.filter((s) => s.status === 'attempted').length;
   return [
-    `Track "${track.title}" (${track.id}): ${track.module || 'the repository'}, ${done} of ${steps.length} done`,
+    `Track "${track.title}" (${track.id}): ${track.flow ? `the flow "${track.flow}" (UA)` : track.module || 'the repository'}, ${done} of ${steps.length} done`,
     ...steps.map((s, i) => `  ${MARKS[s.status]} ${i + 1}. ${NOUN[s.kind ?? 'drill']} · ${s.pillar}: ${s.path}${s === next ? '  ← next' : ''}\n       ${s.why}`),
   ].join('\n');
 }

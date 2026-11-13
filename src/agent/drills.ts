@@ -12,10 +12,11 @@ import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '.
 import { profileForFile } from '../languages/registry.ts';
 import { preflight } from '../languages/run.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
-import { MAX_STEPS, MIN_STEPS, trackKinds, trackRules, withAtlas } from '../explore/plan.ts';
+import { MAX_STEPS, MIN_STEPS, trackKinds, trackRules, withAtlas, type TrackFlow } from '../explore/plan.ts';
 import { readAtlasOverlay } from '../atlas/overlay.ts';
+import { findFlow, flowCandidates, flowModule, readFlows } from '../explore/flows.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
-import { repoRelativeDir, shortlist } from '../explore/shortlist.ts';
+import { ExploreTargetError, repoRelativeDir, shortlist } from '../explore/shortlist.ts';
 import { saveTrack, trackId, type TrackStep } from '../explore/tracks.ts';
 import { verifySandbox } from '../sandbox/canary.ts';
 import { openSandbox, type Sandbox } from '../sandbox/sandbox.ts';
@@ -36,7 +37,7 @@ import {
 } from '../synthesis/schema.ts';
 import { MAX_ATTEMPTS, SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { describeFailures, verify } from '../verify/gate.ts';
-import { newSeriesId, saveDrill, sourceRevision, type Origin, type WorkoutRecord } from '../workouts/save.ts';
+import { newSeriesId, saveDrill, sourceRevision, type Origin, type TrackPlacement, type WorkoutRecord } from '../workouts/save.ts';
 import { listWorkouts, recordSpend, type Spend } from '../workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths, type WorkspacePaths } from '../workspace.ts';
 
@@ -72,6 +73,8 @@ interface Generation {
 interface PendingTrack {
   id: string;
   module: string;
+  /** Set when the Track follows a business flow: its name. */
+  flow?: string;
   paths: WorkspacePaths;
   candidates: Set<string>;
   /** The kinds its steps may be. */
@@ -82,6 +85,8 @@ interface PendingTrack {
 
 export interface PreparedTrack {
   trackId: string;
+  /** Set when the Track follows a business flow from Understand-Anything's domain graph: keep the candidates' order. */
+  flow?: TrackFlow;
   repository: string;
   module: string;
   minSteps: number;
@@ -91,7 +96,7 @@ export interface PreparedTrack {
   /** The kinds the steps may be: pass each step's kind to prepare_drill. */
   kinds: WorkoutKind[];
   /** Each with what the Atlas says it is for, or its declaration lines when the Atlas has no entry. */
-  candidates: ({ path: string; lines: number; outline: string[] } | { path: string; lines: number; atlas: string })[];
+  candidates: ({ path: string; lines: number; outline: string[]; flowSteps?: string } | { path: string; lines: number; atlas: string; flowSteps?: string })[];
 }
 
 export type FinishedTrack =
@@ -163,9 +168,11 @@ export class AgentDrills {
   }
 
   /** Starts a Track for a module: the shortlist and the ordering rules. The agent then prepares each step with its trackId. */
-  async prepareTrack(modulePath: string): Promise<PreparedTrack> {
+  async prepareTrack(modulePath: string | undefined, flowName?: string): Promise<PreparedTrack> {
+    if ((modulePath === undefined) === (flowName === undefined)) throw new AgentRequestError('Give prepare_track a module directory, or a flow name to follow (one of them).');
+    if (flowName !== undefined) return this.#prepareFlowTrack(flowName);
     const repoRoot = await this.repository();
-    const module = repoRelativeDir(repoRoot, resolve(repoRoot, modulePath));
+    const module = repoRelativeDir(repoRoot, resolve(repoRoot, modulePath!));
     if (module.startsWith('..')) throw new AgentRequestError(`${modulePath} is outside the repository at ${repoRoot}.`);
     if (module.split('/')[0] === '.fiu') throw new AgentRequestError('Explore the repository\'s own code, not the Fiu workspace.');
     const paths = workspacePaths(repoRoot);
@@ -189,6 +196,50 @@ export class AgentDrills {
       kinds,
       candidates: candidates.map(({ path, lines, outline, atlas }) => (atlas ? { path, lines, atlas } : { path, lines, outline })),
     };
+  }
+
+  /** A Track along a business flow: the flow's files in the order it reaches them, with the flow's steps each runs. */
+  async #prepareFlowTrack(name: string): Promise<PreparedTrack> {
+    const repoRoot = await this.repository();
+    const paths = workspacePaths(repoRoot);
+    await ensureWorkspace(paths);
+    await excludeWorkspaceFromGit(repoRoot);
+    const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(this.#configEnv()));
+    const skeleton = await buildSkeleton(repoRoot, config.profiles);
+    let flow;
+    let candidates;
+    try {
+      flow = findFlow(await readFlows(paths, skeleton), name);
+      candidates = withAtlas(await flowCandidates(repoRoot, flow, config.profiles), (await readAtlasOverlay(paths, skeleton)).atlas);
+    } catch (error) {
+      if (error instanceof ExploreTargetError) throw new AgentRequestError(error.message);
+      throw error;
+    }
+    if (candidates.length < MIN_STEPS) {
+      throw new AgentRequestError(`The flow "${flow.name}" runs through ${candidates.length} file(s) worth drilling; a Track needs at least ${MIN_STEPS}.`);
+    }
+    const trackFlow: TrackFlow = { name: flow.name, ...(flow.domain ? { domain: flow.domain } : {}), ...(flow.entry ? { entry: flow.entry } : {}) };
+    const module = flowModule(candidates.map((c) => c.path));
+    const id = await trackId(paths, module, this.#now(), flow.name);
+    const kinds = trackKinds(config.kinds);
+    this.#tracks.set(id, { id, module, flow: flow.name, paths, candidates: new Set(candidates.map((c) => c.path)), kinds, steps: [], dropped: [] });
+    return {
+      trackId: id,
+      flow: trackFlow,
+      repository: repoRoot,
+      module,
+      minSteps: MIN_STEPS,
+      maxSteps: MAX_STEPS,
+      rules: trackRules(kinds, trackFlow),
+      kinds,
+      candidates: candidates.map(({ path, lines, outline, atlas, flowSteps }) => ({ path, lines, ...(flowSteps ? { flowSteps } : {}), ...(atlas ? { atlas } : { outline }) })),
+    };
+  }
+
+  /** Where a step sits in the Track being built: its module, and its flow when it follows one. */
+  #placement({ id, why }: { id: string; why: string }): TrackPlacement {
+    const pending = this.#tracks.get(id);
+    return { id, module: pending?.module ?? '', ...(pending?.flow ? { flow: pending.flow } : {}), why };
   }
 
   /** The next folder of `dir`'s subtree to describe for the Atlas, with what to read and the rules. */
@@ -241,7 +292,7 @@ export class AgentDrills {
         message: `Only ${pending.steps.length} step(s) were Verified; a Track needs ${MIN_STEPS}. The Verified Drills stay as ordinary Workouts.`,
       };
     }
-    await saveTrack(pending.paths, { id, title: title.trim(), module: pending.module, createdAt: this.#now().toISOString(), generator: 'agent', steps: pending.steps });
+    await saveTrack(pending.paths, { id, title: title.trim(), module: pending.module, ...(pending.flow ? { flow: pending.flow } : {}), createdAt: this.#now().toISOString(), generator: 'agent', steps: pending.steps });
     return { status: 'saved', trackId: id, title: title.trim(), steps: pending.steps, dropped: pending.dropped, next: `The user starts it with: fiu track ${id}` };
   }
 
@@ -313,7 +364,7 @@ export class AgentDrills {
         source,
         symbol,
         ...(proposed ? { whatIf: proposed } : {}),
-        ...(pendingTrack ? { track: { module: pendingTrack.module, step: pendingTrack.steps.length + 1, why: why!.trim() } } : {}),
+        ...(pendingTrack ? { track: { module: pendingTrack.module, ...(pendingTrack.flow ? { flow: pendingTrack.flow } : {}), step: pendingTrack.steps.length + 1, why: why!.trim() } } : {}),
       }, kind),
       workoutSchema: z.toJSONSchema(questions > 1 ? PredictionSeriesOutputSchema : outputSchemaFor(kind, { whatIf: proposed !== undefined })),
     };
@@ -405,7 +456,7 @@ export class AgentDrills {
       generator: 'agent',
       origin: generation.origin,
       ...(generation.whatIf ? { whatIf: { ...generation.whatIf, modelled: workout.modelledAs ?? '' } } : {}),
-      ...(generation.track ? { track: { id: generation.track.id, module: this.#tracks.get(generation.track.id)?.module ?? '', why: generation.track.why } } : {}),
+      ...(generation.track ? { track: this.#placement(generation.track) } : {}),
       ...(generation.contextProfiles ? { contextProfiles: generation.contextProfiles } : {}),
       now: this.#now(),
     });

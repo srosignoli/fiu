@@ -14,7 +14,7 @@ import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts'
 import type { AnyWorkoutOutput } from '../src/synthesis/schema.ts';
 import type { WorkoutRecord } from '../src/workouts/save.ts';
 import { workspacePaths } from '../src/workspace.ts';
-import { tempDir, tempGitRepo } from './helpers.ts';
+import { tempDir, tempGitRepo, writeUaFlows } from './helpers.ts';
 import { goodDrill, goodKata, goodPrediction, TS_REFERENCE } from './mock-model.ts';
 import { goodDiagnosis, goodSeries, goodWhatIf, tieQuestion, TS_BEFORE_COMMIT, urgentQuestion } from './mock-model.ts';
 
@@ -502,6 +502,48 @@ describe(`Tracks in agent mode (${sandboxWorks ? 'sandboxed' : 'skipped: no sand
     const record = JSON.parse(await readFile(join(paths.workoutsDir, firstWorkout, 'workout.json'), 'utf8'));
     assert.deepEqual([record.origin, record.generator, record.track.module], ['explore', 'agent', 'src/core']);
     assert.match(await readFile(join(paths.workoutsDir, firstWorkout, 'README.md'), 'utf8'), /^\*Part of a Track on src\/core: src\/core\/worker\.ts matters\.\*$/m);
+  });
+
+  it("builds a Track along Understand-Anything's flow, in the flow's order", async () => {
+    const repo = await repoWithModule();
+    await writeUaFlows(repo, [
+      {
+        name: 'Run a Job',
+        domain: 'Scheduling',
+        entry: 'fiu run <job>',
+        steps: [
+          { name: 'Pick the job', path: 'src/core/worker.ts' },
+          { name: 'Queue the next', path: 'src/core/queue.ts' },
+          { name: 'Save the result', path: 'src/core/store.ts' },
+        ],
+      },
+    ]);
+    const { call } = await connect(repo);
+    assert.match((await call('prepare_track', {})).text, /a module directory, or a flow name to follow \(one of them\)/);
+    assert.match((await call('prepare_track', { flow: 'payments' })).text, /No flow matches "payments"/);
+    const { json: track } = await call('prepare_track', { flow: 'run a job' });
+    assert.match(track.trackId, /^track_\d{8}_run-a-job$/);
+    assert.deepEqual(track.flow, { name: 'Run a Job', domain: 'Scheduling', entry: 'fiu run <job>' });
+    assert.deepEqual(
+      track.candidates.map((c: { path: string; flowSteps: string }) => [c.path, c.flowSteps]),
+      [
+        ['src/core/worker.ts', 'step 1 of 3: Pick the job'],
+        ['src/core/queue.ts', 'step 2 of 3: Queue the next'],
+        ['src/core/store.ts', 'step 3 of 3: Save the result'],
+      ],
+    );
+    assert.match(track.rules, /keep them in the order listed/);
+
+    const first = await step(call, track.trackId, 'src/core/worker.ts', [goodDrill({ slug: 'w' })]);
+    assert.match(first.prepared.source, /step 1 in a Track following the business flow "Run a Job" through the code/);
+    await step(call, track.trackId, 'src/core/queue.ts', [goodDrill({ slug: 'q' })]);
+    await step(call, track.trackId, 'src/core/store.ts', [goodDrill({ slug: 's' })]);
+    const { json: finished } = await call('finish_track', { trackId: track.trackId, title: 'Running a job' });
+    assert.equal(finished.status, 'saved', JSON.stringify(finished));
+    const saved = JSON.parse(await readFile(join(workspacePaths(repo).root, 'tracks', `${track.trackId}.json`), 'utf8'));
+    assert.deepEqual([saved.flow, saved.module], ['Run a Job', 'src/core']);
+    const firstWorkout = finished.steps[0].workoutId;
+    assert.match(await readFile(join(workspacePaths(repo).workoutsDir, firstWorkout, 'README.md'), 'utf8'), /^\*Part of a Track following the flow "Run a Job": src\/core\/worker\.ts matters\.\*$/m);
   });
 
   it('keeps Track steps to the shortlist, one per file, each with a why', async () => {

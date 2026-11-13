@@ -57,6 +57,17 @@ export interface WhatIfPlacement {
   modelled: string;
 }
 
+/**
+ * The business rule a Prediction is about (ADR 0010): Understand-Anything's text, and whether the code,
+ * as measured, does what it says (the generating model's reading). Shown only after answering.
+ */
+export interface RulePlacement {
+  text: string;
+  domain?: string;
+  agrees: boolean;
+  note: string;
+}
+
 /** A question's place in its Series (§11.11). */
 export interface SeriesPlacement {
   id: string;
@@ -101,6 +112,8 @@ export interface WorkoutRecord {
   prediction?: { scenario: string; explanation: string; options: PredictionOption[] };
   /** What-if only: the human's sentence, when they typed one, and how the model read it. */
   whatIf?: WhatIfPlacement;
+  /** A Prediction about a business rule: the rule, and whether the code follows it. Never shown before answering. */
+  rule?: RulePlacement;
   /** Diagnosis only: the Causes (the order they were written; Attempts shuffle them) and why the true one explains the incident, its Symptom. */
   diagnosis?: { explanation: string; causes: DiagnosisCause[] };
   /** A bug the source file appears to contain already. Shown only after an Attempt. */
@@ -141,6 +154,7 @@ export interface SaveDrillOptions {
   track?: TrackPlacement;
   series?: SeriesPlacement;
   whatIf?: WhatIfPlacement;
+  rule?: RulePlacement;
   /** Set to build "Around this code": the Language Profiles the Atlas and links are read with. */
   contextProfiles?: readonly LanguageProfile[];
   now?: Date;
@@ -164,6 +178,7 @@ export async function saveDrill({
   track,
   series,
   whatIf,
+  rule,
   contextProfiles,
   now = new Date(),
 }: SaveDrillOptions): Promise<WorkoutRecord> {
@@ -184,6 +199,7 @@ export async function saveDrill({
     ...(track ? { track } : {}),
     ...(series ? { series } : {}),
     ...(whatIf ? { whatIf } : {}),
+    ...(rule ? { rule } : {}),
     title: drill.title,
     slug: drill.slug,
     pillar: drill.pillar,
@@ -295,6 +311,11 @@ function predictionReadme(record: WorkoutRecord): string {
 export const WHAT_IF_LIMITS = 'Measured on a self-contained copy of this unit, not your whole system. Nothing in your repository changed.';
 
 /** The change as the human put it, and as the model read it: that the code matches the sentence is the model's word. */
+/** After answering a Prediction about a rule: the rule as written, and whether the code follows it. */
+export function ruleLines({ text, domain, agrees, note }: RulePlacement): string[] {
+  return [`The rule this was about (Understand-Anything${domain ? `, ${domain}` : ''}): "${text}"`, `${agrees ? 'The code follows it' : 'The code does NOT follow it'}: ${note.trim()} (as measured; the comparison is the model's reading)`];
+}
+
 export function whatIfLines({ sentence, modelled }: WhatIfPlacement): string[] {
   return sentence ? [`Imagine this change: ${sentence}`, `Modelled as: ${modelled.trim()}`] : [`Imagine this change: ${modelled.trim()}`];
 }

@@ -15,7 +15,7 @@ import { ConsentDeclinedError, ConsentRequiredError } from '../src/consent.ts';
 import { MissingApiKeyError } from '../src/credentials.ts';
 import { openSandbox, SandboxUnavailableError } from '../src/sandbox/sandbox.ts';
 import type { WorkoutRecord } from '../src/workouts/save.ts';
-import { tempDir, tempGitRepo } from './helpers.ts';
+import { tempDir, tempGitRepo, writeUaFlows } from './helpers.ts';
 import { goodDrill, goodKata, goodPrediction, goodSeries, scriptedModel, tieQuestion, TS_REFERENCE, urgentQuestion } from './mock-model.ts';
 import { saveAttempt } from '../src/workouts/attempts.ts';
 
@@ -406,5 +406,50 @@ describe('cost recording', () => {
     assert.deepEqual(result.cost.unpricedModels, ['mock-model-id']);
     const report = await costReport(repo);
     assert.deepEqual(report.unpriced.map((u) => [u.model, u.inputTokens, u.outputTokens]), [['mock-model-id', 10, 20]]);
+  });
+});
+
+describe(`fiu predict --rule (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
+  const rule = 'When priorities tie, pickNext serves the job submitted first.';
+  async function ruleRepo() {
+    const repo = await repoWithSource();
+    await writeUaFlows(repo, [{ name: 'Run jobs', domain: 'Scheduling', rules: [rule, 'Jobs are kept for 7 days.'], steps: [{ name: 'Pick', path: 'src/queue.ts' }] }]);
+    return repo;
+  }
+  const ruleCheck = { agrees: true, note: 'On a tie, the job that arrived first runs first, as the rule says.' };
+
+  it('finds the rule, proposes where it is enforced, asks, and saves the Prediction with the check', async () => {
+    const repo = await ruleRepo();
+    const asked: string[] = [];
+    const confirm = async (m: string) => (asked.push(m), true);
+    const { result, prompts } = await run({ repo, target: null, options: { kind: 'prediction', rule: 'priorities tie', yes: true }, replies: [goodPrediction({ ruleCheck })], confirm });
+    assert.equal(result.status, 'saved', JSON.stringify(result));
+    const record = result.status === 'saved' ? result.record : assert.fail();
+    assert.deepEqual(record.rule, { text: rule, domain: 'Scheduling', ...ruleCheck });
+    assert.equal(record.source.symbol, 'pickNext');
+    assert.match(prompts[0]!, /Build the Scenario around this business rule/);
+    assert.equal(result.series, undefined, 'one question, never a Series');
+    // The listing shows it checked, where it was measured; the other rule, not yet.
+    const { listRules } = await import('../src/commands/drill.ts');
+    const listed = await listRules(repo, { configEnv: { env: {}, home: await tempDir() } });
+    assert.deepEqual(listed.map((r) => [r.rule.text, r.agrees, r.target]), [
+      [rule, true, 'src/queue.ts#pickNext'],
+      ['Jobs are kept for 7 days.', undefined, undefined],
+    ]);
+  });
+
+  it('asks before spending, and says where to point it when there is no terminal', async () => {
+    const repo = await ruleRepo();
+    const asked: string[] = [];
+    const { result } = await run({ repo, target: null, options: { kind: 'prediction', rule: 'priorities tie' }, replies: [goodPrediction({ ruleCheck })], confirm: async (m) => (asked.push(m), true) });
+    assert.equal(result.status, 'saved');
+    assert.match(asked[0]!, /^Rule \(Understand-Anything\): "When priorities tie, pickNext serves the job submitted first\."\nIt looks enforced in src\/queue\.ts#pickNext \(the rule names it\)\. Ask about it there\?/);
+    await assert.rejects(run({ repo, target: null, options: { kind: 'prediction', rule: 'priorities tie' } }), /looks enforced in src\/queue\.ts#pickNext\. Name it to go ahead: fiu predict src\/queue\.ts#pickNext --rule "priorities tie"/);
+    await assert.rejects(run({ repo, target: null, options: { kind: 'prediction', rule: 'payments' } }), /No rule matches "payments"/);
+    await assert.rejects(run({ repo, target: null, options: { kind: 'drill', rule: 'priorities tie' } }), /A rule is the topic of a Prediction/);
+  });
+
+  it('says there are no rules without a domain graph', async () => {
+    await assert.rejects(run({ repo: await repoWithSource(), target: null, options: { kind: 'prediction', rule: 'anything' } }), /no Understand-Anything business rules/);
   });
 });

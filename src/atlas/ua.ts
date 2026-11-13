@@ -69,6 +69,21 @@ export interface ForeignAtlas {
   counts: { codeNodes: number; matched: number; skipped: number };
   /** Business flows from `domain-graph.json`, steps in order; empty when there is none. */
   flows: ForeignFlow[];
+  /** Business rules from `domain-graph.json`; empty when there is none. */
+  rules: ForeignRule[];
+}
+
+/**
+ * A business rule as UA wrote it ("Background Workouts past their expiry are discarded"): a claim about
+ * the system, the model's word. A Prediction about it measures whether the code agrees.
+ */
+export interface ForeignRule {
+  text: string;
+  domain?: string;
+  /** The flow or step it was written on, when not on a whole domain. */
+  flow?: string;
+  /** Where the rule should be enforced: the files of the steps of its flow, or of every flow of its domain. */
+  files: string[];
 }
 
 /** One step of a flow: where it runs, when UA's path is a file of the skeleton. */
@@ -132,7 +147,7 @@ const DomainNodeSchema = z.object({
   name: text,
   filePath: text.optional(),
   lineRange: z.tuple([z.number().int().min(1), z.number().int().min(1)]).optional().catch(undefined),
-  domainMeta: z.object({ entryPoint: z.string().optional() }).optional().catch(undefined),
+  domainMeta: z.object({ entryPoint: z.string().optional(), businessRules: z.array(z.string()).optional().catch(undefined) }).optional().catch(undefined),
 });
 const DomainEdgeSchema = z.object({ source: text, target: text, type: text, weight: z.number().optional().catch(undefined) });
 const DomainGraphSchema = z.object({
@@ -161,25 +176,76 @@ export async function readForeignAtlas(repoRoot: string, skeleton: Skeleton): Pr
   const commit = graph.data.project?.gitCommitHash?.trim() || undefined;
   const hashes = commit ? await blobHashesAt(repoRoot, commit) : undefined;
   const result = resolveGraph(graph.data, { dir, skeleton, ...(hashes ? { hashes } : {}) });
-  if (result.status === 'read') result.atlas.flows = await readFlows(repoRoot, dir, skeleton, commit, hashes);
+  if (result.status === 'read') Object.assign(result.atlas, await readDomain(repoRoot, dir, skeleton, commit, hashes));
   return result;
 }
 
-/** The domain graph's flows, or none when it is absent or unreadable: an extra, never a failure. */
-async function readFlows(repoRoot: string, dir: string, skeleton: Skeleton, graphCommit: string | undefined, graphHashes: Map<string, string> | undefined): Promise<ForeignFlow[]> {
+/** The domain graph's flows and rules, or none when it is absent or unreadable: an extra, never a failure. */
+async function readDomain(
+  repoRoot: string,
+  dir: string,
+  skeleton: Skeleton,
+  graphCommit: string | undefined,
+  graphHashes: Map<string, string> | undefined,
+): Promise<{ flows: ForeignFlow[]; rules: ForeignRule[] }> {
+  const none = { flows: [], rules: [] };
   const path = join(repoRoot, dir, DOMAIN_FILE);
-  if (!existsSync(path)) return [];
+  if (!existsSync(path)) return none;
   let raw: unknown;
   try {
     raw = JSON.parse(await readFile(path, 'utf8'));
   } catch {
-    return [];
+    return none;
   }
   const graph = DomainGraphSchema.safeParse(raw);
-  if (!graph.success) return [];
+  if (!graph.success) return none;
   const commit = graph.data.project?.gitCommitHash?.trim() || graphCommit;
   const hashes = commit === graphCommit ? graphHashes : commit ? await blobHashesAt(repoRoot, commit) : undefined;
-  return resolveFlows(graph.data, { skeleton, ...(hashes ? { hashes } : {}) });
+  const flows = resolveFlows(graph.data, { skeleton, ...(hashes ? { hashes } : {}) });
+  return { flows, rules: resolveRules(graph.data, flows) };
+}
+
+/**
+ * Pure: every business rule, on a domain, a flow, or a step, with the files where it should hold: a
+ * step's file, its flow's files, or the files of every flow of its domain. Files the skeleton lacks are left out.
+ */
+export function resolveRules(graph: z.infer<typeof DomainGraphSchema>, flows: ForeignFlow[]): ForeignRule[] {
+  const nodes = new Map((graph.nodes ?? []).flatMap((item) => {
+    const node = DomainNodeSchema.safeParse(item);
+    return node.success ? [[node.data.id, node.data] as const] : [];
+  }));
+  const edges = (graph.edges ?? []).flatMap((item) => {
+    const edge = DomainEdgeSchema.safeParse(item);
+    return edge.success ? [edge.data] : [];
+  });
+  const flowsByName = new Map(flows.map((flow) => [flow.name, flow]));
+  const filesOf = (flow: ForeignFlow | undefined) => [...new Set((flow?.steps ?? []).flatMap((s) => (s.path ? [s.path] : [])))];
+  const parentOf = (id: string, type: string) => edges.map((e) => (e.target === id ? nodes.get(e.source) : undefined)).find((n) => n?.type === type);
+  const rules: ForeignRule[] = [];
+  for (const node of nodes.values()) {
+    const texts = (node.domainMeta?.businessRules ?? []).map((t) => t.trim()).filter(Boolean);
+    if (texts.length === 0) continue;
+    let domain: string | undefined;
+    let flowName: string | undefined;
+    let files: string[];
+    if (node.type === 'domain') {
+      domain = node.name.trim();
+      const owned = edges.filter((e) => e.type === 'contains_flow' && e.source === node.id).map((e) => nodes.get(e.target)?.name.trim());
+      files = [...new Set(owned.flatMap((name) => filesOf(name ? flowsByName.get(name) : undefined)))];
+    } else if (node.type === 'flow') {
+      flowName = node.name.trim();
+      domain = parentOf(node.id, 'domain')?.name.trim();
+      files = filesOf(flowsByName.get(flowName));
+    } else if (node.type === 'step') {
+      const flow = parentOf(node.id, 'flow');
+      flowName = flow?.name.trim();
+      domain = flow ? parentOf(flow.id, 'domain')?.name.trim() : undefined;
+      const path = node.filePath ? normalise(node.filePath) : undefined;
+      files = path !== undefined && flows.some((f) => f.steps.some((s) => s.path === path)) ? [path] : [];
+    } else continue;
+    for (const text of texts) rules.push({ text, ...(domain ? { domain } : {}), ...(flowName ? { flow: flowName } : {}), files });
+  }
+  return rules;
 }
 
 /**
@@ -318,6 +384,7 @@ export function resolveGraph(
     tour,
     counts: { codeNodes, matched, skipped },
     flows: [],
+    rules: [],
   };
   const warning =
     codeNodes >= MIN_NODES_TO_JUDGE && matched / codeNodes < MIN_MATCH_RATIO

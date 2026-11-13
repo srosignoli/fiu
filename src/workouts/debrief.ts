@@ -5,6 +5,7 @@ import { buildSkeleton } from '../atlas/skeleton.ts';
 import { fromUa, readAtlasOverlay, UA_LABEL, UA_MARK } from '../atlas/overlay.ts';
 import { entryState } from '../atlas/store.ts';
 import { flowsThrough, type FlowMatch } from '../atlas/ua.ts';
+import { locateRule } from '../atlas/rules.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { profileForFile } from '../languages/registry.ts';
 import { diffLines } from '../verify/diff.ts';
@@ -33,6 +34,8 @@ export interface Debrief {
   signals: string[];
   /** The business flows this code is a step of, from Understand-Anything's domain graph (ADR 0010). */
   flows: DebriefFlow[];
+  /** Business rules from that graph that Fiu locates in the target: what this code may be enforcing. */
+  rules: { text: string; domain?: string }[];
   tryNext: { command: string; why: string }[];
 }
 
@@ -64,10 +67,11 @@ export interface DebriefOptions {
 /** At most this many "Try next" suggestions, and this many files in a list; at most this many flows. */
 const TRY_NEXT = 3;
 const FLOWS = 2;
+const RULES = 3;
 const LISTED = 5;
 
 export async function buildDebrief({ paths, record, sourceChanged, profiles }: DebriefOptions): Promise<Debrief> {
-  const debrief: Debrief = { sourceChanged, anchors: record.sourceAnchors, target: [], callers: [], usedBy: [], signals: [], flows: [], tryNext: [] };
+  const debrief: Debrief = { sourceChanged, anchors: record.sourceAnchors, target: [], callers: [], usedBy: [], signals: [], flows: [], rules: [], tryNext: [] };
   if (!profiles) return debrief;
   const path = record.source.path;
   const skeleton = await buildSkeleton(paths.repoRoot, profiles);
@@ -84,6 +88,13 @@ export async function buildDebrief({ paths, record, sourceChanged, profiles }: D
   if (entry) debrief.file = { text: entry.text.replace(/\s*\n\s*/g, ' '), stale: entryState(entry, file.hash) === 'stale' };
   if (fromUa(entry)) debrief.fromUa = true;
   if (ua.status === 'read') {
+    // A rule counts when one of its located places is a target function; only rules that could reach this file are located.
+    const reach = ua.atlas.rules.filter((r) => r.files.length === 0 || r.files.includes(path) || file.symbols.some((s) => r.text.includes(s.name.split('.').pop()!)));
+    for (const rule of reach) {
+      if (debrief.rules.length >= RULES) break;
+      const places = await locateRule(rule, paths.repoRoot, skeleton, atlas);
+      if (places.some((p) => p.path === path && target.includes(p.symbol))) debrief.rules.push({ text: rule.text, ...(rule.domain ? { domain: rule.domain } : {}) });
+    }
     const ranges = file.symbols.filter((s) => target.includes(s.name));
     debrief.flows = flowsThrough(ua.atlas.flows, path, ranges).slice(0, FLOWS).map(({ flow, index, where }) => {
       const step = flow.steps[index]!;
@@ -176,10 +187,11 @@ const listed = (paths: string[]) => paths.slice(0, LISTED).join(', ') + (paths.l
 const DESCRIPTIONS_NOTE = 'Descriptions are written by a model from the code, not Verified; links and signals are computed from imports and git history.';
 const LINKS_NOTE = 'Links and signals are computed from imports and git history.';
 const DESCRIPTIONS_NOTE_UA = `Descriptions are written by a model from the code, not Verified (those marked ${UA_MARK} by ${UA_LABEL}); links and signals are computed from imports and git history.`;
-const FLOWS_NOTE = `Flows are ${UA_LABEL}'s reading of the code (marked ${UA_MARK}), not Verified.`;
+const FLOWS_NOTE = `Flows and rules are ${UA_LABEL}'s reading of the code (marked ${UA_MARK}), not Verified; Fiu locates rules by their words.`;
+const ruleLine = (r: { text: string; domain?: string }) => `"${r.text}"${r.domain ? ` (${r.domain})` : ''} ${UA_MARK}`;
 const hasDescriptions = (d: Debrief) => d.target.some((t) => t.text) || d.file !== undefined;
 const note = (d: Debrief) =>
-  [!hasDescriptions(d) ? LINKS_NOTE : d.fromUa ? DESCRIPTIONS_NOTE_UA : DESCRIPTIONS_NOTE, ...(d.flows.length > 0 && !d.fromUa ? [FLOWS_NOTE] : [])].join(' ');
+  [!hasDescriptions(d) ? LINKS_NOTE : d.fromUa ? DESCRIPTIONS_NOTE_UA : DESCRIPTIONS_NOTE, ...((d.flows.length > 0 || d.rules.length > 0) && !d.fromUa ? [FLOWS_NOTE] : [])].join(' ');
 /** Which step of which flow this is: `This code is step 1 of 7, "Expire stale Workouts", in "Refill the Queue from a Commit"`. */
 const flowHead = (f: DebriefFlow) =>
   `${f.where === 'code' ? 'This code is' : 'This file holds'} step ${f.step} of ${f.of}, "${f.stepName}", in "${f.name}"${f.domain ? ` (${f.domain})` : ''} ${UA_MARK}${f.stale ? ', read before the file last changed' : ''}`;
@@ -203,7 +215,8 @@ function calling(d: Debrief, code: (text: string) => string): string {
   return ` (calling ${listed(d.callers.map((c) => `${code(c.path)} → ${c.calls.map(code).join(', ')}`))})`;
 }
 const CHANGED_NOTE = 'The source has changed since this Workout was made: what follows is about today\'s code.';
-const hasContext = (d: Debrief) => d.target.some((t) => t.text) || d.file !== undefined || d.usedBy.length > 0 || d.signals.length > 0 || d.flows.length > 0 || d.tryNext.length > 0;
+const hasContext = (d: Debrief) =>
+  d.target.some((t) => t.text) || d.file !== undefined || d.usedBy.length > 0 || d.signals.length > 0 || d.flows.length > 0 || d.rules.length > 0 || d.tryNext.length > 0;
 
 /** The Debrief as the terminal shows it. */
 export function renderDebriefText(d: Debrief): string {
@@ -215,6 +228,7 @@ export function renderDebriefText(d: Debrief): string {
     lines.push('  What it is for:', ...described.map((t) => `    #${t.name}  ${t.text}${ua(d)}`), ...(d.file ? [`    This file: ${d.file.text}${d.file.stale ? ' (written before the code last changed)' : ''}${ua(d)}`] : []));
   }
   if (d.flows.length > 0) lines.push('  Where it runs:', ...d.flows.flatMap((f) => [`    ${flowHead(f)}`, ...flowSides(f, (s) => s).map((s) => `      ${s}`)]));
+  if (d.rules.length > 0) lines.push('  Rules it may enforce:', ...d.rules.map((r) => `    ${ruleLine(r)}`));
   if (d.usedBy.length > 0) lines.push(`  Used by: ${listed(d.usedBy)}${calling(d, (s) => s)}`);
   if (d.signals.length > 0) lines.push('  Tensions:', ...d.signals.map((s) => `    ${s}`));
   if (d.tryNext.length > 0) {
@@ -238,6 +252,7 @@ export function renderDebriefMarkdown(d: Debrief, record: WorkoutRecord): string
     const code = (s: string) => `\`${s}\``;
     lines.push('## Where it runs', '', ...d.flows.flatMap((f) => [`- ${flowHead(f)}`, ...flowSides(f, code).map((s) => `  - ${s}`)]), '');
   }
+  if (d.rules.length > 0) lines.push('## Rules it may enforce', '', ...d.rules.map((r) => `- ${ruleLine(r)}`), '');
   if (d.usedBy.length > 0) {
     lines.push('## Used by', '', `${d.usedBy.map((p) => `\`${p}\``).join(', ')}${calling(d, (s) => `\`${s}\``)}`, '');
   }

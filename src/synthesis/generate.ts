@@ -66,7 +66,7 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
   const usage: ModelUsage[] = [];
   const spend: Pick<Spend, 'result' | 'workoutId' | 'workoutIds' | 'generationAttempts'> = { result: 'error', generationAttempts: 0 };
   try {
-    if (options.kind === 'prediction' && (options.questions ?? 1) > 1 && target.change === undefined && target.whatIf === undefined) {
+    if (options.kind === 'prediction' && (options.questions ?? 1) > 1 && target.change === undefined && target.whatIf === undefined && target.rule === undefined) {
       return await generateSeries(options, { model, providerOptions, maxAttempts, usage, spend });
     }
     const result = await synthesizeDrill({
@@ -115,6 +115,7 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
       commit: options.commit,
       track: options.track,
       ...(target.whatIf ? { whatIf: { ...target.whatIf, modelled: result.workout.modelledAs ?? '' } } : {}),
+      ...(target.rule && result.workout.ruleCheck ? { rule: { ...target.rule, ...result.workout.ruleCheck } } : {}),
       ...(config.context ? { contextProfiles: config.profiles } : {}),
     });
     Object.assign(spend, { result: 'verified', workoutId: record.id });

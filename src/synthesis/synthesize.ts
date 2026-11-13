@@ -83,6 +83,8 @@ export async function synthesizeDrill({
   const before = kind === 'prediction' ? target.change?.before : undefined;
   const fromCommit = before !== undefined;
   const whatIf = kind === 'prediction' && target.whatIf !== undefined;
+  // A Prediction about a business rule also says whether the code follows it.
+  const rule = kind === 'prediction' && !whatIf && !fromCommit ? target.rule?.text : undefined;
   const beforeLines = before?.replace(/\n$/, '').split('\n').length ?? 0;
   if (beforeLines > MAX_SOURCE_LINES) throw new SourceTooLargeError(`${target.path} (before the commit)`, beforeLines);
 
@@ -93,7 +95,7 @@ export async function synthesizeDrill({
   const attempts = Math.min(maxAttempts, MAX_ATTEMPTS);
   for (let attempt = 1; attempt <= attempts; attempt++) {
     onEvent({ type: 'generating', attempt });
-    const generated = await generate(model, modelId, systemPromptFor(kind, profile, { quick, fromCommit, whatIf }), outputSchemaFor(kind, { fromCommit, whatIf }), messages, providerOptions);
+    const generated = await generate(model, modelId, systemPromptFor(kind, profile, { quick, fromCommit, whatIf }), outputSchemaFor(kind, { fromCommit, whatIf, rule: rule !== undefined }), messages, providerOptions);
     onEvent({ type: 'usage', attempt, usage: generated.usage });
     messages.push(...generated.responseMessages);
 
@@ -104,7 +106,7 @@ export async function synthesizeDrill({
     if (!generated.output) {
       feedback = `[schema] The response was not a valid ${NOUN[kind]} object: ${generated.error}`;
     } else {
-      const problems = checkWorkoutOutput(kind, generated.output, sourceLines, { quick, lineComment: profile.lineComment, fromCommit, whatIf });
+      const problems = checkWorkoutOutput(kind, generated.output, sourceLines, { quick, lineComment: profile.lineComment, fromCommit, whatIf, ...(rule !== undefined ? { rule } : {}) });
       if (problems.length > 0) {
         feedback = problems.map((problem) => `[schema] ${problem}`).join('\n');
       } else {

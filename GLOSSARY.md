@@ -34,6 +34,10 @@ _Avoid_: Triage, root-cause quiz, incident (the incident is what it shows)
 A Prediction about a Proposed Change: what the code would do with it, in a situation where that differs from today. Its outcomes are measured; that the code matches the change as worded is the model's reading, shown to the human.
 _Avoid_: Simulation, scenario (that's the situation it asks about), impact analysis
 
+**Business Rule**:
+A claim about how the system must behave ("Background Workouts past their expiry are discarded"), written by Understand-Anything's domain analysis. The model's word: a Prediction about it measures whether the code follows it, and a disagreement means the rule is stale or the code is wrong.
+_Avoid_: Rule (alone: Tracks have planning rules), policy, requirement
+
 **Proposed Change**:
 A change that hasn't been made, typed by the human or suggested by the model, modelled in a self-contained copy of one unit. Nothing in the repository changes.
 _Avoid_: Patch, diff

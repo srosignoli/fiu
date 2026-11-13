@@ -333,6 +333,14 @@ describe("Understand-Anything's flows", async () => {
       ],
     );
 
+    // The domain's rules, each with the files of the domain's flows.
+    assert.equal(result.atlas.rules.length, 7);
+    assert.deepEqual(result.atlas.rules.find((r) => r.text.startsWith('Background Workouts')), {
+      text: 'Background Workouts that sit in the queue past their expiry are discarded.',
+      domain: 'Background Generation',
+      files: ['src/background/refill.ts', 'src/background/commits.ts', 'src/synthesis/generate.ts', 'src/background/log.ts'],
+    });
+
     // A step is matched by its lines while the file is as UA read it; once it changes, only by its file.
     assert.deepEqual(flowsThrough(result.atlas.flows, 'src/background/commits.ts', [{ startLine: 66, endLine: 98 }]).map((m) => [m.index, m.where]), [[3, 'code']]);
     assert.deepEqual(flowsThrough(result.atlas.flows, 'src/background/commits.ts', [{ startLine: 1, endLine: 5 }]).map((m) => [m.index, m.where]), [[2, 'file']]);
@@ -402,6 +410,9 @@ describe("Understand-Anything's flows", async () => {
       sourceAnchors: [{ path: 'src/background/refill.ts', startLine: 270, endLine: 278, explanation: 'Stale Workouts are discarded here.' }],
     } as unknown as import('../src/workouts/save.ts').WorkoutRecord;
     const debrief = await buildDebrief({ paths, record, sourceChanged: false, profiles: profiles() });
+    // The rule the target enforces, located by its words.
+    assert.ok(debrief.rules.some((r) => r.text === 'Background Workouts that sit in the queue past their expiry are discarded.'));
+    assert.match(renderDebriefText(debrief), /Rules it may enforce:\n {4}"Background Workouts that sit in the queue past their expiry are discarded\." \(Background Generation\) \(UA\)/);
     assert.deepEqual(debrief.flows, [
       {
         name: 'Refill the Queue from a Commit',
@@ -420,7 +431,7 @@ describe("Understand-Anything's flows", async () => {
 
     const text = renderDebriefText(debrief);
     assert.match(text, /Where it runs:\n {4}This code is step 1 of 7, "Expire stale Workouts", in "Refill the Queue from a Commit" \(Background Generation\) \(UA\)\n {6}starts with: .*fiu refill --background.*\n {6}after: Acquire the repository lock \(src\/background\/refill\.ts\)/);
-    assert.match(text, /Flows are Understand-Anything's reading of the code \(marked \(UA\)\), not Verified\./);
+    assert.match(text, /Flows and rules are Understand-Anything's reading of the code \(marked \(UA\)\), not Verified/);
     assert.match(renderDebriefMarkdown(debrief, record), /## Where it runs\n\n- This code is step 1 of 7/);
 
     // Turned off: no flows.
@@ -453,5 +464,82 @@ describe("Understand-Anything's flows", async () => {
     const debrief = await buildDebrief({ paths, record, sourceChanged: false, profiles: profiles() });
     assert.deepEqual([debrief.flows[0]?.step, debrief.flows[0]?.where, debrief.flows[0]?.before?.name], [4, 'code', 'Read and screen the commit']);
     assert.ok(debrief.tryNext.some((t) => t.command === 'fiu predict src/background/refill.ts' && t.why === 'it is the next step of "Refill the Queue from a Commit" (UA)'));
+  });
+});
+
+describe("Understand-Anything's business rules", async () => {
+  const { findRule, locateRule } = await import('../src/atlas/rules.ts');
+  const { emptyAtlas } = await import('../src/atlas/store.ts');
+  const { resolveRules, resolveFlows } = await import('../src/atlas/ua.ts');
+
+  async function rulesRepo() {
+    const dir = await tempGitRepo();
+    const files: Record<string, string> = {
+      'src/queue/cap.ts': 'export const QUEUE_CAP = 3;\n\nexport function roomInQueue(waiting: number): boolean {\n  return waiting < QUEUE_CAP;\n}\n\nexport function describeQueue(waiting: number) {\n  return `${waiting} waiting`;\n}\n',
+      'src/queue/expire.ts': 'export function expireStaleWorkouts(ages: number[], days: number) {\n  return ages.filter((age) => age > days);\n}\n',
+      'src/other/expiry.ts': 'export function expiredCoupons(ages: number[]) {\n  return ages.filter((age) => age > 30);\n}\n',
+    };
+    for (const [path, content] of Object.entries(files)) {
+      await mkdir(join(dir, path, '..'), { recursive: true });
+      await writeFile(join(dir, path), content);
+    }
+    await execa('git', ['add', '.'], { cwd: dir });
+    return { dir, skeleton: await buildSkeleton(dir, profiles()) };
+  }
+
+  it('reads rules on a domain, a flow, or a step, each with the files where it should hold', async () => {
+    const { skeleton } = await rulesRepo();
+    const graph = {
+      nodes: [
+        { id: 'domain:q', type: 'domain', name: 'Queue', domainMeta: { businessRules: ['The queue holds at most 3.'] } },
+        { id: 'flow:f', type: 'flow', name: 'Fill', domainMeta: { businessRules: ['Stale ones go first.', '  '] } },
+        { id: 'step:a', type: 'step', name: 'Check room', filePath: 'src/queue/cap.ts', domainMeta: { businessRules: ['Never more than the cap.'] } },
+        { id: 'step:b', type: 'step', name: 'Expire', filePath: 'src/queue/expire.ts' },
+      ],
+      edges: [
+        { source: 'domain:q', target: 'flow:f', type: 'contains_flow' },
+        { source: 'flow:f', target: 'step:a', type: 'flow_step', weight: 0.5 },
+        { source: 'flow:f', target: 'step:b', type: 'flow_step', weight: 1 },
+      ],
+    };
+    const flows = resolveFlows(graph, { skeleton });
+    assert.deepEqual(resolveRules(graph, flows), [
+      { text: 'The queue holds at most 3.', domain: 'Queue', files: ['src/queue/cap.ts', 'src/queue/expire.ts'] },
+      { text: 'Stale ones go first.', domain: 'Queue', flow: 'Fill', files: ['src/queue/cap.ts', 'src/queue/expire.ts'] },
+      { text: 'Never more than the cap.', domain: 'Queue', flow: 'Fill', files: ['src/queue/cap.ts'] },
+    ]);
+  });
+
+  it('locates a rule by the names it gives, a constant through the functions using it, else by its words among its files', async () => {
+    const { dir, skeleton } = await rulesRepo();
+    const locate = (text: string, files: string[] = ['src/queue/cap.ts', 'src/queue/expire.ts']) => locateRule({ text, files }, dir, skeleton, emptyAtlas()).then((ts) => ts.map((t) => `${t.path}#${t.symbol} ${t.evidence}`));
+    assert.deepEqual(await locate('The queue holds at most 3 (QUEUE_CAP).'), ['src/queue/cap.ts#roomInQueue names']);
+    assert.deepEqual(await locate('Workouts are dropped by expireStaleWorkouts after their expiry.'), ['src/queue/expire.ts#expireStaleWorkouts names']);
+    // By words: the coupon expiry outside the rule's files is never proposed.
+    assert.deepEqual(await locate('Stale Workouts past their expiry are discarded.'), ['src/queue/expire.ts#expireStaleWorkouts search']);
+    // A number alone points nowhere.
+    assert.deepEqual(await locate('At most 3.'), []);
+  });
+
+  it('finds a rule by its words, and lists the rules when the words match none or several', () => {
+    const rules = [
+      { text: 'The queue holds at most 3.', files: [] },
+      { text: 'Stale Workouts expire after 14 days.', files: [] },
+      { text: 'Stale entries are shown with a mark.', files: [] },
+    ];
+    assert.equal(findRule(rules, 'the queue holds at most 3.').text, 'The queue holds at most 3.');
+    assert.equal(findRule(rules, 'expire days').text, 'Stale Workouts expire after 14 days.');
+    assert.throws(() => findRule(rules, 'stale'), /"stale" matches 2 rules; use more of their words/);
+    assert.throws(() => findRule(rules, 'payments'), /No rule matches "payments"/);
+  });
+});
+
+describe('the rule in the reveal', async () => {
+  const { ruleLines } = await import('../src/workouts/save.ts');
+  it("shows the rule as written and whether the code follows it, as the model's reading", () => {
+    assert.deepEqual(ruleLines({ text: 'Jobs are kept for 7 days.', domain: 'Scheduling', agrees: false, note: 'They are kept for 14.' }), [
+      'The rule this was about (Understand-Anything, Scheduling): "Jobs are kept for 7 days."',
+      "The code does NOT follow it: They are kept for 14. (as measured; the comparison is the model's reading)",
+    ]);
   });
 });

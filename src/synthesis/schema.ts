@@ -143,6 +143,18 @@ export const PredictionOutputSchema = z.object({
 });
 export type PredictionOutput = z.infer<typeof PredictionOutputSchema>;
 
+/** For a Prediction about a business rule: whether the measured behaviour is what the rule says (ADR 0010). */
+export const RuleCheckSchema = z.object({
+  agrees: z.boolean().describe('True when the code, as the tests measure it, does what the rule says.'),
+  note: z.string().describe('One plain-English sentence, shown after answering: how the code agrees with the rule, or how it differs. No names from the code.'),
+});
+export type RuleCheck = z.infer<typeof RuleCheckSchema>;
+
+/** A Prediction about a business rule: as PredictionOutputSchema, plus whether the code follows the rule. */
+export const RulePredictionOutputSchema = PredictionOutputSchema.extend({
+  ruleCheck: RuleCheckSchema.describe('Whether the code does what the business rule says, judged from what your tests measure.'),
+});
+
 /** A Prediction from a commit: as PredictionOutputSchema, plus the unit as it was before the commit. */
 export const CommitPredictionOutputSchema = PredictionOutputSchema.extend({
   options: z.array(CommitPredictionOptionSchema).describe('Exactly 4 options: the true one, the old behaviour (previous: true), and two wrong ones from Variants.'),
@@ -264,14 +276,27 @@ export const AnyWorkoutOutputSchema = z.object({
   options: z.array(PredictionOptionSchema.extend({ previous: z.boolean().optional() })).optional().describe('Predictions only: exactly 4 options.'),
   previous: z.string().optional().describe('Predictions from a commit: the unit before the commit. What-ifs: the unit as it is today.'),
   modelledAs: z.string().optional().describe('What-ifs only: how you understood the change, in plain English.'),
+  ruleCheck: RuleCheckSchema.optional().describe('Predictions about a business rule only: whether the code does what the rule says.'),
   explanation: z.string().optional().describe('Predictions and Diagnoses: why the truth is true, shown after answering.'),
   causes: z.array(DiagnosisCauseSchema).optional().describe('Diagnoses only: exactly 4 Causes, one true.'),
   originalDefect: OriginalDefectSchema.optional(),
 });
 export type AnyWorkoutOutput = z.infer<typeof AnyWorkoutOutputSchema>;
 
-export const outputSchemaFor = (kind: WorkoutKind, { fromCommit = false, whatIf = false } = {}) =>
-  whatIf ? WhatIfOutputSchema : kind === 'drill' ? DrillOutputSchema : kind === 'kata' ? KataOutputSchema : kind === 'diagnosis' ? DiagnosisOutputSchema : fromCommit ? CommitPredictionOutputSchema : PredictionOutputSchema;
+export const outputSchemaFor = (kind: WorkoutKind, { fromCommit = false, whatIf = false, rule = false } = {}) =>
+  whatIf
+    ? WhatIfOutputSchema
+    : kind === 'drill'
+      ? DrillOutputSchema
+      : kind === 'kata'
+        ? KataOutputSchema
+        : kind === 'diagnosis'
+          ? DiagnosisOutputSchema
+          : fromCommit
+            ? CommitPredictionOutputSchema
+            : rule
+              ? RulePredictionOutputSchema
+              : PredictionOutputSchema;
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -289,7 +314,7 @@ export function checkWorkoutOutput(
   kind: WorkoutKind,
   output: AnyWorkoutOutput,
   sourceLineCount: number,
-  { quick = false, lineComment, fromCommit = false, whatIf = false }: { quick?: boolean; lineComment?: string; fromCommit?: boolean; whatIf?: boolean } = {},
+  { quick = false, lineComment, fromCommit = false, whatIf = false, rule }: { quick?: boolean; lineComment?: string; fromCommit?: boolean; whatIf?: boolean; rule?: string } = {},
 ): string[] {
   const noun = NOUN[kind];
   const problems: string[] = [];
@@ -314,7 +339,7 @@ export function checkWorkoutOutput(
   }
   empty('referenceSolution', output.referenceSolution);
   empty('testSuiteCode', output.testSuiteCode);
-  if (kind === 'prediction') return [...problems, ...predictionProblems(output, fromCommit, whatIf)];
+  if (kind === 'prediction') return [...problems, ...predictionProblems(output, fromCommit, whatIf), ...(rule === undefined ? [] : ruleProblems(output, rule))];
   if (kind === 'diagnosis') return [...problems, ...diagnosisProblems(output)];
 
   if (quick) {
@@ -350,6 +375,28 @@ export function codeVocabulary(code: string): Set<string> {
   const words = code.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) ?? [];
   return new Set(words.filter((w) => w.length >= CODE_WORD_MIN_CHARS && (/[a-z][A-Z]/.test(w) || /[A-Za-z0-9]_[A-Za-z0-9]/.test(w))));
 }
+
+/**
+ * A Prediction about a rule says whether the code follows it, and never shows the rule before the answer:
+ * a stretch of 6 or more of its words in the scenario or an option quotes it.
+ */
+function ruleProblems(output: AnyWorkoutOutput, rule: string): string[] {
+  const problems: string[] = [];
+  if (!output.ruleCheck) problems.push('ruleCheck is missing: say whether the code does what the rule says.');
+  else if (!output.ruleCheck.note.trim()) problems.push('ruleCheck.note is empty: say in one sentence how the code agrees with the rule or differs.');
+  const ruleWords = rule.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const quoted = (text: string) => {
+    const said = ` ${text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).join(' ')} `;
+    for (let i = 0; i + QUOTE_WORDS <= ruleWords.length; i++) if (said.includes(` ${ruleWords.slice(i, i + QUOTE_WORDS).join(' ')} `)) return true;
+    return false;
+  };
+  const shown: [string, string][] = [['the scenario', output.scenario ?? ''], ...(output.options ?? []).map((o, i): [string, string] => [`option ${i + 1}'s text`, o.text])];
+  for (const [where, text] of shown) if (quoted(text)) problems.push(`${where} quotes the rule: describe the situation in your own words, so the rule doesn't give the answer away.`);
+  return problems;
+}
+
+/** Consecutive words of a rule that, found in text shown before answering, count as quoting it. */
+const QUOTE_WORDS = 6;
 
 function predictionProblems(output: AnyWorkoutOutput, fromCommit: boolean, whatIf: boolean): string[] {
   const problems: string[] = [];

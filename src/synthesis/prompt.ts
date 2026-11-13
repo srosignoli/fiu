@@ -17,6 +17,8 @@ export interface DrillTarget {
   };
   /** A What-if: the change to model, or no sentence to have the model propose one. */
   whatIf?: { sentence?: string };
+  /** A Prediction about a business rule from Understand-Anything's domain graph (ADR 0010): does the code follow it? */
+  rule?: { text: string; domain?: string };
   /** This Drill is one step of a Track teaching a module, or following a business flow. */
   track?: { module: string; flow?: string; step: number; of?: number; why: string };
 }
@@ -217,7 +219,10 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
       ? `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track following the business flow "${target.track.flow}" through the code, in the order the flow runs. What this file does in the flow: ${target.track.why} Build the ${noun} around the logic that does it.`
       : `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the ${noun} around the logic that makes it matter.`
     : '';
-  return `Source file: ${target.path}\n${focus}${target.symbol ? proposed : ''}${track}\n\n<source>\n${numbered}\n</source>${change}`;
+  const rule = target.rule
+    ? `\nBuild the Scenario around this business rule from the team's documentation${target.rule.domain ? ` (${target.rule.domain})` : ''}, written by a model and possibly out of date: "${target.rule.text}". Choose a situation where following the rule or not makes a visible difference. The true option is what the code does, whatever the rule says. Never quote or paraphrase the rule in the scenario or the options: it may give the answer away. In ruleCheck, say whether the code, as your tests measure it, does what the rule says, and in one plain-English sentence how it agrees or differs.`
+    : '';
+  return `Source file: ${target.path}\n${focus}${target.symbol ? proposed : ''}${track}${rule}\n\n<source>\n${numbered}\n</source>${change}`;
 }
 
 export function retryPrompt(feedback: string, kind: WorkoutKind = 'drill'): string {

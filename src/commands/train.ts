@@ -16,7 +16,7 @@ import { nextQuickWorkout } from '../workouts/queue.ts';
 import type { PredictionOption } from '../synthesis/schema.ts';
 import type { Confidence } from '../workouts/attempts.ts';
 import { buildDebrief, renderDebriefMarkdown, renderDebriefText } from '../workouts/debrief.ts';
-import { incidentOf, PRACTICE_INCIDENT, WHAT_IF_LIMITS, whatIfLines, type WorkoutRecord } from '../workouts/save.ts';
+import { incidentOf, PRACTICE_INCIDENT, ruleLines, WHAT_IF_LIMITS, whatIfLines, type WorkoutRecord } from '../workouts/save.ts';
 import { listWorkouts, loadWorkout, nextInSeries, WorkoutDiscardedError, type Outcome, type StoredWorkout } from '../workouts/store.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 
@@ -375,7 +375,7 @@ async function runPrediction(session: TrainingSession, io: TrainIo, { resumed, b
   const why = chosen.previous ? `That was true until ${commit}.` : chosen.misunderstanding.trim();
   const reveal = outcome === 'completed' ? [`Right: ${truth.text.trim()}`] : [`Not quite. What happens: ${truth.text.trim()}`, why];
   const changed = old ? ['', describeChange(record, old)] : [];
-  io.print([...reveal, ...changed, '', explanation.trim()].join('\n'));
+  io.print([...reveal, ...changed, '', explanation.trim(), ...(record.rule ? ['', ...ruleLines(record.rule)] : [])].join('\n'));
   if (outcome === 'abandoned') {
     io.print(`[d] ${chosen.previous ? 'what the commit changed' : 'the code difference behind your answer'}   [any other key] continue`);
     const read = new AbortController();

@@ -1,5 +1,5 @@
 import { MockLanguageModelV4 } from 'ai/test';
-import type { AnyWorkoutOutput, CommitPredictionOutput, DiagnosisOutput, DrillOutput, KataOutput, PredictionOutput, PredictionSeriesOutput, SeriesQuestion, WhatIfOutput } from '../src/synthesis/schema.ts';
+import type { AnyWorkoutOutput, CommitPredictionOutput, DiagnosisOutput, DrillOutput, KataOutput, PredictionOutput, PredictionSeriesOutput, RuleCheck, SeriesQuestion, WhatIfOutput } from '../src/synthesis/schema.ts';
 
 export interface ScriptedModel {
   model: MockLanguageModelV4;
@@ -123,7 +123,7 @@ describe('what runs next', () => {
 `;
 
 /** A Prediction that passes the Verified gate with the TypeScript profile: which job pickNext serves on a tie. */
-export function goodPrediction(overrides: Partial<PredictionOutput> = {}): PredictionOutput {
+export function goodPrediction(overrides: Partial<PredictionOutput & { ruleCheck: RuleCheck }> = {}): PredictionOutput {
   const none = { original: '', changed: '' };
   return {
     worthPracticing: true,

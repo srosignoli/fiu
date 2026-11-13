@@ -11,7 +11,7 @@ import { SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { NotAGitRepositoryError } from '../workspace.ts';
 import { AgentDrills, AgentRequestError } from './drills.ts';
 import { compareVersions, installedVersion } from './install.ts';
-import { FINISH_TRACK_DESCRIPTION, LIST_DESCRIPTION, PREPARE_ATLAS_DESCRIPTION, SEARCH_ATLAS_DESCRIPTION, SUBMIT_ATLAS_DESCRIPTION, PREPARE_DESCRIPTION, PREPARE_TRACK_DESCRIPTION, SERVER_INSTRUCTIONS, SUBMIT_DESCRIPTION } from './texts.ts';
+import { FIND_RULE_DESCRIPTION, FINISH_TRACK_DESCRIPTION, LIST_DESCRIPTION, PREPARE_ATLAS_DESCRIPTION, SEARCH_ATLAS_DESCRIPTION, SUBMIT_ATLAS_DESCRIPTION, PREPARE_DESCRIPTION, PREPARE_TRACK_DESCRIPTION, SERVER_INSTRUCTIONS, SUBMIT_DESCRIPTION } from './texts.ts';
 import { ExploreTargetError } from '../explore/shortlist.ts';
 import { AtlasOutputSchema } from '../atlas/describe.ts';
 import { AtlasTargetError } from '../atlas/skeleton.ts';
@@ -56,11 +56,12 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
         why: z.string().optional().describe('For a Track step: one line on why this file matters for the module.'),
         whatIf: z.string().optional().describe('Predictions only: a What-if, asking what the code would do with a change nobody has made. The change in the user\'s words, or an empty string to propose one yourself.'),
         questions: z.number().optional().describe('Predictions only: ask a Series of this many questions (2 to 5) about the unit, from one shared extraction. The user asks for 3 unless they say otherwise.'),
+        rule: z.string().optional().describe("Predictions only: a business rule from Understand-Anything's domain graph to ask about, its text as find_rule returns it. The Prediction measures whether the code follows it."),
       },
     },
-    ({ target, kind, quick, afterTask, trackId, why, questions, whatIf }) =>
+    ({ target, kind, quick, afterTask, trackId, why, questions, whatIf, rule }) =>
       respond(async () => {
-        const prepared = await drills.prepare({ target, kind, quick, origin: afterTask ? 'agent-task' : 'manual', trackId, why, questions, whatIf });
+        const prepared = await drills.prepare({ target, kind, quick, origin: afterTask ? 'agent-task' : 'manual', trackId, why, questions, whatIf, rule });
         const notice = await staleInstallNotice(home, prepared.repository, version);
         return { ...prepared, ...(notice ? { notice } : {}) };
       }),
@@ -92,6 +93,16 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
       },
     },
     ({ module, flow }) => respond(() => drills.prepareTrack(module, flow)),
+  );
+
+  server.registerTool(
+    'find_rule',
+    {
+      title: 'Find a business rule',
+      description: FIND_RULE_DESCRIPTION,
+      inputSchema: { words: z.string().optional().describe('Words of the rule; leave out to list every rule.') },
+    },
+    ({ words }) => respond(() => drills.findRules(words)),
   );
 
   server.registerTool(

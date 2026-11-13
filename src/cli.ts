@@ -66,7 +66,7 @@ function questionCount(value: string): number {
 
 function generationCommand(kind: WorkoutKind) {
   const noun = NOUN[kind];
-  return async (target: string | undefined, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean; questions?: number; whatIf?: string | true }) => {
+  return async (target: string | undefined, options: { train: boolean; yes: boolean; sandbox: boolean; quick?: boolean; questions?: number; whatIf?: string | true; rule?: string }) => {
     const ui = terminalUi();
     try {
       const result = await drill(process.cwd(), target, { ...options, kind }, ui);
@@ -139,13 +139,30 @@ program
   .option('--commit <sha>', 'ask what a commit changed: the code before it becomes one of the wrong answers')
   .option('--what-if [change]', 'what would happen with a change nobody has made: your sentence, or leave it out for the model to propose one')
   .option('--questions <n>', 'how many questions to ask about the unit, 1 to 5 (default: predictionQuestions in your config, else 3)', questionCount)
+  .option('--rule [words]', "ask whether the code follows a business rule from Understand-Anything's domain graph (no words: list the rules)")
   .option('--no-train', 'only save the Prediction, without opening the runner')
   .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
-  .action(async (target: string | undefined, options: { commit?: string; questions?: number; whatIf?: string | true; train: boolean; yes: boolean; sandbox: boolean }) => {
+  .action(async (target: string | undefined, options: { commit?: string; questions?: number; whatIf?: string | true; rule?: string | true; train: boolean; yes: boolean; sandbox: boolean }) => {
+    if (options.rule !== undefined && (options.commit || options.whatIf || (options.questions ?? 1) > 1)) throw new Error('A Prediction about a rule asks one question about today\'s code: leave out --commit, --what-if and --questions.');
+    if (options.rule === true) {
+      const { listRules } = await import('./commands/drill.ts');
+      const rules = await listRules(process.cwd());
+      if (rules.length === 0) return log.info('No Understand-Anything business rules here: run /understand and then /understand-domain in Claude Code.');
+      const color = process.stdout.isTTY === true && !process.env.NO_COLOR;
+      const dim = (text: string) => (color ? `\x1b[2m${text}\x1b[0m` : text);
+      const mark = (agrees?: boolean) => (agrees === undefined ? ' ' : agrees ? '✓' : '✗');
+      console.log(
+        [
+          `Understand-Anything's business rules (UA): fiu predict --rule "<words>"   ${dim('✓ the code follows it  ✗ it does not (as a Prediction measured)')}`,
+          ...rules.map(({ rule, target: where, agrees }) => `${mark(agrees)} ${rule.text}\n    ${dim(where ? `→ ${where}` : '→ ? (name the code: fiu predict <file>#<symbol> --rule "…")')}`),
+        ].join('\n'),
+      );
+      return;
+    }
     if (options.whatIf && options.commit) throw new Error('A What-if is about a change nobody has made: leave out --commit.');
     if (options.whatIf && options.questions !== undefined && options.questions > 1) throw new Error('A What-if asks one question: leave out --questions.');
-    if (!options.commit) return generationCommand('prediction')(target, options);
+    if (!options.commit) return generationCommand('prediction')(target, { ...options, rule: typeof options.rule === 'string' ? options.rule : undefined });
     if (target) throw new Error('Give either a target or --commit, not both: a commit chooses its own file.');
     if (options.questions !== undefined && options.questions > 1) throw new Error('A Prediction from a commit asks one question: leave out --questions.');
     await runRefill({ ...options, background: false, kinds: ['prediction'] });

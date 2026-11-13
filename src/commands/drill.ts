@@ -12,6 +12,10 @@ import { openSandbox } from '../sandbox/sandbox.ts';
 import { createModel as createModelDefault } from '../synthesis/model.ts';
 import { generateWorkout, type GenerationResult } from '../synthesis/generate.ts';
 import { targetOf } from '../atlas/search.ts';
+import { readAtlasOverlay } from '../atlas/overlay.ts';
+import { findRule, locateRule, RuleNotFoundError } from '../atlas/rules.ts';
+import { buildSkeleton } from '../atlas/skeleton.ts';
+import { listWorkouts } from '../workouts/store.ts';
 import { shortlist } from '../explore/shortlist.ts';
 import { searchAtlasCommand } from './atlas.ts';
 import { practiceByFile } from '../map/map.ts';
@@ -32,6 +36,8 @@ export interface DrillCommandOptions {
   questions?: number;
   /** `fiu predict --what-if`: a sentence to model, or true to have the model propose a change. */
   whatIf?: string | true;
+  /** `fiu predict --rule "<words>"`: a Prediction about this business rule from Understand-Anything's domain graph (ADR 0010). */
+  rule?: string;
 }
 
 /** How the command talks to the user; the CLI renders it, tests record it. */
@@ -72,7 +78,18 @@ export async function drill(
   const repoConfig = await loadRepoConfig(paths.configFile);
   const userConfig = await loadUserConfig(configEnv);
   const config = resolveConfig(repoConfig, userConfig);
-  const directory = answersOnly(kind) ? directoryTarget(cwd, repoRoot, target) : undefined;
+  let rule: { text: string; domain?: string } | undefined;
+  if (options.rule !== undefined) {
+    if (kind !== 'prediction' || options.whatIf) throw new DrillTargetError('A rule is the topic of a Prediction: use fiu predict --rule, without --what-if.');
+    const chosen = await ruleTarget(repoRoot, options.rule, target, options, ui, config.profiles);
+    rule = chosen.rule;
+    // A located target is repository-relative; one the human named stays relative to where they are.
+    if (target === undefined) {
+      target = chosen.target;
+      cwd = repoRoot;
+    }
+  }
+  const directory = answersOnly(kind) && !rule ? directoryTarget(cwd, repoRoot, target) : undefined;
   const sentence = typeof options.whatIf === 'string' ? options.whatIf.trim() : undefined;
   if (directory !== undefined) {
     target = sentence ? await closestTo(sentence, repoRoot, directory, options, ui, configEnv) : await pickUnpractised(repoRoot, directory, config.profiles, paths);
@@ -117,13 +134,13 @@ export async function drill(
       sandbox,
       apiKey,
       createModel,
-      target: { path: sourcePath, source: await readFile(file, 'utf8'), symbol, ...(options.whatIf ? { whatIf: sentence ? { sentence } : {} } : {}) },
+      target: { path: sourcePath, source: await readFile(file, 'utf8'), symbol, ...(options.whatIf ? { whatIf: sentence ? { sentence } : {} } : {}), ...(rule ? { rule } : {}) },
       revision: await sourceRevision(repoRoot, sourcePath),
       // Every Prediction and Diagnosis is Quick by its own rules; the flag only shapes Drills and Katas.
       quick: !answersOnly(kind) && (options.quick ?? false),
       kind,
-      // A What-if is always one question.
-      ...(kind === 'prediction' && !options.whatIf ? { questions: options.questions ?? config.predictionQuestions } : {}),
+      // A What-if, or a Prediction about a rule, is always one question.
+      ...(kind === 'prediction' && !options.whatIf && !rule ? { questions: options.questions ?? config.predictionQuestions } : {}),
       origin: 'manual',
       cacheRoot,
       step: (message) => ui.step(message),
@@ -131,6 +148,71 @@ export async function drill(
   } finally {
     await sandbox.dispose();
   }
+}
+
+/**
+ * A Prediction about a rule: the rule some words mean, and where it is enforced: the target given, else
+ * the best place Fiu locates, confirmed before anything is spent.
+ */
+async function ruleTarget(
+  repoRoot: string,
+  wanted: string,
+  given: string | undefined,
+  options: DrillCommandOptions,
+  ui: DrillUi,
+  profiles: Parameters<typeof shortlist>[2],
+): Promise<{ rule: { text: string; domain?: string }; target?: string }> {
+  const paths = workspacePaths(repoRoot);
+  const skeleton = await buildSkeleton(repoRoot, profiles);
+  const { atlas, extras, ua } = await readAtlasOverlay(paths, skeleton);
+  if (ua.status === 'off') throw new DrillTargetError('Understand-Anything is turned off for this repository ("understandAnything": false in .fiu/config.json).');
+  if (ua.status !== 'read' || ua.atlas.rules.length === 0) {
+    throw new DrillTargetError('This repository has no Understand-Anything business rules: run /understand and then /understand-domain in Claude Code (they write .ua/domain-graph.json).');
+  }
+  let found;
+  try {
+    found = findRule(ua.atlas.rules, wanted);
+  } catch (error) {
+    if (error instanceof RuleNotFoundError) throw new DrillTargetError(error.message);
+    throw error;
+  }
+  const rule = { text: found.text, ...(found.domain ? { domain: found.domain } : {}) };
+  if (given !== undefined) return { rule };
+  const places = await locateRule(found, repoRoot, skeleton, atlas, extras);
+  if (places.length === 0) throw new DrillTargetError(`Fiu can't tell where "${found.text}" is enforced. Name the code: fiu predict <file>#<symbol> --rule "${wanted}"`);
+  const best = `${places[0]!.path}#${places[0]!.symbol}`;
+  const others = places.slice(1).map((p) => `${p.path}#${p.symbol}`);
+  const alternatives = others.length > 0 ? ` (or name another: ${others.join(', ')})` : '';
+  if (options.yes) return { rule, target: best };
+  if (!ui.confirm) throw new DrillTargetError(`The rule "${found.text}" looks enforced in ${best}${alternatives}. Name it to go ahead: fiu predict ${best} --rule "${wanted}"`);
+  const how = places[0]!.evidence === 'names' ? 'the rule names it' : 'its words match the rule';
+  if (!(await ui.confirm(`Rule (Understand-Anything): "${found.text}"\nIt looks enforced in ${best} (${how})${alternatives}. Ask about it there?`))) {
+    throw new DrillTargetError(`Nothing generated. Name the code: fiu predict <file>#<symbol> --rule "${wanted}"`);
+  }
+  return { rule, target: best };
+}
+
+/** `fiu predict --rule` with no words: every rule, where Fiu would ask about it, and what Predictions about it found. */
+export async function listRules(cwd: string, { configEnv = { env: process.env, home: homedir() } }: Pick<DrillDependencies, 'configEnv'> = {}) {
+  const repoRoot = await findRepoRoot(cwd);
+  const paths = workspacePaths(repoRoot);
+  const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(configEnv));
+  const skeleton = await buildSkeleton(repoRoot, config.profiles);
+  const { atlas, extras, ua } = await readAtlasOverlay(paths, skeleton);
+  if (ua.status !== 'read' || ua.atlas.rules.length === 0) return [];
+  // A rule a Prediction checked shows where it was measured, not where Fiu would guess.
+  const checked = new Map<string, { agrees: boolean; target: string }>();
+  for (const { record } of await listWorkouts(paths)) {
+    if (record.rule) checked.set(record.rule.text, { agrees: record.rule.agrees, target: `${record.source.path}${record.source.symbol ? `#${record.source.symbol}` : ''}` });
+  }
+  return Promise.all(
+    ua.atlas.rules.map(async (rule) => {
+      const check = checked.get(rule.text);
+      if (check) return { rule, ...check };
+      const [place] = await locateRule(rule, repoRoot, skeleton, atlas, extras);
+      return { rule, ...(place ? { target: `${place.path}#${place.symbol}` } : {}), agrees: undefined };
+    }),
+  );
 }
 
 /** A What-if with no file: the Atlas search's closest target for the sentence, confirmed before anything is spent. */

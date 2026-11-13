@@ -112,7 +112,7 @@ describe('fiu mcp', () => {
   it('offers its tools and the rules for using them', async () => {
     const { client } = await connect(await repoWithSources('queue.ts'));
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((t) => t.name).sort(), ['finish_track', 'list_workouts', 'prepare_atlas', 'prepare_drill', 'prepare_track', 'search_atlas', 'submit_atlas', 'submit_drill']);
+    assert.deepEqual(tools.map((t) => t.name).sort(), ['find_rule', 'finish_track', 'list_workouts', 'prepare_atlas', 'prepare_drill', 'prepare_track', 'search_atlas', 'submit_atlas', 'submit_drill']);
     assert.match(client.getInstructions() ?? '', /^Fiu turns code in this repository into Drills/);
     // The submit schema is the Workout schema itself (or a Series), so the client checks the shape.
     const submit = tools.find((t) => t.name === 'submit_drill')!;
@@ -248,6 +248,31 @@ describe(`fiu mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     assert.equal(saved.status, 'saved', JSON.stringify(saved));
     assert.match(saved.workoutId, /^prediction_\d{8}_tied-priorities$/);
     assert.equal((await readJson(join(saved.workoutDir, 'workout.json'))).prediction.options.length, 4);
+  });
+
+  it("makes a Prediction about Understand-Anything's business rule, and records whether the code follows it", async () => {
+    const repo = await repoWithSources('queue.ts');
+    const rule = 'When priorities tie, pickNext serves the job submitted first.';
+    await writeUaFlows(repo, [{ name: 'Run jobs', domain: 'Scheduling', rules: [rule], steps: [{ name: 'Pick the next job', path: 'src/queue.ts' }] }]);
+    const { call } = await connect(repo);
+    const { json: found } = await call('find_rule', { words: 'priorities tie' });
+    assert.deepEqual(found.rules, [{ text: rule, domain: 'Scheduling', targets: [{ target: 'src/queue.ts#pickNext', evidence: 'the rule names it' }] }]);
+    assert.match((await call('prepare_drill', { target: 'src/queue.ts', kind: 'drill', rule })).text, /A rule is the topic of one Prediction/);
+
+    const { json: prepared } = await call('prepare_drill', { target: 'src/queue.ts#pickNext', kind: 'prediction', rule });
+    assert.match(prepared.source, /Build the Scenario around this business rule from the team's documentation \(Scheduling\)/);
+    assert.ok(prepared.workoutSchema.properties.ruleCheck, 'the schema asks whether the code follows the rule');
+
+    const { json: rejected } = await call('submit_drill', { generationId: prepared.generationId, workout: goodPrediction() });
+    assert.match(rejected.feedback, /ruleCheck is missing/);
+    const quoting = goodPrediction({ scenario: `${goodPrediction().scenario} When priorities tie, pickNext serves the job submitted first?`, ruleCheck: { agrees: true, note: 'x' } });
+    assert.match((await call('submit_drill', { generationId: prepared.generationId, workout: quoting })).json.feedback, /the scenario quotes the rule/);
+    const ruleCheck = { agrees: true, note: 'On a tie, the job that arrived first runs first, as the rule says.' };
+    const { json: saved } = await call('submit_drill', { generationId: prepared.generationId, workout: goodPrediction({ ruleCheck }) });
+    assert.equal(saved.status, 'saved', JSON.stringify(saved));
+    const record = await readJson(join(saved.workoutDir, 'workout.json'));
+    assert.deepEqual(record.rule, { text: rule, domain: 'Scheduling', ...ruleCheck });
+    assert.doesNotMatch(await readFile(join(saved.workoutDir, 'README.md'), 'utf8'), /serves the job submitted first/, 'the rule is never shown before answering');
   });
 
   it('keeps the questions of a Series that Verify, and saves them together', async () => {

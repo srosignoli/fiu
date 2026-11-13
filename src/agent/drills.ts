@@ -15,6 +15,8 @@ import type { LanguageProfile } from '../languages/profile.ts';
 import { MAX_STEPS, MIN_STEPS, trackKinds, trackRules, withAtlas, type TrackFlow } from '../explore/plan.ts';
 import { readAtlasOverlay } from '../atlas/overlay.ts';
 import { findFlow, flowCandidates, flowModule, readFlows } from '../explore/flows.ts';
+import { findRule, locateRule, RuleNotFoundError } from '../atlas/rules.ts';
+import { words } from '../atlas/search.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
 import { ExploreTargetError, repoRelativeDir, shortlist } from '../explore/shortlist.ts';
 import { saveTrack, trackId, type TrackStep } from '../explore/tracks.ts';
@@ -63,6 +65,8 @@ interface Generation {
   track?: { id: string; why: string };
   /** For a What-if: the change to model; no sentence means the model proposes one. */
   whatIf?: { sentence?: string };
+  /** A Prediction about a business rule from Understand-Anything's domain graph. */
+  rule?: { text: string; domain?: string };
   /** For a Prediction Series: how many questions, and those Verified so far (saved together when it ends). */
   series?: { count: number; kept: PredictionOutput[] };
   /** Set when "Around this code" is on: the profiles to read the Atlas and links with. */
@@ -117,6 +121,8 @@ export interface PrepareRequest {
   questions?: number;
   /** Predictions only: a What-if about this change; empty to have the model propose one. */
   whatIf?: string;
+  /** Predictions only: a business rule from Understand-Anything's domain graph to ask about (its words, as find_rule lists it). */
+  rule?: string;
 }
 
 export interface Prepared {
@@ -236,6 +242,48 @@ export class AgentDrills {
     };
   }
 
+  /** The business rule some words mean, from Understand-Anything's domain graph. */
+  async #rule(wanted: string): Promise<{ text: string; domain?: string }> {
+    const rules = (await this.findRules(wanted)).rules;
+    if (rules.length !== 1) throw new AgentRequestError(rules.length === 0 ? `No rule matches "${wanted}": call find_rule to list them.` : `"${wanted}" matches ${rules.length} rules: pass one rule's text, as find_rule returns it.`);
+    return { text: rules[0]!.text, ...(rules[0]!.domain ? { domain: rules[0]!.domain } : {}) };
+  }
+
+  /**
+   * Business rules from Understand-Anything's domain graph matching some words (all of them when none),
+   * each with where Fiu locates it: up to 3 `file#symbol` targets, best first, for the agent to choose from.
+   */
+  async findRules(wanted?: string): Promise<{ rules: { text: string; domain?: string; targets: { target: string; evidence: string }[] }[] }> {
+    const repoRoot = await this.repository();
+    const paths = workspacePaths(repoRoot);
+    const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(this.#configEnv()));
+    const skeleton = await buildSkeleton(repoRoot, config.profiles);
+    const { atlas, extras, ua } = await readAtlasOverlay(paths, skeleton);
+    if (ua.status !== 'read' || ua.atlas.rules.length === 0) {
+      throw new AgentRequestError('This repository has no Understand-Anything business rules (.ua/domain-graph.json from /understand-domain), or Understand-Anything is turned off for it.');
+    }
+    let rules = ua.atlas.rules;
+    if (wanted?.trim()) {
+      try {
+        rules = [findRule(rules, wanted)];
+      } catch (error) {
+        if (!(error instanceof RuleNotFoundError)) throw error;
+        if (error.message.startsWith('No rule')) return { rules: [] };
+        const goal = words(wanted);
+        rules = rules.filter((rule) => goal.every((word) => words(rule.text).some((w) => w.startsWith(word) || word.startsWith(w))));
+      }
+    }
+    return {
+      rules: await Promise.all(
+        rules.map(async (rule) => ({
+          text: rule.text,
+          ...(rule.domain ? { domain: rule.domain } : {}),
+          targets: (await locateRule(rule, repoRoot, skeleton, atlas, extras)).map((t) => ({ target: `${t.path}#${t.symbol}`, evidence: t.evidence === 'names' ? 'the rule names it' : 'its words match the rule' })),
+        })),
+      ),
+    };
+  }
+
   /** Where a step sits in the Track being built: its module, and its flow when it follows one. */
   #placement({ id, why }: { id: string; why: string }): TrackPlacement {
     const pending = this.#tracks.get(id);
@@ -296,8 +344,12 @@ export class AgentDrills {
     return { status: 'saved', trackId: id, title: title.trim(), steps: pending.steps, dropped: pending.dropped, next: `The user starts it with: fiu track ${id}` };
   }
 
-  async prepare({ target, kind = 'drill', quick = false, origin = 'manual', trackId: forTrack, why, questions = 1, whatIf }: PrepareRequest): Promise<Prepared> {
+  async prepare({ target, kind = 'drill', quick = false, origin = 'manual', trackId: forTrack, why, questions = 1, whatIf, rule: ruleWords }: PrepareRequest): Promise<Prepared> {
     if (whatIf !== undefined && (kind !== 'prediction' || questions > 1 || forTrack || origin === 'agent-task')) throw new AgentRequestError('A What-if is one Prediction on request: not another kind, a Series, a Track step, or an end-of-task Prediction.');
+    if (ruleWords !== undefined && (kind !== 'prediction' || questions > 1 || whatIf !== undefined || forTrack)) {
+      throw new AgentRequestError('A rule is the topic of one Prediction about today\'s code: not another kind, a Series, a What-if, or a Track step.');
+    }
+    const rule = ruleWords === undefined ? undefined : await this.#rule(ruleWords);
     const proposed = whatIf === undefined ? undefined : whatIf.trim() ? { sentence: whatIf.trim() } : {};
     if (!Number.isInteger(questions) || questions < 1 || questions > MAX_SERIES_QUESTIONS) throw new AgentRequestError(`questions must be a whole number from 1 to ${MAX_SERIES_QUESTIONS}.`);
     if (questions > 1 && kind !== 'prediction') throw new AgentRequestError('Only a Prediction can ask several questions: leave out `questions`.');
@@ -348,6 +400,7 @@ export class AgentDrills {
       ...(pendingTrack ? { track: { id: pendingTrack.id, why: why!.trim() } } : {}),
       ...(questions > 1 ? { series: { count: questions, kept: [] } } : {}),
       ...(proposed ? { whatIf: proposed } : {}),
+      ...(rule ? { rule } : {}),
       ...(config.context ? { contextProfiles: config.profiles } : {}),
     });
     return {
@@ -364,9 +417,10 @@ export class AgentDrills {
         source,
         symbol,
         ...(proposed ? { whatIf: proposed } : {}),
+        ...(rule ? { rule } : {}),
         ...(pendingTrack ? { track: { module: pendingTrack.module, ...(pendingTrack.flow ? { flow: pendingTrack.flow } : {}), step: pendingTrack.steps.length + 1, why: why!.trim() } } : {}),
       }, kind),
-      workoutSchema: z.toJSONSchema(questions > 1 ? PredictionSeriesOutputSchema : outputSchemaFor(kind, { whatIf: proposed !== undefined })),
+      workoutSchema: z.toJSONSchema(questions > 1 ? PredictionSeriesOutputSchema : outputSchemaFor(kind, { whatIf: proposed !== undefined, rule: rule !== undefined })),
     };
   }
 
@@ -416,7 +470,12 @@ export class AgentDrills {
     }
     if ('questions' in workout) return reject(`[schema] This generation is a single ${NOUN[generation.kind]}, not a Series: submit it as workoutSchema describes.`);
 
-    const problems = checkWorkoutOutput(generation.kind, workout, generation.sourceLines, { quick: generation.quick, lineComment: generation.profile.lineComment, whatIf: generation.whatIf !== undefined });
+    const problems = checkWorkoutOutput(generation.kind, workout, generation.sourceLines, {
+      quick: generation.quick,
+      lineComment: generation.profile.lineComment,
+      whatIf: generation.whatIf !== undefined,
+      ...(generation.rule ? { rule: generation.rule.text } : {}),
+    });
     if (problems.length > 0) return reject(problems.map((p) => `[schema] ${p}`).join('\n'));
 
     const verification = await verify(
@@ -456,6 +515,7 @@ export class AgentDrills {
       generator: 'agent',
       origin: generation.origin,
       ...(generation.whatIf ? { whatIf: { ...generation.whatIf, modelled: workout.modelledAs ?? '' } } : {}),
+      ...(generation.rule && workout.ruleCheck ? { rule: { ...generation.rule, ...workout.ruleCheck } } : {}),
       ...(generation.track ? { track: this.#placement(generation.track) } : {}),
       ...(generation.contextProfiles ? { contextProfiles: generation.contextProfiles } : {}),
       now: this.#now(),

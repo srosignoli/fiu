@@ -151,11 +151,14 @@ program
       if (rules.length === 0) return log.info('No Understand-Anything business rules here: run /understand and then /understand-domain in Claude Code.');
       const color = process.stdout.isTTY === true && !process.env.NO_COLOR;
       const dim = (text: string) => (color ? `\x1b[2m${text}\x1b[0m` : text);
-      const mark = (agrees?: boolean) => (agrees === undefined ? ' ' : agrees ? '✓' : '✗');
+      const mark = (agrees: boolean | undefined, stale: boolean) => (agrees === undefined ? ' ' : stale ? '◐' : agrees ? '✓' : '✗');
       console.log(
         [
-          `Understand-Anything's business rules (UA): fiu predict --rule "<words>"   ${dim('✓ the code follows it  ✗ it does not (as a Prediction measured)')}`,
-          ...rules.map(({ rule, target: where, agrees }) => `${mark(agrees)} ${rule.text}\n    ${dim(where ? `→ ${where}` : '→ ? (name the code: fiu predict <file>#<symbol> --rule "…")')}`),
+          `Understand-Anything's business rules (UA): fiu predict --rule "<words>"   ${dim('✓ the code follows it  ✗ it does not (as a Prediction measured)  ◐ that code changed since: check again')}`,
+          ...rules.map(({ rule, target: where, agrees, stale, staleReason }) => {
+            const was = stale ? ` (was ${agrees ? 'followed' : 'not followed'}; ${staleReason})` : '';
+            return `${mark(agrees, stale)} ${rule.text}\n    ${dim(where ? `→ ${where}${was}` : '→ ? (name the code: fiu predict <file>#<symbol> --rule "…")')}`;
+          }),
         ].join('\n'),
       );
       return;
@@ -422,7 +425,15 @@ program
   .description('Your comprehension debt in this repository, by directory: local and free.')
   .argument('[path]', 'a directory to look into')
   .option('--json', 'print the map as JSON')
-  .action(async (path: string | undefined, options: { json?: boolean }) => {
+  .option('--flows', "by business flow from Understand-Anything's domain graph, with its rules, instead of by directory")
+  .action(async (path: string | undefined, options: { json?: boolean; flows?: boolean }) => {
+    if (options.flows) {
+      if (path !== undefined) throw new Error('The flow map covers the whole repository: leave out the directory.');
+      const { buildFlowMap, renderFlowMap } = await import('./map/flows.ts');
+      const report = await buildFlowMap(process.cwd());
+      console.log(options.json ? JSON.stringify(report, null, 2) : renderFlowMap(report, { color: process.stdout.isTTY === true && !process.env.NO_COLOR }));
+      return;
+    }
     const { buildMap } = await import('./map/map.ts');
     const report = await buildMap(process.cwd(), path ?? '');
     if (options.json) {

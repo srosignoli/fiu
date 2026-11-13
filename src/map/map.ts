@@ -225,7 +225,7 @@ async function recentlyAiChanged(repo: string, now: Date): Promise<Set<string>> 
 }
 
 /** Lines added plus removed in a file between a commit and the working tree; undefined if the commit isn't known here. */
-async function changedSince(repo: string, commit: string, path: string): Promise<number | undefined> {
+export async function changedSince(repo: string, commit: string, path: string): Promise<number | undefined> {
   const result = await execa('git', ['diff', '--numstat', commit, '--', path], { cwd: repo, reject: false });
   if (result.exitCode !== 0) return undefined;
   return result.stdout

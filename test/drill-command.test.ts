@@ -449,6 +449,34 @@ describe(`fiu predict --rule (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, (
     await assert.rejects(run({ repo, target: null, options: { kind: 'drill', rule: 'priorities tie' } }), /A rule is the topic of a Prediction/);
   });
 
+  it('marks a check out of date once the code it measured changes, and the flow map says so', async () => {
+    const repo = await ruleRepo();
+    const configEnv = { env: {}, home: await tempDir() };
+    const { result } = await run({ repo, target: null, options: { kind: 'prediction', rule: 'priorities tie', yes: true }, replies: [goodPrediction({ ruleCheck })] });
+    assert.equal(result.status, 'saved');
+    const { buildFlowMap, renderFlowMap } = await import('../src/map/flows.ts');
+    const { listRules } = await import('../src/commands/drill.ts');
+
+    let map = await buildFlowMap(repo, { configEnv });
+    assert.deepEqual(map.domains.map((d) => [d.name, d.rules.map((r) => r.status), d.flows.map((f) => [f.name, f.files.map((x) => x.path)])]), [
+      ['Scheduling', ['follows', 'unchecked'], [['Run jobs', ['src/queue.ts']]]],
+    ]);
+    assert.deepEqual(map.suggestions, [{ command: 'fiu predict --rule', why: '1 rule never checked against the code' }]);
+    assert.match(renderFlowMap(map, { color: false }), /^Scheduling {3}rules: 1 ✓ {2}0 ✗ {2}0 ◐ {2}1 ·\n {2}Run jobs {2}0 of 1 file practised\n {4}[●·◐✓] src\/queue\.ts$/m);
+
+    // A comment elsewhere in the file leaves the check standing; a change to pickNext does not.
+    await writeFile(join(repo, 'src', 'queue.ts'), `// The scheduler.\n${TS_REFERENCE}`);
+    assert.equal((await listRules(repo, { configEnv }))[0]!.stale, false);
+    await writeFile(join(repo, 'src', 'queue.ts'), TS_REFERENCE.replace('job.at < best.at', 'job.at > best.at'));
+    const [listed] = await listRules(repo, { configEnv });
+    assert.deepEqual([listed!.agrees, listed!.stale, listed!.staleReason], [true, true, 'pickNext changed']);
+
+    map = await buildFlowMap(repo, { configEnv });
+    assert.equal(map.domains[0]!.rules[0]!.status, 'stale');
+    assert.deepEqual(map.suggestions[0], { command: `fiu predict src/queue.ts#pickNext --rule "${rule}"`, why: 'checked before pickNext changed' });
+    assert.match(renderFlowMap(map, { color: false }), /◐ "When priorities tie, pickNext serves the job submitted first\." → src\/queue\.ts#pickNext \(pickNext changed\)/);
+  });
+
   it('says there are no rules without a domain graph', async () => {
     await assert.rejects(run({ repo: await repoWithSource(), target: null, options: { kind: 'prediction', rule: 'anything' } }), /no Understand-Anything business rules/);
   });

@@ -51,7 +51,7 @@ Ask Claude Code for a Workout (or run `/fiu-drill src/queue.ts` and `/fiu-atlas`
 - `fiu atlas` / `fiu atlas <file>` / `fiu atlas search "<goal>"`: browse the codebase Atlas, see what a file uses, what uses it, and what changes with it, or find the files behind a goal.
 - `fiu explore <dir>` / `fiu explore --about "<goal>"` / `fiu explore --flow "<name>"` / `fiu track`: build or continue a multi-step Track across a module, a goal, or a business flow from an Understand-Anything domain graph.
 - `fiu quick [--while "<cmd>"]`: solve a Workout right away, or while an agent runs or a long build or pipeline finishes.
-- `fiu map`: inspect comprehension coverage and locate unpractised hotspots.
+- `fiu map`: inspect comprehension coverage and locate unpractised hotspots. `fiu map --flows`: the same by business flow, with which business rules the code was checked against, when the repository has an Understand-Anything domain graph.
 - `fiu stats`: track your Prediction accuracy, confidence calibration, and **Blind Spots**.
 - `fiu share [--atlas]` / `fiu fetch`: share verified Workouts and the Atlas with your team on the `fiu/workouts` branch without touching `main`.
 - `fiu auto on`: queue a background Quick Drill from each commit.

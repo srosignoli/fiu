@@ -543,3 +543,33 @@ describe('the rule in the reveal', async () => {
     ]);
   });
 });
+
+describe('when a rule check goes out of date', async () => {
+  const { changedSinceCheck } = await import('../src/workouts/rulechecks.ts');
+  it('compares the measured function, else the file, with the code at the checked commit', async () => {
+    const dir = await tempGitRepo();
+    await mkdir(join(dir, 'src'));
+    const code = 'export function cap(n: number) {\n  return Math.min(n, 3);\n}\n\nexport function other() {\n  return 1;\n}\n';
+    await writeFile(join(dir, 'src/cap.ts'), code);
+    await execa('git', ['add', '.'], { cwd: dir });
+    await execa('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'cap'], { cwd: dir });
+    const commit = (await execa('git', ['rev-parse', 'HEAD'], { cwd: dir })).stdout.trim();
+    const check = (symbol?: string) => changedSinceCheck(dir, 'src/cap.ts', symbol, commit, profiles());
+
+    assert.equal(await check('cap'), undefined);
+    await writeFile(join(dir, 'src/cap.ts'), code.replace('return 1;', 'return 2;'));
+    assert.equal(await check('cap'), undefined, 'another function changing leaves it standing');
+    await writeFile(join(dir, 'src/cap.ts'), code.replace('3', '5'));
+    assert.equal(await check('cap'), 'cap changed');
+    await writeFile(join(dir, 'src/cap.ts'), 'export function other() {\n  return 1;\n}\n');
+    assert.equal(await check('cap'), 'cap is gone');
+    // No function: the file must change by 20 lines or more.
+    assert.equal(await check(), undefined);
+    await writeFile(join(dir, 'src/cap.ts'), Array.from({ length: 30 }, (_, i) => `export const v${i} = ${i};`).join('\n'));
+    assert.match((await check()) ?? '', /^src\/cap\.ts changed by \d+ lines$/);
+    // Checked with uncommitted changes: nothing to compare with.
+    assert.equal(await changedSinceCheck(dir, 'src/cap.ts', 'cap', undefined, profiles()), undefined);
+    await (await import('node:fs/promises')).rm(join(dir, 'src/cap.ts'));
+    assert.equal(await check('cap'), 'its file is gone');
+  });
+});

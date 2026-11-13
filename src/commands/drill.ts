@@ -15,7 +15,7 @@ import { targetOf } from '../atlas/search.ts';
 import { readAtlasOverlay } from '../atlas/overlay.ts';
 import { findRule, locateRule, RuleNotFoundError } from '../atlas/rules.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
-import { listWorkouts } from '../workouts/store.ts';
+import { ruleChecks } from '../workouts/rulechecks.ts';
 import { shortlist } from '../explore/shortlist.ts';
 import { searchAtlasCommand } from './atlas.ts';
 import { practiceByFile } from '../map/map.ts';
@@ -200,17 +200,14 @@ export async function listRules(cwd: string, { configEnv = { env: process.env, h
   const skeleton = await buildSkeleton(repoRoot, config.profiles);
   const { atlas, extras, ua } = await readAtlasOverlay(paths, skeleton);
   if (ua.status !== 'read' || ua.atlas.rules.length === 0) return [];
-  // A rule a Prediction checked shows where it was measured, not where Fiu would guess.
-  const checked = new Map<string, { agrees: boolean; target: string }>();
-  for (const { record } of await listWorkouts(paths)) {
-    if (record.rule) checked.set(record.rule.text, { agrees: record.rule.agrees, target: `${record.source.path}${record.source.symbol ? `#${record.source.symbol}` : ''}` });
-  }
+  // A rule a Prediction checked shows where it was measured, not where Fiu would guess, and whether that code has changed since.
+  const checked = await ruleChecks(paths, config.profiles);
   return Promise.all(
     ua.atlas.rules.map(async (rule) => {
       const check = checked.get(rule.text);
-      if (check) return { rule, ...check };
+      if (check) return { rule, agrees: check.agrees, target: check.target, stale: check.stale, ...(check.staleReason ? { staleReason: check.staleReason } : {}) };
       const [place] = await locateRule(rule, repoRoot, skeleton, atlas, extras);
-      return { rule, ...(place ? { target: `${place.path}#${place.symbol}` } : {}), agrees: undefined };
+      return { rule, ...(place ? { target: `${place.path}#${place.symbol}` } : {}), agrees: undefined, stale: false, staleReason: undefined };
     }),
   );
 }

@@ -425,7 +425,7 @@ describe(`fiu predict --rule (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, (
     const { result, prompts } = await run({ repo, target: null, options: { kind: 'prediction', rule: 'priorities tie', yes: true }, replies: [goodPrediction({ ruleCheck })], confirm });
     assert.equal(result.status, 'saved', JSON.stringify(result));
     const record = result.status === 'saved' ? result.record : assert.fail();
-    assert.deepEqual(record.rule, { text: rule, domain: 'Scheduling', ...ruleCheck });
+    assert.deepEqual(record.rule, { text: rule, domain: 'Scheduling', source: 'understand-anything', ...ruleCheck });
     assert.equal(record.source.symbol, 'pickNext');
     assert.match(prompts[0]!, /Build the Scenario around this business rule/);
     assert.equal(result.series, undefined, 'one question, never a Series');
@@ -477,7 +477,40 @@ describe(`fiu predict --rule (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, (
     assert.match(renderFlowMap(map, { color: false }), /◐ "When priorities tie, pickNext serves the job submitted first\." → src\/queue\.ts#pickNext \(pickNext changed\)/);
   });
 
-  it('says there are no rules without a domain graph', async () => {
-    await assert.rejects(run({ repo: await repoWithSource(), target: null, options: { kind: 'prediction', rule: 'anything' } }), /no Understand-Anything business rules/);
+  it('says where rules come from when there are none, and words too short to be a rule', async () => {
+    await assert.rejects(run({ repo: await repoWithSource(), target: null, options: { kind: 'prediction', rule: 'anything' } }), /No business rules here yet: write some in \.fiu-rules\.md/);
+  });
+
+  it("checks the team's rules file, pinned or not, without Understand-Anything", async () => {
+    const repo = await repoWithSource();
+    await writeFile(
+      join(repo, '.fiu-rules.md'),
+      '# Our rules\n\nOne per line.\n\n## Scheduling\n\n- On a tie, the job that came first runs first. → src/queue.ts#pickNext\n- Jobs wait at most a day before they expire.\n',
+    );
+    const asked: string[] = [];
+    const { result, prompts } = await run({ repo, target: null, options: { kind: 'prediction', rule: 'tie came first' }, replies: [goodPrediction({ ruleCheck })], confirm: async (m) => (asked.push(m), true) });
+    assert.equal(result.status, 'saved', JSON.stringify(result));
+    assert.match(asked[0]!, /^Rule \(\.fiu-rules\.md\): "On a tie, the job that came first runs first\."\nIt looks enforced in src\/queue\.ts#pickNext \(\.fiu-rules\.md names it\)/);
+    assert.match(prompts[0]!, /business rule \(Scheduling\), from the team's own list of rules/);
+    const record = result.status === 'saved' ? result.record : assert.fail();
+    assert.deepEqual(record.rule, { text: 'On a tie, the job that came first runs first.', domain: 'Scheduling', source: 'rules-file', ...ruleCheck });
+
+    const { listRules } = await import('../src/commands/drill.ts');
+    const listed = await listRules(repo, { configEnv: { env: {}, home: await tempDir() } });
+    assert.deepEqual(listed.map((r) => [r.rule.source, r.agrees, r.target]), [
+      ['rules-file', true, 'src/queue.ts#pickNext'],
+      ['rules-file', undefined, undefined],
+    ]);
+  });
+
+  it('takes words matching no rule as a rule of their own, searched for everywhere', async () => {
+    const repo = await repoWithSource();
+    const { result, steps, prompts } = await run({ repo, target: null, options: { kind: 'prediction', rule: 'the next job picked has the highest priority', yes: true }, replies: [goodPrediction({ ruleCheck })] });
+    assert.equal(result.status, 'saved', JSON.stringify(result));
+    assert.ok(steps.includes('No known rule matches: asking about "the next job picked has the highest priority" as you wrote it'));
+    assert.match(prompts[0]!, /as the human states it, possibly mistaken: \\"the next job picked has the highest priority\\"/);
+    const record = result.status === 'saved' ? result.record : assert.fail();
+    assert.equal(record.rule?.source, 'typed');
+    assert.equal(record.source.symbol, 'pickNext');
   });
 });

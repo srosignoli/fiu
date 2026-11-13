@@ -58,12 +58,14 @@ export interface WhatIfPlacement {
 }
 
 /**
- * The business rule a Prediction is about (ADR 0010): Understand-Anything's text, and whether the code,
- * as measured, does what it says (the generating model's reading). Shown only after answering.
+ * The business rule a Prediction is about (ADR 0011): its text, who wrote it, and whether the code, as
+ * measured, does what it says (the generating model's reading). Shown only after answering.
  */
 export interface RulePlacement {
   text: string;
   domain?: string;
+  /** Absent on checks made before rules had sources: those were Understand-Anything's. */
+  source?: 'rules-file' | 'understand-anything' | 'typed';
   agrees: boolean;
   note: string;
 }
@@ -312,8 +314,9 @@ export const WHAT_IF_LIMITS = 'Measured on a self-contained copy of this unit, n
 
 /** The change as the human put it, and as the model read it: that the code matches the sentence is the model's word. */
 /** After answering a Prediction about a rule: the rule as written, and whether the code follows it. */
-export function ruleLines({ text, domain, agrees, note }: RulePlacement): string[] {
-  return [`The rule this was about (Understand-Anything${domain ? `, ${domain}` : ''}): "${text}"`, `${agrees ? 'The code follows it' : 'The code does NOT follow it'}: ${note.trim()} (as measured; the comparison is the model's reading)`];
+export function ruleLines({ text, domain, source = 'understand-anything', agrees, note }: RulePlacement): string[] {
+  const from = { 'rules-file': '.fiu-rules.md', 'understand-anything': 'Understand-Anything', typed: 'as you wrote it' }[source];
+  return [`The rule this was about (${from}${domain ? `, ${domain}` : ''}): "${text}"`, `${agrees ? 'The code follows it' : 'The code does NOT follow it'}: ${note.trim()} (as measured; the comparison is the model's reading)`];
 }
 
 export function whatIfLines({ sentence, modelled }: WhatIfPlacement): string[] {

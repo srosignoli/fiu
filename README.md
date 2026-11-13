@@ -16,7 +16,7 @@ Workouts support two paths: hands-on code fixes in an editor (**Drill**, **Kata*
 | **Kata** | Editor | rebuild a removed piece of application logic from a brief | `fiu kata <file>[#symbol]` |
 | **Prediction** | Terminal | read a Scenario and predict which of four outcomes the code produces (`--questions N` for a Series) | `fiu predict <file>` |
 | **What-if** | Terminal | predict how a proposed change would alter system behavior | `fiu predict <file> --what-if "<change>"` |
-| **Rule check** | Terminal | a Prediction about a business rule from an Understand-Anything domain graph: does the code really do what the rule says? | `fiu predict --rule "<words>"` |
+| **Rule check** | Terminal | a Prediction about a business rule (from your `.fiu-rules.md`, an Understand-Anything domain graph, or typed): does the code really do what the rule says? | `fiu predict --rule "<words>"` |
 | **Diagnosis** | Terminal | read a practice incident and choose which of four Causes explains it | `fiu diagnose <file>` |
 
 For **Drills** and **Katas**, `fiu train` copies the code and unit tests into a fresh `.fiu/attempts/<id>/<n>/` directory and prints its paths. You read `README.md`, inspect the unit tests, and edit the code in your preferred editor while `fiu train` re-runs the tests on every save. If `$VISUAL` is not set, open the printed `.fiu/attempts/...` files directly in your editor. If `$VISUAL` is set, Fiu spawns it detached so `fiu train` keeps your terminal: use a GUI editor (`VISUAL="code"`) or prefix a terminal editor with your terminal emulator (`VISUAL="kitty vim"` or `VISUAL="gnome-terminal -- vim"`). The original Workout in `.fiu/workouts/` stays untouched so you can redo it later or share it with your team.

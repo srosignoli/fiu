@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { readAtlasOverlay, uaNotice } from '../atlas/overlay.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
+import { readRules } from '../atlas/rules.ts';
 import { ruleChecks } from '../workouts/rulechecks.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 import { buildMap, type FileState } from './map.ts';
@@ -73,7 +74,7 @@ export async function buildFlowMap(cwd: string, { configEnv = { env: process.env
     });
     domainOf(flow.domain ?? '(no domain)').flows.push({ name: flow.name, ...(flow.entry ? { entry: flow.entry } : {}), files: rows, practised: rows.filter((r) => r.practised).length });
   }
-  for (const rule of ua.atlas.rules) {
+  for (const rule of (await readRules(paths, skeleton)).rules) {
     const check = checks.get(rule.text);
     const status: RuleStatus = !check ? 'unchecked' : check.stale ? 'stale' : check.agrees ? 'follows' : 'breaks';
     domainOf(rule.domain ?? '(no domain)').rules.push({ text: rule.text, status, ...(check ? { target: check.target } : {}), ...(check?.staleReason ? { staleReason: check.staleReason } : {}) });

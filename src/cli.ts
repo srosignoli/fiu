@@ -139,7 +139,7 @@ program
   .option('--commit <sha>', 'ask what a commit changed: the code before it becomes one of the wrong answers')
   .option('--what-if [change]', 'what would happen with a change nobody has made: your sentence, or leave it out for the model to propose one')
   .option('--questions <n>', 'how many questions to ask about the unit, 1 to 5 (default: predictionQuestions in your config, else 3)', questionCount)
-  .option('--rule [words]', "ask whether the code follows a business rule from Understand-Anything's domain graph (no words: list the rules)")
+  .option('--rule [words]', 'ask whether the code follows a business rule: from .fiu-rules.md, Understand-Anything, or as you write it (no words: list the rules)')
   .option('--no-train', 'only save the Prediction, without opening the runner')
   .option('-y, --yes', 'consent to sending code to the configured provider without prompting', false)
   .option('--no-sandbox', 'run Workout code without isolation, for this invocation only')
@@ -148,16 +148,18 @@ program
     if (options.rule === true) {
       const { listRules } = await import('./commands/drill.ts');
       const rules = await listRules(process.cwd());
-      if (rules.length === 0) return log.info('No Understand-Anything business rules here: run /understand and then /understand-domain in Claude Code.');
+      const { NO_RULES, RULE_SOURCE_LABEL } = await import('./atlas/rules.ts');
+      if (rules.length === 0) return log.info(NO_RULES);
       const color = process.stdout.isTTY === true && !process.env.NO_COLOR;
       const dim = (text: string) => (color ? `\x1b[2m${text}\x1b[0m` : text);
       const mark = (agrees: boolean | undefined, stale: boolean) => (agrees === undefined ? ' ' : stale ? '◐' : agrees ? '✓' : '✗');
       console.log(
         [
-          `Understand-Anything's business rules (UA): fiu predict --rule "<words>"   ${dim('✓ the code follows it  ✗ it does not (as a Prediction measured)  ◐ that code changed since: check again')}`,
+          `Business rules: fiu predict --rule "<words>"   ${dim('✓ the code follows it  ✗ it does not (as a Prediction measured)  ◐ that code changed since: check again')}`,
           ...rules.map(({ rule, target: where, agrees, stale, staleReason }) => {
             const was = stale ? ` (was ${agrees ? 'followed' : 'not followed'}; ${staleReason})` : '';
-            return `${mark(agrees, stale)} ${rule.text}\n    ${dim(where ? `→ ${where}${was}` : '→ ? (name the code: fiu predict <file>#<symbol> --rule "…")')}`;
+            const from = rule.source === 'understand-anything' ? ' (UA)' : ` (${RULE_SOURCE_LABEL[rule.source]})`;
+            return `${mark(agrees, stale)} ${rule.text}${dim(from)}\n    ${dim(where ? `→ ${where}${was}` : '→ ? (name the code: fiu predict <file>#<symbol> --rule "…")')}`;
           }),
         ].join('\n'),
       );

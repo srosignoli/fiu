@@ -17,14 +17,21 @@ export interface DrillTarget {
   };
   /** A What-if: the change to model, or no sentence to have the model propose one. */
   whatIf?: { sentence?: string };
-  /** A Prediction about a business rule from Understand-Anything's domain graph (ADR 0010): does the code follow it? */
-  rule?: { text: string; domain?: string };
+  /** A Prediction about a business rule (ADR 0011): does the code follow it? `source` says who wrote it. */
+  rule?: { text: string; domain?: string; source?: 'rules-file' | 'understand-anything' | 'typed' };
   /** This Drill is one step of a Track teaching a module, or following a business flow. */
   track?: { module: string; flow?: string; step: number; of?: number; why: string };
 }
 
 /** Above this, the user should pin a symbol in a smaller file rather than have us truncate silently. */
 export const MAX_SOURCE_LINES = 3000;
+
+/** How a rule's author is described to the model: every source may be out of date, and the code decides. */
+const RULE_ORIGIN = {
+  'rules-file': "from the team's own list of rules, possibly out of date",
+  'understand-anything': "from the team's documentation, written by a model and possibly out of date",
+  typed: 'as the human states it, possibly mistaken',
+} as const;
 
 export function drillSystemPrompt(profile: LanguageProfile, { quick = false } = {}): string {
   const quickRules = quick
@@ -220,7 +227,7 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
       : `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the ${noun} around the logic that makes it matter.`
     : '';
   const rule = target.rule
-    ? `\nBuild the Scenario around this business rule from the team's documentation${target.rule.domain ? ` (${target.rule.domain})` : ''}, written by a model and possibly out of date: "${target.rule.text}". Choose a situation where following the rule or not makes a visible difference. The true option is what the code does, whatever the rule says. Never quote or paraphrase the rule in the scenario or the options: it may give the answer away. In ruleCheck, say whether the code, as your tests measure it, does what the rule says, and in one plain-English sentence how it agrees or differs.`
+    ? `\nBuild the Scenario around this business rule${target.rule.domain ? ` (${target.rule.domain})` : ''}, ${RULE_ORIGIN[target.rule.source ?? 'understand-anything']}: "${target.rule.text}". Choose a situation where following the rule or not makes a visible difference. The true option is what the code does, whatever the rule says. Never quote or paraphrase the rule in the scenario or the options: it may give the answer away. In ruleCheck, say whether the code, as your tests measure it, does what the rule says, and in one plain-English sentence how it agrees or differs.`
     : '';
   return `Source file: ${target.path}\n${focus}${target.symbol ? proposed : ''}${track}${rule}\n\n<source>\n${numbered}\n</source>${change}`;
 }

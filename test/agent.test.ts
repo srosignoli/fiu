@@ -256,11 +256,15 @@ describe(`fiu mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     await writeUaFlows(repo, [{ name: 'Run jobs', domain: 'Scheduling', rules: [rule], steps: [{ name: 'Pick the next job', path: 'src/queue.ts' }] }]);
     const { call } = await connect(repo);
     const { json: found } = await call('find_rule', { words: 'priorities tie' });
-    assert.deepEqual(found.rules, [{ text: rule, domain: 'Scheduling', targets: [{ target: 'src/queue.ts#pickNext', evidence: 'the rule names it' }] }]);
+    assert.deepEqual(found.rules, [{ text: rule, domain: 'Scheduling', source: 'understand-anything', from: 'Understand-Anything', targets: [{ target: 'src/queue.ts#pickNext', evidence: 'the rule names it' }] }]);
     assert.match((await call('prepare_drill', { target: 'src/queue.ts', kind: 'drill', rule })).text, /A rule is the topic of one Prediction/);
+    // Words matching no rule: as typed, when they say enough; otherwise nothing.
+    const { json: typed } = await call('find_rule', { words: 'the next job picked has the highest priority' });
+    assert.deepEqual(typed.rules.map((r: { source: string; from: string; targets: { target: string }[] }) => [r.source, r.from, r.targets[0]?.target]), [['typed', 'as you wrote it', 'src/queue.ts#pickNext']]);
+    assert.deepEqual((await call('find_rule', { words: 'payments' })).json.rules, []);
 
     const { json: prepared } = await call('prepare_drill', { target: 'src/queue.ts#pickNext', kind: 'prediction', rule });
-    assert.match(prepared.source, /Build the Scenario around this business rule from the team's documentation \(Scheduling\)/);
+    assert.match(prepared.source, /Build the Scenario around this business rule \(Scheduling\), from the team's documentation, written by a model/);
     assert.ok(prepared.workoutSchema.properties.ruleCheck, 'the schema asks whether the code follows the rule');
 
     const { json: rejected } = await call('submit_drill', { generationId: prepared.generationId, workout: goodPrediction() });
@@ -271,7 +275,7 @@ describe(`fiu mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
     const { json: saved } = await call('submit_drill', { generationId: prepared.generationId, workout: goodPrediction({ ruleCheck }) });
     assert.equal(saved.status, 'saved', JSON.stringify(saved));
     const record = await readJson(join(saved.workoutDir, 'workout.json'));
-    assert.deepEqual(record.rule, { text: rule, domain: 'Scheduling', ...ruleCheck });
+    assert.deepEqual(record.rule, { text: rule, domain: 'Scheduling', source: 'understand-anything', ...ruleCheck });
     assert.doesNotMatch(await readFile(join(saved.workoutDir, 'README.md'), 'utf8'), /serves the job submitted first/, 'the rule is never shown before answering');
   });
 

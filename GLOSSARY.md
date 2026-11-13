@@ -35,7 +35,7 @@ A Prediction about a Proposed Change: what the code would do with it, in a situa
 _Avoid_: Simulation, scenario (that's the situation it asks about), impact analysis
 
 **Business Rule**:
-A claim about how the system must behave ("Background Workouts past their expiry are discarded"), written by Understand-Anything's domain analysis. The model's word: a Prediction about it measures whether the code follows it, and a disagreement means the rule is stale or the code is wrong.
+A claim about how the system must behave ("Background Workouts past their expiry are discarded"): written by the team in `.fiu-rules.md`, by Understand-Anything's domain analysis, or typed by the human. Nobody's word is trusted: a Prediction about it measures whether the code follows it, and a disagreement means the rule is stale or the code is wrong.
 _Avoid_: Rule (alone: Tracks have planning rules), policy, requirement
 
 **Proposed Change**:

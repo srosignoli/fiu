@@ -5,7 +5,7 @@ import { buildSkeleton } from '../atlas/skeleton.ts';
 import { fromUa, readAtlasOverlay, UA_LABEL, UA_MARK } from '../atlas/overlay.ts';
 import { entryState } from '../atlas/store.ts';
 import { flowsThrough, type FlowMatch } from '../atlas/ua.ts';
-import { locateRule } from '../atlas/rules.ts';
+import { locateRule, readRules, RULE_SOURCE_LABEL, type RuleSource } from '../atlas/rules.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
 import { profileForFile } from '../languages/registry.ts';
 import { diffLines } from '../verify/diff.ts';
@@ -34,8 +34,8 @@ export interface Debrief {
   signals: string[];
   /** The business flows this code is a step of, from Understand-Anything's domain graph (ADR 0010). */
   flows: DebriefFlow[];
-  /** Business rules from that graph that Fiu locates in the target: what this code may be enforcing. */
-  rules: { text: string; domain?: string }[];
+  /** Business rules (the rules file's, or that graph's) that Fiu locates in the target: what this code may be enforcing. */
+  rules: { text: string; domain?: string; source?: RuleSource }[];
   tryNext: { command: string; why: string }[];
 }
 
@@ -87,14 +87,15 @@ export async function buildDebrief({ paths, record, sourceChanged, profiles }: D
   debrief.target = target.map((name) => ({ name, ...(entry?.functions[name] ? { text: entry.functions[name] } : {}) }));
   if (entry) debrief.file = { text: entry.text.replace(/\s*\n\s*/g, ' '), stale: entryState(entry, file.hash) === 'stale' };
   if (fromUa(entry)) debrief.fromUa = true;
+  // A rule counts when one of its located places is a target function; only rules that could reach this file are located.
+  const { rules } = await readRules(paths, skeleton);
+  const reach = rules.filter((r) => r.files.length === 0 || r.files.includes(path) || file.symbols.some((s) => r.text.includes(s.name.split('.').pop()!)));
+  for (const rule of reach) {
+    if (debrief.rules.length >= RULES) break;
+    const places = await locateRule(rule, paths.repoRoot, skeleton, atlas);
+    if (places.some((p) => p.path === path && target.includes(p.symbol))) debrief.rules.push({ text: rule.text, ...(rule.domain ? { domain: rule.domain } : {}), source: rule.source });
+  }
   if (ua.status === 'read') {
-    // A rule counts when one of its located places is a target function; only rules that could reach this file are located.
-    const reach = ua.atlas.rules.filter((r) => r.files.length === 0 || r.files.includes(path) || file.symbols.some((s) => r.text.includes(s.name.split('.').pop()!)));
-    for (const rule of reach) {
-      if (debrief.rules.length >= RULES) break;
-      const places = await locateRule(rule, paths.repoRoot, skeleton, atlas);
-      if (places.some((p) => p.path === path && target.includes(p.symbol))) debrief.rules.push({ text: rule.text, ...(rule.domain ? { domain: rule.domain } : {}) });
-    }
     const ranges = file.symbols.filter((s) => target.includes(s.name));
     debrief.flows = flowsThrough(ua.atlas.flows, path, ranges).slice(0, FLOWS).map(({ flow, index, where }) => {
       const step = flow.steps[index]!;
@@ -187,8 +188,9 @@ const listed = (paths: string[]) => paths.slice(0, LISTED).join(', ') + (paths.l
 const DESCRIPTIONS_NOTE = 'Descriptions are written by a model from the code, not Verified; links and signals are computed from imports and git history.';
 const LINKS_NOTE = 'Links and signals are computed from imports and git history.';
 const DESCRIPTIONS_NOTE_UA = `Descriptions are written by a model from the code, not Verified (those marked ${UA_MARK} by ${UA_LABEL}); links and signals are computed from imports and git history.`;
-const FLOWS_NOTE = `Flows and rules are ${UA_LABEL}'s reading of the code (marked ${UA_MARK}), not Verified; Fiu locates rules by their words.`;
-const ruleLine = (r: { text: string; domain?: string }) => `"${r.text}"${r.domain ? ` (${r.domain})` : ''} ${UA_MARK}`;
+const FLOWS_NOTE = `Flows and rules marked ${UA_MARK} are ${UA_LABEL}'s reading of the code; no rule is Verified, and Fiu locates rules by their words.`;
+const ruleLine = (r: { text: string; domain?: string; source?: RuleSource }) =>
+  `"${r.text}"${r.domain ? ` (${r.domain})` : ''} ${r.source && r.source !== 'understand-anything' ? `(${RULE_SOURCE_LABEL[r.source]})` : UA_MARK}`;
 const hasDescriptions = (d: Debrief) => d.target.some((t) => t.text) || d.file !== undefined;
 const note = (d: Debrief) =>
   [!hasDescriptions(d) ? LINKS_NOTE : d.fromUa ? DESCRIPTIONS_NOTE_UA : DESCRIPTIONS_NOTE, ...((d.flows.length > 0 || d.rules.length > 0) && !d.fromUa ? [FLOWS_NOTE] : [])].join(' ');

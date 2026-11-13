@@ -431,7 +431,7 @@ describe("Understand-Anything's flows", async () => {
 
     const text = renderDebriefText(debrief);
     assert.match(text, /Where it runs:\n {4}This code is step 1 of 7, "Expire stale Workouts", in "Refill the Queue from a Commit" \(Background Generation\) \(UA\)\n {6}starts with: .*fiu refill --background.*\n {6}after: Acquire the repository lock \(src\/background\/refill\.ts\)/);
-    assert.match(text, /Flows and rules are Understand-Anything's reading of the code \(marked \(UA\)\), not Verified/);
+    assert.match(text, /Flows and rules marked \(UA\) are Understand-Anything's reading of the code; no rule is Verified/);
     assert.match(renderDebriefMarkdown(debrief, record), /## Where it runs\n\n- This code is step 1 of 7/);
 
     // Turned off: no flows.
@@ -616,5 +616,51 @@ describe('a struct and a method sharing a name', () => {
     );
     assert.equal(result.status, 'read');
     assert.deepEqual(result.status === 'read' && result.atlas.files.get('w/snap.go')?.functions, { ItemHistory: 'An item and its versions.', 'Engine.ItemHistory': 'Lists the versions of an item.' });
+  });
+});
+
+describe('the rules file', async () => {
+  const { parseRulesFile, readRules, RULES_FILE } = await import('../src/atlas/rules.ts');
+  it('reads each list item as a rule, its heading as its domain, and a trailing arrow as its place', () => {
+    const text = [
+      '# Our business rules',
+      'Plain lines explain the file and are not rules.',
+      '- A rule before any section.',
+      '## Billing',
+      '- Orders over €50 ship free. → src/billing/shipping.ts#shippingCost',
+      '* Refunds take 14 days -> `src/billing/refund.ts`',
+      '-   ',
+      '## Accounts ##',
+      '+ Passwords expire after 90 days.',
+    ].join('\n');
+    assert.deepEqual(parseRulesFile(text), [
+      { text: 'A rule before any section.', files: [], source: 'rules-file', domain: 'Our business rules' },
+      { text: 'Orders over €50 ship free.', domain: 'Billing', files: ['src/billing/shipping.ts'], source: 'rules-file', pinned: { path: 'src/billing/shipping.ts', symbol: 'shippingCost' } },
+      { text: 'Refunds take 14 days', domain: 'Billing', files: ['src/billing/refund.ts'], source: 'rules-file', pinned: { path: 'src/billing/refund.ts' } },
+      { text: 'Passwords expire after 90 days.', domain: 'Accounts', files: [], source: 'rules-file' },
+    ]);
+  });
+
+  it("puts the team's rules first, and a rule in both sources once, as the team's", async () => {
+    const { dir, commit } = await repo();
+    const { ensureWorkspace, workspacePaths } = await import('../src/workspace.ts');
+    const paths = workspacePaths(dir);
+    await ensureWorkspace(paths);
+    await mkdir(join(dir, '.ua'));
+    await writeFile(join(dir, '.ua/knowledge-graph.json'), JSON.stringify({ project: { gitCommitHash: commit }, nodes: [] }));
+    const domain = JSON.parse(await (await import('node:fs/promises')).readFile(join(import.meta.dirname, 'fixtures/ua/refill-domain-graph.json'), 'utf8'));
+    domain.project.gitCommitHash = commit;
+    await writeFile(join(dir, '.ua/domain-graph.json'), JSON.stringify(domain));
+    await writeFile(join(dir, RULES_FILE), '- Background Workouts that sit in the queue past their expiry are discarded.\n- Our own rule.\n');
+    const skeleton = await buildSkeleton(dir, profiles());
+    const { rules } = await readRules(paths, skeleton);
+    assert.deepEqual(rules.slice(0, 2).map((r) => [r.source, r.text]), [
+      ['rules-file', 'Background Workouts that sit in the queue past their expiry are discarded.'],
+      ['rules-file', 'Our own rule.'],
+    ]);
+    assert.equal(rules.length, 2 + 6, "UA's 7 rules, less the one the team also wrote");
+    // Understand-Anything turned off: the team's rules remain.
+    await writeFile(paths.configFile, JSON.stringify({ understandAnything: false }));
+    assert.deepEqual((await readRules(paths, skeleton)).rules.map((r) => r.source), ['rules-file', 'rules-file']);
   });
 });

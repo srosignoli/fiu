@@ -56,7 +56,7 @@ export function createMcpServer(drills: AgentDrills, { version, home = homedir()
         why: z.string().optional().describe('For a Track step: one line on why this file matters for the module.'),
         whatIf: z.string().optional().describe('Predictions only: a What-if, asking what the code would do with a change nobody has made. The change in the user\'s words, or an empty string to propose one yourself.'),
         questions: z.number().optional().describe('Predictions only: ask a Series of this many questions (2 to 5) about the unit, from one shared extraction. The user asks for 3 unless they say otherwise.'),
-        rule: z.string().optional().describe("Predictions only: a business rule from Understand-Anything's domain graph to ask about, its text as find_rule returns it. The Prediction measures whether the code follows it."),
+        rule: z.string().optional().describe('Predictions only: a business rule to ask about, its text as find_rule returns it (or the user\'s own sentence, 4 words or more). The Prediction measures whether the code follows it.'),
       },
     },
     ({ target, kind, quick, afterTask, trackId, why, questions, whatIf, rule }) =>

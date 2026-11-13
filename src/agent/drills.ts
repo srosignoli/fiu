@@ -15,7 +15,7 @@ import type { LanguageProfile } from '../languages/profile.ts';
 import { MAX_STEPS, MIN_STEPS, trackKinds, trackRules, withAtlas, type TrackFlow } from '../explore/plan.ts';
 import { readAtlasOverlay } from '../atlas/overlay.ts';
 import { findFlow, flowCandidates, flowModule, readFlows } from '../explore/flows.ts';
-import { findRule, locateRule, RuleNotFoundError } from '../atlas/rules.ts';
+import { canBeTypedRule, EVIDENCE_WORDS, findRule, locateRule, NO_RULES, readRules, RULE_SOURCE_LABEL, RuleNotFoundError, typedRule, type BusinessRule, type RuleSource } from '../atlas/rules.ts';
 import { words } from '../atlas/search.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
 import { ExploreTargetError, repoRelativeDir, shortlist } from '../explore/shortlist.ts';
@@ -65,8 +65,8 @@ interface Generation {
   track?: { id: string; why: string };
   /** For a What-if: the change to model; no sentence means the model proposes one. */
   whatIf?: { sentence?: string };
-  /** A Prediction about a business rule from Understand-Anything's domain graph. */
-  rule?: { text: string; domain?: string };
+  /** A Prediction about a business rule, and who wrote it. */
+  rule?: { text: string; domain?: string; source: RuleSource };
   /** For a Prediction Series: how many questions, and those Verified so far (saved together when it ends). */
   series?: { count: number; kept: PredictionOutput[] };
   /** Set when "Around this code" is on: the profiles to read the Atlas and links with. */
@@ -242,43 +242,50 @@ export class AgentDrills {
     };
   }
 
-  /** The business rule some words mean, from Understand-Anything's domain graph. */
-  async #rule(wanted: string): Promise<{ text: string; domain?: string }> {
+  /** The business rule some words mean, or the words themselves when they match none and read as a rule. */
+  async #rule(wanted: string): Promise<{ text: string; domain?: string; source: RuleSource }> {
     const rules = (await this.findRules(wanted)).rules;
-    if (rules.length !== 1) throw new AgentRequestError(rules.length === 0 ? `No rule matches "${wanted}": call find_rule to list them.` : `"${wanted}" matches ${rules.length} rules: pass one rule's text, as find_rule returns it.`);
-    return { text: rules[0]!.text, ...(rules[0]!.domain ? { domain: rules[0]!.domain } : {}) };
+    if (rules.length !== 1) {
+      throw new AgentRequestError(rules.length === 0 ? `No rule matches "${wanted}", and it is too short to be a rule of its own: call find_rule to list them.` : `"${wanted}" matches ${rules.length} rules: pass one rule's text, as find_rule returns it.`);
+    }
+    const [rule] = rules;
+    return { text: rule!.text, ...(rule!.domain ? { domain: rule!.domain } : {}), source: rule!.source };
   }
 
   /**
-   * Business rules from Understand-Anything's domain graph matching some words (all of them when none),
-   * each with where Fiu locates it: up to 3 `file#symbol` targets, best first, for the agent to choose from.
+   * Business rules matching some words (all of them when none), from the rules file and Understand-Anything's
+   * domain graph, each with where Fiu locates it: up to 3 `file#symbol` targets, best first, for the agent to
+   * choose from. Words matching no rule, but saying enough to be one, come back as that rule, as typed.
    */
-  async findRules(wanted?: string): Promise<{ rules: { text: string; domain?: string; targets: { target: string; evidence: string }[] }[] }> {
+  async findRules(wanted?: string): Promise<{ rules: { text: string; domain?: string; source: RuleSource; from: string; targets: { target: string; evidence: string }[] }[] }> {
     const repoRoot = await this.repository();
     const paths = workspacePaths(repoRoot);
     const config = resolveConfig(await loadRepoConfig(paths.configFile), await loadUserConfig(this.#configEnv()));
     const skeleton = await buildSkeleton(repoRoot, config.profiles);
-    const { atlas, extras, ua } = await readAtlasOverlay(paths, skeleton);
-    if (ua.status !== 'read' || ua.atlas.rules.length === 0) {
-      throw new AgentRequestError('This repository has no Understand-Anything business rules (.ua/domain-graph.json from /understand-domain), or Understand-Anything is turned off for it.');
-    }
-    let rules = ua.atlas.rules;
+    const { rules: known, overlay } = await readRules(paths, skeleton);
+    let rules: BusinessRule[] = known;
     if (wanted?.trim()) {
       try {
-        rules = [findRule(rules, wanted)];
+        rules = [findRule(known, wanted)];
       } catch (error) {
         if (!(error instanceof RuleNotFoundError)) throw error;
-        if (error.message.startsWith('No rule')) return { rules: [] };
-        const goal = words(wanted);
-        rules = rules.filter((rule) => goal.every((word) => words(rule.text).some((w) => w.startsWith(word) || word.startsWith(w))));
+        if (error.message.startsWith('No rule')) rules = canBeTypedRule(wanted) ? [typedRule(wanted)] : [];
+        else {
+          const goal = words(wanted);
+          rules = known.filter((rule) => goal.every((word) => words(rule.text).some((w) => w.startsWith(word) || word.startsWith(w))));
+        }
       }
+    } else if (known.length === 0) {
+      throw new AgentRequestError(NO_RULES);
     }
     return {
       rules: await Promise.all(
         rules.map(async (rule) => ({
           text: rule.text,
           ...(rule.domain ? { domain: rule.domain } : {}),
-          targets: (await locateRule(rule, repoRoot, skeleton, atlas, extras)).map((t) => ({ target: `${t.path}#${t.symbol}`, evidence: t.evidence === 'names' ? 'the rule names it' : 'its words match the rule' })),
+          source: rule.source,
+          from: RULE_SOURCE_LABEL[rule.source],
+          targets: (await locateRule(rule, repoRoot, skeleton, overlay.atlas, overlay.extras)).map((t) => ({ target: `${t.path}#${t.symbol}`, evidence: EVIDENCE_WORDS[t.evidence] })),
         })),
       ),
     };

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { execa } from 'execa';
 import { z } from 'zod';
 import type { Skeleton, SkeletonFile } from './skeleton.ts';
@@ -324,13 +324,18 @@ export function resolveGraph(
     return file;
   };
 
+  // Only entries in languages Fiu reads count toward the match ratio: a Rust file is not a format change.
+  const extensionOf = (path: string) => posix.extname(path).toLowerCase();
+  const readable = new Set([...skeleton.files.keys()].map(extensionOf));
   let codeNodes = 0;
   let matched = 0;
   for (const node of nodes) {
     const type = kindOf(node);
     if (!type || !CODE_TYPES.has(type)) continue;
-    codeNodes++;
+    // Only an explicit file path says the language: an ID Fiu can't parse is a possible format change, and counts.
+    if (node.filePath && !readable.has(extensionOf(normalise(node.filePath)))) continue;
     const path = pathOf(node);
+    codeNodes++;
     const own = path === undefined ? undefined : skeleton.files.get(path);
     if (!own) continue;
     if (type === 'file') {
@@ -341,7 +346,7 @@ export function resolveGraph(
       file.tags = [...new Set([...file.tags, ...(node.tags ?? []).map((t) => t.trim()).filter(Boolean)])];
       continue;
     }
-    const name = symbolOf(node, own);
+    const name = symbolOf(node, own, type);
     if (!name) continue;
     matched++;
     const sentence = firstSentence(node.summary);
@@ -421,14 +426,19 @@ function pathOfId(id: string): string | undefined {
 /**
  * The skeleton's name for a function or class node: its name as written, else the one symbol whose last
  * segment it is (`push` is `Queue.push` when no other `push` exists). Ambiguous or unknown names don't count.
+ * A function looks among callables first and a class among the rest, so Go's `ItemHistory` struct and
+ * `Engine.ItemHistory` method each keep their own description.
  */
-function symbolOf(node: Node, file: SkeletonFile): string | undefined {
+function symbolOf(node: Node, file: SkeletonFile, type: string): string | undefined {
   const candidates = [node.name, node.id.slice(node.id.lastIndexOf(':') + 1)].filter((n): n is string => Boolean(n?.trim())).map((n) => n.trim());
-  for (const name of candidates) if (file.symbols.some((s) => s.name === name)) return name;
-  for (const name of candidates) {
-    const tail = name.split('.').pop()!;
-    const found = file.symbols.filter((s) => s.name.split('.').pop() === tail);
-    if (found.length === 1) return found[0]!.name;
+  const ownKind = file.symbols.filter((s) => s.callable === (type === 'function'));
+  for (const symbols of [ownKind, file.symbols]) {
+    for (const name of candidates) if (symbols.some((s) => s.name === name)) return name;
+    for (const name of candidates) {
+      const tail = name.split('.').pop()!;
+      const found = symbols.filter((s) => s.name.split('.').pop() === tail);
+      if (found.length === 1) return found[0]!.name;
+    }
   }
   return undefined;
 }

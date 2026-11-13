@@ -519,6 +519,14 @@ describe("Understand-Anything's business rules", async () => {
     assert.deepEqual(await locate('Stale Workouts past their expiry are discarded.'), ['src/queue/expire.ts#expireStaleWorkouts search']);
     // A number alone points nowhere.
     assert.deepEqual(await locate('At most 3.'), []);
+    // Go: an exported PascalCase constant in a const block leads to the functions using it.
+    await writeFile(join(dir, 'src/queue/trust.go'), 'package queue\n\nconst (\n\tTrustStreak = 10\n\tother       = 1\n)\n\nfunc autoAcceptable(streak int) bool {\n\treturn streak >= TrustStreak\n}\n\nfunc eligible(kind int) bool {\n\treturn kind == 3\n}\n');
+    await execa('git', ['add', '.'], { cwd: dir });
+    const goSkeleton = await buildSkeleton(dir, profiles());
+    assert.deepEqual(
+      (await locateRule({ text: 'Links are accepted alone after 10 accepts in a row (TrustStreak).', files: [] }, dir, goSkeleton, emptyAtlas())).map((t) => `${t.symbol} ${t.evidence}`),
+      ['autoAcceptable names'],
+    );
   });
 
   it('finds a rule by its words, and lists the rules when the words match none or several', () => {
@@ -571,5 +579,42 @@ describe('when a rule check goes out of date', async () => {
     assert.equal(await changedSinceCheck(dir, 'src/cap.ts', 'cap', undefined, profiles()), undefined);
     await (await import('node:fs/promises')).rm(join(dir, 'src/cap.ts'));
     assert.equal(await check('cap'), 'its file is gone');
+  });
+});
+
+describe('a graph of a codebase partly in languages Fiu does not read', () => {
+  it('does not warn of a format change for entries in those languages', async () => {
+    const dir = await tempGitRepo();
+    await mkdir(join(dir, 'src'));
+    await writeFile(join(dir, 'src/tool.py'), 'def run():\n    return 1\n');
+    await execa('git', ['add', '.'], { cwd: dir });
+    const skeleton = await buildSkeleton(dir, profiles());
+    const rust = Array.from({ length: 20 }, (_, i) => ({ id: `function:crates/core/src/m${i}.rs:f${i}`, type: 'function', filePath: `crates/core/src/m${i}.rs`, summary: 'x' }));
+    const result = resolveGraph({ nodes: [...rust, { id: 'file:src/tool.py', type: 'file', filePath: 'src/tool.py', summary: 'Runs.' }] }, { dir: '.ua', skeleton });
+    assert.equal(result.status, 'read');
+    if (result.status !== 'read') return;
+    assert.equal(result.warning, undefined);
+    assert.deepEqual(result.atlas.counts, { codeNodes: 1, matched: 1, skipped: 0 });
+  });
+});
+
+describe('a struct and a method sharing a name', () => {
+  it('gives each its own description', async () => {
+    const dir = await tempGitRepo();
+    await mkdir(join(dir, 'w'));
+    await writeFile(join(dir, 'w/snap.go'), 'package w\n\ntype ItemHistory struct {\n\tID string\n}\n\nfunc (e *Engine) ItemHistory(id string) ItemHistory {\n\treturn ItemHistory{ID: id}\n}\n');
+    await execa('git', ['add', '.'], { cwd: dir });
+    const skeleton = await buildSkeleton(dir, profiles());
+    const result = resolveGraph(
+      {
+        nodes: [
+          { id: 'class:w/snap.go:ItemHistory', type: 'class', name: 'ItemHistory', filePath: 'w/snap.go', summary: 'An item and its versions.' },
+          { id: 'function:w/snap.go:ItemHistory', type: 'function', name: 'ItemHistory', filePath: 'w/snap.go', summary: 'Lists the versions of an item.' },
+        ],
+      },
+      { dir: '.ua', skeleton },
+    );
+    assert.equal(result.status, 'read');
+    assert.deepEqual(result.status === 'read' && result.atlas.files.get('w/snap.go')?.functions, { ItemHistory: 'An item and its versions.', 'Engine.ItemHistory': 'Lists the versions of an item.' });
   });
 });

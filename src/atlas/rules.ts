@@ -22,7 +22,8 @@ export interface RuleTarget {
 /** At most this many places per rule: the human picks, Fiu never guesses silently. */
 export const RULE_TARGETS = 3;
 
-const IDENTIFIER = /`?\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|[a-z]+(?:[A-Z][a-z0-9]*)+)\b`?/g;
+/** Names a rule may mention: UPPER_SNAKE, camelCase, or PascalCase of two words or more (Go's exported `TrustStreak`). */
+const IDENTIFIER = /`?\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|[a-z]+(?:[A-Z][a-z0-9]*)+|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+)\b`?/g;
 
 /**
  * Where a rule may be enforced, best first. A function the rule names comes first, then the functions of a
@@ -49,11 +50,12 @@ export async function locateRule(
       const symbol = file.symbols.find((s) => s.callable && (s.name === name || s.name.endsWith(`.${name}`)));
       if (symbol) add({ path: file.path, symbol: symbol.name, evidence: 'names' });
     }
-    if (!/^[A-Z][A-Z0-9_]+$/.test(name)) continue;
-    // A constant: the functions of its file that use it enforce the rule.
+    // A constant: the functions of its file that use it enforce the rule. Declared as `const NAME =`, or in a
+    // Go `const ( … )` block or Python module as `NAME =` at the start of a line.
+    const declared = new RegExp(`(?:\\b(?:const|let|var)\\s+${name}\\b|^\\s*${name}\\s*(?:[\\w.*\\[\\]]+\\s*)?=[^=])`);
     for (const file of files) {
       const lines = (await readFile(join(repoRoot, file.path), 'utf8').catch(() => '')).split('\n');
-      if (!lines.some((line) => new RegExp(`\\b(?:const|let|var)\\s+${name}\\b`).test(line))) continue;
+      if (!lines.some((line) => declared.test(line))) continue;
       const uses = new RegExp(`\\b${name}\\b`);
       for (const symbol of file.symbols) {
         if (symbol.callable && lines.slice(symbol.startLine - 1, symbol.endLine).some((line) => uses.test(line))) add({ path: file.path, symbol: symbol.name, evidence: 'names' });

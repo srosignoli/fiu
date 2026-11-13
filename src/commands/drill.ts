@@ -14,7 +14,7 @@ import { generateWorkout, type GenerationResult } from '../synthesis/generate.ts
 import { targetOf } from '../atlas/search.ts';
 import { canBeTypedRule, EVIDENCE_WORDS, findRule, locateRule, readRules, RULE_SOURCE_LABEL, RuleNotFoundError, typedRule, type BusinessRule, type RuleSource } from '../atlas/rules.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
-import { ruleChecks } from '../workouts/rulechecks.ts';
+import { ruleChecks, ruleChecksWaiting } from '../workouts/rulechecks.ts';
 import { shortlist } from '../explore/shortlist.ts';
 import { searchAtlasCommand } from './atlas.ts';
 import { practiceByFile } from '../map/map.ts';
@@ -198,8 +198,11 @@ export async function listRules(cwd: string, { configEnv = { env: process.env, h
   const { rules, overlay } = await readRules(paths, skeleton);
   // A rule a Prediction checked shows where it was measured, not where Fiu would guess, and whether that code has changed since.
   const checked = await ruleChecks(paths, config.profiles);
+  const waiting = await ruleChecksWaiting(paths, checked);
   return Promise.all(
     rules.map(async (rule) => {
+      const pending = waiting.get(rule.text);
+      if (pending) return { rule, agrees: undefined, target: pending.target, stale: false, staleReason: undefined, waiting: pending.workoutId };
       const check = checked.get(rule.text);
       if (check) return { rule, agrees: check.agrees, target: check.target, stale: check.stale, ...(check.staleReason ? { staleReason: check.staleReason } : {}) };
       const [place] = await locateRule(rule, repoRoot, skeleton, overlay.atlas, overlay.extras);

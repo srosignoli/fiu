@@ -304,3 +304,80 @@ describe(`Predictions from commits (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'
     assert.deepEqual(outcomes(only), [['skipped', 'already processed']]);
   });
 });
+
+describe(`rule checks after a commit (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
+  const RULE = 'On a tie, the job that came first runs first.';
+  /** A repository whose rules file pins RULE at pickNext, and whose latest commit changes pickNext. */
+  async function repoWithRule(rules = `## Scheduling\n\n- ${RULE} → src/queue.ts#pickNext\n`) {
+    const repo = await tempGitRepo();
+    await git(repo, 'config', 'user.email', ME);
+    await commit(repo, { 'src/queue.ts': TS_BEFORE_COMMIT, '.fiu-rules.md': rules });
+    const sha = await commit(repo, { 'src/queue.ts': TS_REFERENCE }, { message: 'Ties go to the first job' });
+    return { repo, sha };
+  }
+  const readRecord = async (repo: string) => (await listWorkouts(workspacePaths(repo)))[0]?.record;
+
+  it('is off unless asked for: the commit gets its usual treatment', async () => {
+    const { repo } = await repoWithRule();
+    await configure(repo, { auto: { enabled: true } });
+    // One changed line is too small for a usual commit Workout; with rule checks off, nothing is made.
+    const result = await run(repo, { kinds: ['prediction'] }, [goodCommitPrediction()]);
+    assert.deepEqual(outcomes(result), [['skipped', 'too small to drill (2 changed lines in src/queue.ts)']]);
+    assert.equal(await readRecord(repo), undefined);
+  });
+
+  it('checks a pinned rule whose function the commit changed, with the old behaviour as an option', async () => {
+    const { repo, sha } = await repoWithRule();
+    await configure(repo, { auto: { enabled: true, ruleChecks: true } });
+    // Option 1 is what the code does now, and what the rule says.
+    const result = await run(repo, {}, [goodCommitPrediction({ ruleCheck: { ruleOption: 1, note: 'The rule and the code both serve the earlier job.' } })]);
+    assert.deepEqual(outcomes(result).map(([o]) => o), ['generated'], JSON.stringify(result.outcomes));
+    assert.match(result.prompts[0]!, new RegExp(`changed \\\`pickNext\\\`\\. Build the Prediction around \\\`pickNext\\\` and behaviour the commit changed`));
+    assert.match(result.prompts[0]!, /from the team's own list of rules/);
+    const record = await readRecord(repo);
+    assert.deepEqual([record?.origin, record?.commit?.sha, record?.source.symbol], ['commit', sha, 'pickNext']);
+    assert.deepEqual(record?.rule, { text: RULE, domain: 'Scheduling', source: 'rules-file', ruleOption: 1, agrees: true, note: 'The rule and the code both serve the earlier job.' });
+  });
+
+  it('says so when the rule describes the code before the commit', async () => {
+    const { repo } = await repoWithRule(`- On a tie, the newest job runs first. → src/queue.ts#pickNext\n`);
+    await configure(repo, { auto: { enabled: true, ruleChecks: true } });
+    // Option 2 is the old behaviour: newest first.
+    await run(repo, {}, [goodCommitPrediction({ ruleCheck: { ruleOption: 2, note: 'The rule says the newest job; since the commit, the first one.' } })]);
+    const rule = (await readRecord(repo))?.rule;
+    assert.deepEqual([rule?.agrees, rule?.before], [false, true]);
+  });
+
+  it('never acts on a place it would have to guess', async () => {
+    const { repo } = await repoWithRule(`- ${RULE}\n`);
+    await configure(repo, { auto: { enabled: true, ruleChecks: true } });
+    // An unpinned, never-checked rule triggers nothing: the commit is treated as usual (too small here).
+    const result = await run(repo, { kinds: ['prediction'] }, [goodCommitPrediction()]);
+    assert.deepEqual(outcomes(result), [['skipped', 'too small to drill (2 changed lines in src/queue.ts)']]);
+  });
+
+  it('uses the background model in the background, and the main one when run by hand', async () => {
+    const { repo } = await repoWithRule();
+    await configure(repo, { ...backgroundReady, auto: { enabled: true, ruleChecks: true, model: 'claude-haiku-5-5' } });
+    const used: string[] = [];
+    const scripted = scriptedModel(goodCommitPrediction({ ruleCheck: { ruleOption: 1, note: 'Same.' } }));
+    await refill(repo, { background: true, sandbox: sandboxWorks }, { step: () => {}, warn: () => {} }, {
+      createModel: (_provider, modelId) => (used.push(modelId), { model: scripted.model, providerOptions: {} }),
+      configEnv: { env: { ANTHROPIC_API_KEY: 'k' }, home: await tempDir() },
+      cacheRoot: await tempDir(),
+    });
+    assert.deepEqual(used, ['claude-haiku-5-5']);
+
+    // By hand, on another commit of the same kind: the main model.
+    const other = await repoWithRule();
+    await configure(other.repo, { ...backgroundReady, auto: { enabled: true, ruleChecks: true, model: 'claude-haiku-5-5' } });
+    const byHand: string[] = [];
+    const again = scriptedModel(goodCommitPrediction({ ruleCheck: { ruleOption: 1, note: 'Same.' } }));
+    await refill(other.repo, { background: false, yes: true, sandbox: sandboxWorks }, { step: () => {}, warn: () => {} }, {
+      createModel: (_provider, modelId) => (byHand.push(modelId), { model: again.model, providerOptions: {} }),
+      configEnv: { env: { ANTHROPIC_API_KEY: 'k' }, home: await tempDir() },
+      cacheRoot: await tempDir(),
+    });
+    assert.deepEqual(byHand, ['claude-opus-5-5']);
+  });
+});

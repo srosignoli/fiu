@@ -17,6 +17,9 @@ import { NOUN } from '../synthesis/schema.ts';
 import { discardWorkout, listWorkouts, readState, writeState, type StoredWorkout } from '../workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths, type WorkspacePaths } from '../workspace.ts';
 import { chooseTarget, operationInProgress, readCommit } from './commits.ts';
+import { buildSkeleton } from '../atlas/skeleton.ts';
+import { profileForFile } from '../languages/registry.ts';
+import { commitRuleTriggers } from '../workouts/rulechecks.ts';
 import { appendLog, type LogEntry } from './log.ts';
 
 /** Commits that arrive while a generator runs wait here; only the newest are kept. */
@@ -74,6 +77,8 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
   const userConfig = await loadUserConfig(configEnv);
   const config = resolveConfig(repoConfig, userConfig);
   const auto = { ...AUTO_DEFAULTS, ...repoConfig.auto };
+  // Background generation may use its own, cheaper model: every Workout is Verified whichever model wrote it.
+  const generationConfig = options.background && auto.model ? { ...config, model: auto.model } : config;
   const sha = await resolveCommit(repoRoot, options.commit ?? 'HEAD');
 
   const outcomes: CommitOutcome[] = [];
@@ -133,6 +138,64 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
   }
   return { outcomes };
 
+  /**
+   * A rule check for a commit that changed the function at a rule's known place, or undefined when it
+   * touched none (then the commit gets its usual Workout). Same caps, consent, and model as any other.
+   */
+  async function ruleCheckCommit(commitSha: string, info: Awaited<ReturnType<typeof readCommit>>): Promise<CommitOutcome | undefined> {
+    const skeleton = await buildSkeleton(repoRoot, config.profiles);
+    const [trigger] = await commitRuleTriggers(paths, skeleton, config.profiles, commitSha);
+    if (!trigger) return undefined;
+    const base = { commit: commitSha, source: trigger.path };
+    const before = await fileBefore(repoRoot, commitSha, trigger.path);
+    const after = await execa('git', ['show', `${commitSha}:${trigger.path}`], { cwd: repoRoot, reject: false });
+    if (before === undefined || after.exitCode !== 0) return undefined;
+    const profile = profileForFile(trigger.path, config.profiles);
+    const maxAttempts = options.background ? Math.min(MAX_ATTEMPTS, auto.dailyLimit - generationsToday((await readState(paths)).spend, now())) : MAX_ATTEMPTS;
+    if (options.background) {
+      const queued = countsTowardQueueCap(await listWorkouts(paths));
+      if (queued >= auto.queueCap) return { ...base, outcome: 'deferred', reason: `the queue already holds ${queued} Workouts (cap ${auto.queueCap})` };
+      if (maxAttempts <= 0) return { ...base, outcome: 'deferred', reason: `today's limit of ${auto.dailyLimit} generations is used up` };
+    } else if (!hasConsent(repoConfig, config.provider)) {
+      if (!options.yes) {
+        if (!ui.confirm) throw new ConsentRequiredError(config.provider);
+        if (!(await ui.confirm(`Fiu will send ${trigger.path} (before and after ${commitSha.slice(0, 12)}) to ${config.provider} (${config.model}) to check a business rule. Send code from this repository to ${config.provider}?`))) {
+          throw new ConsentDeclinedError();
+        }
+      }
+      await recordConsent(paths.configFile, config.provider);
+    }
+    ui.step(`The commit changed ${trigger.path}#${trigger.symbol}, where the rule "${trigger.rule.text}" is ${trigger.known === 'pinned' ? 'pinned' : 'checked'}: checking it`);
+    const { stdout: diff } = await execa('git', ['show', '--format=', '--no-renames', commitSha, '--', trigger.path], { cwd: repoRoot });
+    const generation = await generateWorkout({
+      paths,
+      config: generationConfig,
+      profile,
+      sandbox: await sandboxFor(profile),
+      apiKey,
+      createModel: deps.createModel ?? createModelDefault,
+      target: {
+        path: trigger.path,
+        source: after.stdout + '\n',
+        symbol: trigger.symbol,
+        change: { sha: commitSha, subject: info.subject, diff, before },
+        rule: { text: trigger.rule.text, ...(trigger.rule.domain ? { domain: trigger.rule.domain } : {}), source: trigger.rule.source },
+      },
+      revision: { commit: commitSha, dirty: false },
+      quick: true,
+      kind: 'prediction',
+      origin: 'commit',
+      commit: { sha: commitSha, aiAuthored: info.aiAuthored, subject: info.subject },
+      maxAttempts,
+      cacheRoot: deps.cacheRoot,
+      step: (message) => ui.step(message),
+    });
+    await markProcessed(paths, commitSha);
+    if (generation.status === 'saved') return { ...base, generation, outcome: 'generated', workoutId: generation.record.id };
+    if (generation.status === 'failed') return { ...base, generation, outcome: 'failed', reason: `no Verified rule check for "${trigger.rule.text}"` };
+    return { ...base, generation, outcome: 'not-worth-practicing', reason: generation.reason };
+  }
+
   async function processCommit(commitSha: string): Promise<CommitOutcome> {
     const state = await readState(paths);
     if (state.refill.processed.includes(commitSha)) return { commit: commitSha, outcome: 'skipped', reason: 'already processed' };
@@ -150,6 +213,11 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
     const userEmail = (await execa('git', ['config', 'user.email'], { cwd: repoRoot, reject: false })).stdout.trim();
     if (userEmail && info.authorEmail.toLowerCase() !== userEmail.toLowerCase()) return permanently(`authored by ${info.authorEmail}, not you`);
     if (options.background && auto.aiOnly && !info.aiAuthored) return permanently('not AI-authored (aiOnly is on)');
+    // Opt-in (ADR 0011): a commit that changed code where a rule's place is known gets a rule check instead.
+    if (auto.ruleChecks) {
+      const checked = await ruleCheckCommit(commitSha, info);
+      if (checked) return checked;
+    }
 
     const choice = await chooseTarget(repoRoot, commitSha, config.profiles);
     if ('skip' in choice) return permanently(choice.skip);
@@ -199,7 +267,7 @@ export async function refill(cwd: string, options: RefillOptions, ui: DrillUi, d
         if (unfit) ui.step(`${unfit.reason}: making a ${NOUN[kind]} instead`);
         const generation = await generateWorkout({
           paths,
-          config,
+          config: generationConfig,
           profile: target.profile,
           sandbox: await sandboxFor(target.profile),
           apiKey,

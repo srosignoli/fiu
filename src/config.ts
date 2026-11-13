@@ -54,6 +54,10 @@ export const RepoConfigSchema = z.strictObject({
       dailyLimit: z.number().int().positive().optional(),
       aiOnly: z.boolean().optional(),
       expiryDays: z.number().int().positive().optional(),
+      /** The model background generation uses, when it should differ from `model` (a cheaper one, say). */
+      model: z.string().min(1).optional(),
+      /** Opt-in: a commit that changes code where a rule is pinned or already checked gets a rule check (ADR 0011). */
+      ruleChecks: z.boolean().optional(),
     })
     .optional(),
 });

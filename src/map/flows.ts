@@ -3,7 +3,7 @@ import { readAtlasOverlay, uaNotice } from '../atlas/overlay.ts';
 import { buildSkeleton } from '../atlas/skeleton.ts';
 import { loadRepoConfig, loadUserConfig, resolveConfig, type ConfigEnv } from '../config.ts';
 import { readRules } from '../atlas/rules.ts';
-import { ruleChecks } from '../workouts/rulechecks.ts';
+import { ruleChecks, ruleChecksWaiting } from '../workouts/rulechecks.ts';
 import { findRepoRoot, workspacePaths } from '../workspace.ts';
 import { buildMap, type FileState } from './map.ts';
 
@@ -27,8 +27,8 @@ export interface FlowMapDomain {
   flows: FlowMapFlow[];
 }
 
-/** `follows`/`breaks`: a Prediction measured it; `stale`: the measured code changed since; `unchecked`: never measured. */
-export type RuleStatus = 'follows' | 'breaks' | 'stale' | 'unchecked';
+/** `follows`/`breaks`: a Prediction measured it; `stale`: the measured code changed since; `waiting`: a check waits for an answer; `unchecked`: never measured. */
+export type RuleStatus = 'follows' | 'breaks' | 'stale' | 'waiting' | 'unchecked';
 
 export interface FlowMapFlow {
   name: string;
@@ -56,6 +56,7 @@ export async function buildFlowMap(cwd: string, { configEnv = { env: process.env
   const map = await buildMap(repoRoot, '', { configEnv });
   const files = new Map(map.dirs.flatMap((d) => d.files.map((f) => [f.path, f] as const)));
   const checks = await ruleChecks(paths, config.profiles);
+  const waiting = await ruleChecksWaiting(paths, checks);
 
   const byDomain = new Map<string, FlowMapDomain>();
   const domainOf = (name: string) => {
@@ -76,7 +77,7 @@ export async function buildFlowMap(cwd: string, { configEnv = { env: process.env
   }
   for (const rule of (await readRules(paths, skeleton)).rules) {
     const check = checks.get(rule.text);
-    const status: RuleStatus = !check ? 'unchecked' : check.stale ? 'stale' : check.agrees ? 'follows' : 'breaks';
+    const status: RuleStatus = waiting.has(rule.text) ? 'waiting' : !check ? 'unchecked' : check.stale ? 'stale' : check.agrees ? 'follows' : 'breaks';
     domainOf(rule.domain ?? '(no domain)').rules.push({ text: rule.text, status, ...(check ? { target: check.target } : {}), ...(check?.staleReason ? { staleReason: check.staleReason } : {}) });
   }
   report.domains = [...byDomain.values()];
@@ -98,7 +99,7 @@ export async function buildFlowMap(cwd: string, { configEnv = { env: process.env
 
 const MARKS: Record<FileState, string> = { red: '●', amber: '◐', green: '✓', grey: '·' };
 const CODES: Record<FileState, string> = { red: '31', amber: '33', green: '32', grey: '2' };
-const RULE_MARKS: Record<RuleStatus, string> = { follows: '✓', breaks: '✗', stale: '◐', unchecked: '·' };
+const RULE_MARKS: Record<RuleStatus, string> = { follows: '✓', breaks: '✗', stale: '◐', waiting: '?', unchecked: '·' };
 
 export function renderFlowMap(report: FlowMapReport, { color }: { color: boolean }): string {
   const paint = (state: FileState, text: string) => (color ? `\x1b[${CODES[state]}m${text}\x1b[0m` : text);
@@ -109,12 +110,12 @@ export function renderFlowMap(report: FlowMapReport, { color }: { color: boolean
   const lines = [
     'Comprehension map of flows (UA)',
     `${paint('red', '●')} complex, never practised   ${paint('amber', '◐')} out of date or AI-changed   ${paint('green', '✓')} practised   ${paint('red', '⚠')} Blind Spot`,
-    dim('Rules: ✓ the code follows it  ✗ it does not  ◐ that code changed since  · never checked (as Predictions measured)'),
+    dim('Rules: ✓ the code follows it  ✗ it does not  ◐ that code changed since  ? a check waits for your answer  · never checked (as Predictions measured)'),
     '',
   ];
   for (const domain of report.domains) {
     const count = (status: RuleStatus) => domain.rules.filter((r) => r.status === status).length;
-    const tally = domain.rules.length === 0 ? '' : dim(`   rules: ${count('follows')} ✓  ${count('breaks')} ✗  ${count('stale')} ◐  ${count('unchecked')} ·`);
+    const tally = domain.rules.length === 0 ? '' : dim(`   rules: ${count('follows')} ✓  ${count('breaks')} ✗  ${count('stale')} ◐  ${count('waiting')} ?  ${count('unchecked')} ·`);
     lines.push(`${domain.name}${tally}`);
     for (const flow of domain.flows) {
       lines.push(`  ${flow.name}  ${dim(`${flow.practised} of ${flow.files.length} file${flow.files.length === 1 ? '' : 's'} practised`)}`);

@@ -54,7 +54,7 @@ Ask Claude Code for a Workout (or run `/fiu-drill src/queue.ts` and `/fiu-atlas`
 - `fiu map`: inspect comprehension coverage and locate unpractised hotspots. `fiu map --flows`: the same by business flow, with which business rules the code was checked against, when the repository has an Understand-Anything domain graph.
 - `fiu stats`: track your Prediction accuracy, confidence calibration, and **Blind Spots**.
 - `fiu share [--atlas]` / `fiu fetch`: share verified Workouts and the Atlas with your team on the `fiu/workouts` branch without touching `main`.
-- `fiu auto on`: queue a background Quick Drill from each commit.
+- `fiu auto on`: queue a background Quick Drill from each commit. Optional: `--rules` turns a commit that changes code where a business rule is pinned or already checked into a rule check; `--model <id>` uses a cheaper model for background work (every Workout is still Verified).
 - `fiu cost`: inspect token usage and generation cost.
 
 The binary is `fiu`. See [SPEC.md](./SPEC.md) for the specification, [GLOSSARY.md](./GLOSSARY.md) for domain terms, and [docs/adr/](./docs/adr/) for architecture decisions.

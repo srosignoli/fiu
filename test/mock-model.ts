@@ -171,7 +171,7 @@ export function goodPrediction(overrides: Partial<PredictionOutput & { ruleCheck
 export const TS_BEFORE_COMMIT = TS_REFERENCE.replace('job.at < best.at', 'job.at > best.at');
 
 /** A Prediction from that commit: the old behaviour ("late" wins) is the Previous Version, not a Variant. */
-export function goodCommitPrediction(overrides: Partial<CommitPredictionOutput> = {}): CommitPredictionOutput {
+export function goodCommitPrediction(overrides: Partial<CommitPredictionOutput & { ruleCheck: RuleCheck }> = {}): CommitPredictionOutput {
   const base = goodPrediction();
   return {
     ...base,

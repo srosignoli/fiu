@@ -141,6 +141,9 @@ export interface AutoStatus {
   enabled: boolean;
   hookInstalled: boolean;
   caps: typeof AUTO_DEFAULTS;
+  /** The model background generation uses, when it differs from the main one. */
+  model?: string;
+  ruleChecks: boolean;
   generationsToday: number;
   queued: number;
   /** True while the queue is at its cap: background generation waits until a Workout is attempted or discarded. */
@@ -157,6 +160,8 @@ export async function autoStatus(paths: WorkspacePaths, repoConfig: RepoConfig, 
     enabled: repoConfig.auto?.enabled ?? false,
     hookInstalled: await hookInstalled(paths.repoRoot),
     caps,
+    ...(repoConfig.auto?.model ? { model: repoConfig.auto.model } : {}),
+    ruleChecks: repoConfig.auto?.ruleChecks ?? false,
     generationsToday: generationsToday(state.spend, now),
     queued,
     paused: queued >= caps.queueCap,
@@ -178,7 +183,7 @@ export interface EnableAutoOptions {
   model: string;
   /** How to start this `fiu` from the hook (absolute paths). */
   fiuCommand: string[];
-  caps?: Partial<Pick<NonNullable<RepoConfig['auto']>, 'queueCap' | 'dailyLimit' | 'aiOnly'>>;
+  caps?: Partial<Pick<NonNullable<RepoConfig['auto']>, 'queueCap' | 'dailyLimit' | 'aiOnly' | 'model' | 'ruleChecks'>>;
   /** --yes: consent without asking. */
   yes: boolean;
   /** Asks the user; undefined when there's no terminal. */
@@ -191,13 +196,16 @@ export interface EnableAutoOptions {
  * the provider), then the hook. Returns undefined when the user declines.
  */
 export async function enableAuto(options: EnableAutoOptions): Promise<HookInstall | undefined> {
-  const { paths, repoConfig, provider, model } = options;
+  const { paths, repoConfig, provider } = options;
   const caps = { ...autoCaps(repoConfig), ...options.caps };
+  const model = options.caps?.model ?? repoConfig.auto?.model ?? options.model;
+  const ruleChecks = options.caps?.ruleChecks ?? repoConfig.auto?.ruleChecks ?? false;
   if (!options.yes) {
     if (!options.confirm) throw new AutoConsentRequiredError();
     const average = averageSpend((await readState(paths)).spend);
     const message = [
       `After each of your commits, Fiu will send the most-changed source file to ${provider} (${model}) and generate a Quick Drill in the background, at your API key's expense.`,
+      ...(ruleChecks ? ['When a commit changes code where a business rule is pinned in .fiu-rules.md or was already checked, that commit gets a rule check instead: a Prediction of whether the code still follows the rule.'] : []),
       `Limits: at most ${caps.queueCap} Workouts waiting in the queue, and at most ${caps.dailyLimit} generations a day (retries included)${caps.aiOnly ? ', only for AI-authored commits' : ''}.`,
       ...(average ? [`Your Drills have averaged ${formatUsd(average.usd)} (last ${average.count}).`] : []),
       'Turn background generation on?',

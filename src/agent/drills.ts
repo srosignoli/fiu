@@ -39,7 +39,7 @@ import {
 } from '../synthesis/schema.ts';
 import { MAX_ATTEMPTS, SourceTooLargeError } from '../synthesis/synthesize.ts';
 import { describeFailures, verify } from '../verify/gate.ts';
-import { newSeriesId, saveDrill, sourceRevision, type Origin, type TrackPlacement, type WorkoutRecord } from '../workouts/save.ts';
+import { newSeriesId, rulePlacement, saveDrill, sourceRevision, type Origin, type TrackPlacement, type WorkoutRecord } from '../workouts/save.ts';
 import { listWorkouts, recordSpend, type Spend } from '../workouts/store.ts';
 import { ensureWorkspace, excludeWorkspaceFromGit, findRepoRoot, workspacePaths, type WorkspacePaths } from '../workspace.ts';
 
@@ -522,7 +522,7 @@ export class AgentDrills {
       generator: 'agent',
       origin: generation.origin,
       ...(generation.whatIf ? { whatIf: { ...generation.whatIf, modelled: workout.modelledAs ?? '' } } : {}),
-      ...(generation.rule && workout.ruleCheck ? { rule: { ...generation.rule, ...workout.ruleCheck } } : {}),
+      ...(generation.rule && rulePlacement(generation.rule, workout) ? { rule: rulePlacement(generation.rule, workout)! } : {}),
       ...(generation.track ? { track: this.#placement(generation.track) } : {}),
       ...(generation.contextProfiles ? { contextProfiles: generation.contextProfiles } : {}),
       now: this.#now(),

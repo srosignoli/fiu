@@ -543,12 +543,32 @@ describe("Understand-Anything's business rules", async () => {
 });
 
 describe('the rule in the reveal', async () => {
-  const { ruleLines } = await import('../src/workouts/save.ts');
-  it("shows the rule as written and whether the code follows it, as the model's reading", () => {
-    assert.deepEqual(ruleLines({ text: 'Jobs are kept for 7 days.', domain: 'Scheduling', agrees: false, note: 'They are kept for 14.' }), [
-      'The rule this was about (Understand-Anything, Scheduling): "Jobs are kept for 7 days."',
-      "The code does NOT follow it: They are kept for 14. (as measured; the comparison is the model's reading)",
+  const { ruleLines, rulePlacement } = await import('../src/workouts/save.ts');
+  const { ruleVerdict } = await import('../src/synthesis/schema.ts');
+  const options = [{ correct: false }, { correct: true }, { correct: false, previous: true }, { correct: false }];
+
+  it('measures the verdict from which option the rule predicts', () => {
+    assert.deepEqual(ruleVerdict({ options, ruleCheck: { ruleOption: 2, note: 'x' } }), { agrees: true, before: false });
+    assert.deepEqual(ruleVerdict({ options, ruleCheck: { ruleOption: 1, note: 'x' } }), { agrees: false, before: false });
+    assert.deepEqual(ruleVerdict({ options, ruleCheck: { ruleOption: 3, note: 'x' } }), { agrees: false, before: true });
+    assert.equal(ruleVerdict({ options, ruleCheck: { ruleOption: 9, note: 'x' } }), undefined);
+    assert.deepEqual(rulePlacement({ text: 'Kept 7 days.', source: 'rules-file' }, { options, ruleCheck: { ruleOption: 3, note: 'The rule says 7 days; since the commit, 14.' } }), {
+      text: 'Kept 7 days.',
+      source: 'rules-file',
+      ruleOption: 3,
+      agrees: false,
+      before: true,
+      note: 'The rule says 7 days; since the commit, 14.',
+    });
+  });
+
+  it('shows the rule as written and whether the code follows it', () => {
+    assert.deepEqual(ruleLines({ text: 'Jobs are kept for 7 days.', domain: 'Scheduling', source: 'rules-file', ruleOption: 3, agrees: false, before: true, note: 'The rule says 7 days; the code now keeps them 14.' }), [
+      'The rule this was about (.fiu-rules.md, Scheduling): "Jobs are kept for 7 days."',
+      "The code does NOT follow it any more: the rule describes the code before this commit. The rule says 7 days; the code now keeps them 14. (measured: the rule's outcome is the true one or not; the model matched the rule to that outcome)",
     ]);
+    // A check from before rules named their option: the model's judgement, said so.
+    assert.match(ruleLines({ text: 'Jobs are kept for 7 days.', agrees: true, note: 'Seven.' })[1]!, /^The code follows it\. Seven\. \(as measured; the comparison is the model's reading\)$/);
   });
 });
 

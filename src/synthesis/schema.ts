@@ -143,16 +143,25 @@ export const PredictionOutputSchema = z.object({
 });
 export type PredictionOutput = z.infer<typeof PredictionOutputSchema>;
 
-/** For a Prediction about a business rule: whether the measured behaviour is what the rule says (ADR 0010). */
+/**
+ * For a Prediction about a business rule (ADR 0011): which option the rule predicts. Whether the code follows
+ * the rule is then measured, not judged: it does when that option is the true one.
+ */
 export const RuleCheckSchema = z.object({
-  agrees: z.boolean().describe('True when the code, as the tests measure it, does what the rule says.'),
-  note: z.string().describe('One plain-English sentence, shown after answering: how the code agrees with the rule, or how it differs. No names from the code.'),
+  ruleOption: z.number().int().describe('Which option (1 to 4, in the order you wrote them) is what the rule says happens in the Scenario.'),
+  note: z.string().describe('One plain-English sentence, shown after answering: what the rule says happens in the Scenario, and how that compares with what the code does. No names from the code.'),
 });
 export type RuleCheck = z.infer<typeof RuleCheckSchema>;
 
-/** A Prediction about a business rule: as PredictionOutputSchema, plus whether the code follows the rule. */
+/** Whether the code follows the rule, measured: the rule's option is the true one. `before`: it is what the code did before the commit. */
+export function ruleVerdict(output: { options?: { correct: boolean; previous?: boolean }[]; ruleCheck?: RuleCheck }): { agrees: boolean; before: boolean } | undefined {
+  const option = output.ruleCheck ? output.options?.[output.ruleCheck.ruleOption - 1] : undefined;
+  return option ? { agrees: option.correct, before: option.previous === true } : undefined;
+}
+
+/** A Prediction about a business rule: as PredictionOutputSchema, plus which option the rule predicts. */
 export const RulePredictionOutputSchema = PredictionOutputSchema.extend({
-  ruleCheck: RuleCheckSchema.describe('Whether the code does what the business rule says, judged from what your tests measure.'),
+  ruleCheck: RuleCheckSchema.describe('Which option the business rule predicts.'),
 });
 
 /** A Prediction from a commit: as PredictionOutputSchema, plus the unit as it was before the commit. */
@@ -161,6 +170,11 @@ export const CommitPredictionOutputSchema = PredictionOutputSchema.extend({
   previous: z.string().describe('The same unit extracted from the file before the commit, made self-contained the same way: the complete code file whose behaviour is the old-behaviour option.'),
 });
 export type CommitPredictionOutput = z.infer<typeof CommitPredictionOutputSchema>;
+
+/** A rule check from a commit: the old behaviour is one option, and the rule may predict any of them. */
+export const CommitRulePredictionOutputSchema = CommitPredictionOutputSchema.extend({
+  ruleCheck: RuleCheckSchema.describe('Which option the business rule predicts: the old-behaviour option when the rule describes the code before the commit.'),
+});
 
 /** Changed lines allowed between a What-if's today and its Proposed Change: beyond this, one self-contained file can't model it faithfully. */
 export const WHAT_IF_MAX_CHANGED_LINES = 10;
@@ -293,7 +307,9 @@ export const outputSchemaFor = (kind: WorkoutKind, { fromCommit = false, whatIf 
         : kind === 'diagnosis'
           ? DiagnosisOutputSchema
           : fromCommit
-            ? CommitPredictionOutputSchema
+            ? rule
+              ? CommitRulePredictionOutputSchema
+              : CommitPredictionOutputSchema
             : rule
               ? RulePredictionOutputSchema
               : PredictionOutputSchema;
@@ -382,8 +398,12 @@ export function codeVocabulary(code: string): Set<string> {
  */
 function ruleProblems(output: AnyWorkoutOutput, rule: string): string[] {
   const problems: string[] = [];
-  if (!output.ruleCheck) problems.push('ruleCheck is missing: say whether the code does what the rule says.');
-  else if (!output.ruleCheck.note.trim()) problems.push('ruleCheck.note is empty: say in one sentence how the code agrees with the rule or differs.');
+  if (!output.ruleCheck) problems.push('ruleCheck is missing: say which option the rule predicts.');
+  else {
+    const count = output.options?.length ?? 0;
+    if (output.ruleCheck.ruleOption < 1 || output.ruleCheck.ruleOption > count) problems.push(`ruleCheck.ruleOption is ${output.ruleCheck.ruleOption}: give the number (1 to ${count}) of the option the rule predicts.`);
+    if (!output.ruleCheck.note.trim()) problems.push('ruleCheck.note is empty: say in one sentence what the rule predicts and how the code compares.');
+  }
   const ruleWords = rule.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   const quoted = (text: string) => {
     const said = ` ${text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).join(' ')} `;

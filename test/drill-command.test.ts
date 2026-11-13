@@ -409,6 +409,14 @@ describe('cost recording', () => {
   });
 });
 
+/** Answers a Workout, as `fiu train` would record a finished Attempt. */
+async function answer(repo: string, workoutId: string) {
+  const paths = workspacePaths(repo);
+  const { attempt } = await openAttempt(paths, await loadWorkout(paths, workoutId), TYPESCRIPT);
+  Object.assign(attempt.record, { outcome: 'completed', finishedAt: new Date().toISOString() });
+  await saveAttempt(attempt);
+}
+
 describe(`fiu predict --rule (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, () => {
   const rule = 'When priorities tie, pickNext serves the job submitted first.';
   async function ruleRepo() {
@@ -416,7 +424,7 @@ describe(`fiu predict --rule (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, (
     await writeUaFlows(repo, [{ name: 'Run jobs', domain: 'Scheduling', rules: [rule, 'Jobs are kept for 7 days.'], steps: [{ name: 'Pick', path: 'src/queue.ts' }] }]);
     return repo;
   }
-  const ruleCheck = { agrees: true, note: 'On a tie, the job that arrived first runs first, as the rule says.' };
+  const ruleCheck = { ruleOption: 1, note: 'On a tie, the job that arrived first runs first, as the rule says.' };
 
   it('finds the rule, proposes where it is enforced, asks, and saves the Prediction with the check', async () => {
     const repo = await ruleRepo();
@@ -425,13 +433,21 @@ describe(`fiu predict --rule (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, (
     const { result, prompts } = await run({ repo, target: null, options: { kind: 'prediction', rule: 'priorities tie', yes: true }, replies: [goodPrediction({ ruleCheck })], confirm });
     assert.equal(result.status, 'saved', JSON.stringify(result));
     const record = result.status === 'saved' ? result.record : assert.fail();
-    assert.deepEqual(record.rule, { text: rule, domain: 'Scheduling', source: 'understand-anything', ...ruleCheck });
+    assert.deepEqual(record.rule, { text: rule, domain: 'Scheduling', source: 'understand-anything', ...ruleCheck, agrees: true });
     assert.equal(record.source.symbol, 'pickNext');
     assert.match(prompts[0]!, /Build the Scenario around this business rule/);
     assert.equal(result.series, undefined, 'one question, never a Series');
-    // The listing shows it checked, where it was measured; the other rule, not yet.
+    // Until it is answered, the check waits: its verdict would give the answer away.
     const { listRules } = await import('../src/commands/drill.ts');
-    const listed = await listRules(repo, { configEnv: { env: {}, home: await tempDir() } });
+    const configEnv = { env: {}, home: await tempDir() };
+    const waiting = await listRules(repo, { configEnv });
+    assert.deepEqual(waiting.map((r) => [r.agrees, 'waiting' in r ? r.waiting : undefined]), [
+      [undefined, record.id],
+      [undefined, undefined],
+    ]);
+    // Answered: the listing shows it checked, where it was measured; the other rule, not yet.
+    await answer(repo, record.id);
+    const listed = await listRules(repo, { configEnv });
     assert.deepEqual(listed.map((r) => [r.rule.text, r.agrees, r.target]), [
       [rule, true, 'src/queue.ts#pickNext'],
       ['Jobs are kept for 7 days.', undefined, undefined],
@@ -455,6 +471,8 @@ describe(`fiu predict --rule (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, (
     const { result } = await run({ repo, target: null, options: { kind: 'prediction', rule: 'priorities tie', yes: true }, replies: [goodPrediction({ ruleCheck })] });
     assert.equal(result.status, 'saved');
     const { buildFlowMap, renderFlowMap } = await import('../src/map/flows.ts');
+    assert.deepEqual((await buildFlowMap(repo, { configEnv })).domains[0]!.rules.map((r) => r.status), ['waiting', 'unchecked']);
+    await answer(repo, result.status === 'saved' ? result.record.id : '');
     const { listRules } = await import('../src/commands/drill.ts');
 
     let map = await buildFlowMap(repo, { configEnv });
@@ -462,7 +480,7 @@ describe(`fiu predict --rule (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, (
       ['Scheduling', ['follows', 'unchecked'], [['Run jobs', ['src/queue.ts']]]],
     ]);
     assert.deepEqual(map.suggestions, [{ command: 'fiu predict --rule', why: '1 rule never checked against the code' }]);
-    assert.match(renderFlowMap(map, { color: false }), /^Scheduling {3}rules: 1 ✓ {2}0 ✗ {2}0 ◐ {2}1 ·\n {2}Run jobs {2}0 of 1 file practised\n {4}[●·◐✓] src\/queue\.ts$/m);
+    assert.match(renderFlowMap(map, { color: false }), /^Scheduling {3}rules: 1 ✓ {2}0 ✗ {2}0 ◐ {2}0 \? {2}1 ·\n {2}Run jobs {2}1 of 1 file practised\n {4}[●·◐✓] src\/queue\.ts$/m);
 
     // A comment elsewhere in the file leaves the check standing; a change to pickNext does not.
     await writeFile(join(repo, 'src', 'queue.ts'), `// The scheduler.\n${TS_REFERENCE}`);
@@ -493,7 +511,8 @@ describe(`fiu predict --rule (${sandboxWorks ? 'sandboxed' : 'UNSANDBOXED'})`, (
     assert.match(asked[0]!, /^Rule \(\.fiu-rules\.md\): "On a tie, the job that came first runs first\."\nIt looks enforced in src\/queue\.ts#pickNext \(\.fiu-rules\.md names it\)/);
     assert.match(prompts[0]!, /business rule \(Scheduling\), from the team's own list of rules/);
     const record = result.status === 'saved' ? result.record : assert.fail();
-    assert.deepEqual(record.rule, { text: 'On a tie, the job that came first runs first.', domain: 'Scheduling', source: 'rules-file', ...ruleCheck });
+    assert.deepEqual(record.rule, { text: 'On a tie, the job that came first runs first.', domain: 'Scheduling', source: 'rules-file', ...ruleCheck, agrees: true });
+    await answer(repo, record.id);
 
     const { listRules } = await import('../src/commands/drill.ts');
     const listed = await listRules(repo, { configEnv: { env: {}, home: await tempDir() } });

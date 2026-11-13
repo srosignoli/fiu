@@ -210,6 +210,8 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
     : '';
   const focus = target.whatIf && !target.symbol
     ? `Build the ${noun} around the unit this change concerns.${proposed}`
+    : target.symbol && target.change?.before !== undefined
+    ? `This file was just changed by commit ${target.change.sha.slice(0, 12)} ("${target.change.subject}"), which changed \`${target.symbol}\`. Build the ${noun} around \`${target.symbol}\` and behaviour the commit changed. The source below is the file as of that commit; the file before it follows the diff.`
     : target.symbol
     ? `Build the ${noun} around \`${target.symbol}\`.`
     : target.change?.before !== undefined
@@ -227,7 +229,7 @@ export function drillUserPrompt(target: DrillTarget, kind: WorkoutKind = 'drill'
       : `\nThis ${noun} is step ${target.track.step}${target.track.of ? ` of ${target.track.of}` : ''} in a Track teaching a newcomer the module ${target.track.module || '(repository root)'}. This file matters because: ${target.track.why} Build the ${noun} around the logic that makes it matter.`
     : '';
   const rule = target.rule
-    ? `\nBuild the Scenario around this business rule${target.rule.domain ? ` (${target.rule.domain})` : ''}, ${RULE_ORIGIN[target.rule.source ?? 'understand-anything']}: "${target.rule.text}". Choose a situation where following the rule or not makes a visible difference. The true option is what the code does, whatever the rule says. Never quote or paraphrase the rule in the scenario or the options: it may give the answer away. In ruleCheck, say whether the code, as your tests measure it, does what the rule says, and in one plain-English sentence how it agrees or differs.`
+    ? `\nBuild the Scenario around this business rule${target.rule.domain ? ` (${target.rule.domain})` : ''}, ${RULE_ORIGIN[target.rule.source ?? 'understand-anything']}: "${target.rule.text}". Choose a situation where following the rule or not makes a visible difference. The true option is what the code does, whatever the rule says. Never quote or paraphrase the rule in the scenario or the options: it may give the answer away. Make one of the 4 options exactly what the rule says happens (the true one, when the code follows the rule). In ruleCheck, give that option's number as ruleOption, and in one plain-English sentence what the rule predicts and how the code compares: Fiu decides whether the code follows the rule from which option is true.`
     : '';
   return `Source file: ${target.path}\n${focus}${target.symbol ? proposed : ''}${track}${rule}\n\n<source>\n${numbered}\n</source>${change}`;
 }

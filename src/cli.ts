@@ -152,14 +152,16 @@ program
       if (rules.length === 0) return log.info(NO_RULES);
       const color = process.stdout.isTTY === true && !process.env.NO_COLOR;
       const dim = (text: string) => (color ? `\x1b[2m${text}\x1b[0m` : text);
-      const mark = (agrees: boolean | undefined, stale: boolean) => (agrees === undefined ? ' ' : stale ? '◐' : agrees ? '✓' : '✗');
+      const mark = (agrees: boolean | undefined, stale: boolean, waiting?: string) => (waiting ? '?' : agrees === undefined ? ' ' : stale ? '◐' : agrees ? '✓' : '✗');
       console.log(
         [
-          `Business rules: fiu predict --rule "<words>"   ${dim('✓ the code follows it  ✗ it does not (as a Prediction measured)  ◐ that code changed since: check again')}`,
-          ...rules.map(({ rule, target: where, agrees, stale, staleReason }) => {
-            const was = stale ? ` (was ${agrees ? 'followed' : 'not followed'}; ${staleReason})` : '';
+          `Business rules: fiu predict --rule "<words>"   ${dim('✓ the code follows it  ✗ it does not (as a Prediction measured)  ◐ that code changed since: check again  ? a check waits for your answer')}`,
+          ...rules.map((entry) => {
+            const { rule, target: where, agrees, stale, staleReason } = entry;
+            const waiting = 'waiting' in entry ? entry.waiting : undefined;
+            const was = waiting ? ` (answer it: fiu train ${waiting})` : stale ? ` (was ${agrees ? 'followed' : 'not followed'}; ${staleReason})` : '';
             const from = rule.source === 'understand-anything' ? ' (UA)' : ` (${RULE_SOURCE_LABEL[rule.source]})`;
-            return `${mark(agrees, stale)} ${rule.text}${dim(from)}\n    ${dim(where ? `→ ${where}${was}` : '→ ? (name the code: fiu predict <file>#<symbol> --rule "…")')}`;
+            return `${mark(agrees, stale, waiting)} ${rule.text}${dim(from)}\n    ${dim(where ? `→ ${where}${was}` : '→ ? (name the code: fiu predict <file>#<symbol> --rule "…")')}`;
           }),
         ].join('\n'),
       );
@@ -574,7 +576,9 @@ auto
   .option('--queue-cap <count>', 'at most this many Workouts waiting in the queue (default 3)')
   .option('--daily-limit <count>', 'at most this many generations a day, retries included (default 5)')
   .option('--ai-only', 'only generate from AI-authored commits')
-  .action(async (options: { yes: boolean; queueCap?: string; dailyLimit?: string; aiOnly?: boolean }) => {
+  .option('--rules', 'also check business rules: a commit changing code where a rule is pinned or already checked gets a rule check')
+  .option('--model <id>', 'the model background generation uses (default: your main model), e.g. a cheaper one')
+  .action(async (options: { yes: boolean; queueCap?: string; dailyLimit?: string; aiOnly?: boolean; rules?: boolean; model?: string }) => {
     const { enableAuto } = await import('./background/auto.ts');
     const paths = workspacePaths(await findRepoRoot(process.cwd()));
     await ensureWorkspace(paths);
@@ -591,6 +595,8 @@ auto
       ...(options.queueCap ? { queueCap: positive(options.queueCap, '--queue-cap') } : {}),
       ...(options.dailyLimit ? { dailyLimit: positive(options.dailyLimit, '--daily-limit') } : {}),
       ...(options.aiOnly ? { aiOnly: true } : {}),
+      ...(options.rules ? { ruleChecks: true } : {}),
+      ...(options.model ? { model: options.model } : {}),
     };
     const hook = await enableAuto({
       paths,
@@ -638,6 +644,8 @@ auto
       `Queue: ${s.queued} of ${s.caps.queueCap} Workouts waiting${s.backlog ? `; ${s.backlog} commit(s) in the backlog` : ''}`,
       ...(s.enabled && s.paused ? [pausedMessage(s.queued, s.caps.queueCap)] : []),
       ...(s.caps.aiOnly ? ['Only AI-authored commits'] : []),
+      ...(s.model ? [`Model: ${s.model}`] : []),
+      `Rule checks: ${s.ruleChecks ? 'on (commits changing code where a rule is pinned or already checked)' : 'off (fiu auto on --rules)'}`,
       ...s.recentFailures.map((f) => `Failed ${f.at.slice(0, 16).replace('T', ' ')}: ${f.commit?.slice(0, 12) ?? ''} ${f.reason ?? ''}`),
     ];
     log.message(lines.join('\n'));

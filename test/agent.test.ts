@@ -269,13 +269,17 @@ describe(`fiu mcp submissions (${sandboxWorks ? 'sandboxed' : 'skipped: no sandb
 
     const { json: rejected } = await call('submit_drill', { generationId: prepared.generationId, workout: goodPrediction() });
     assert.match(rejected.feedback, /ruleCheck is missing/);
-    const quoting = goodPrediction({ scenario: `${goodPrediction().scenario} When priorities tie, pickNext serves the job submitted first?`, ruleCheck: { agrees: true, note: 'x' } });
+    const quoting = goodPrediction({ scenario: `${goodPrediction().scenario} When priorities tie, pickNext serves the job submitted first?`, ruleCheck: { ruleOption: 1, note: 'x' } });
     assert.match((await call('submit_drill', { generationId: prepared.generationId, workout: quoting })).json.feedback, /the scenario quotes the rule/);
-    const ruleCheck = { agrees: true, note: 'On a tie, the job that arrived first runs first, as the rule says.' };
+    // On a generation of its own: each generation allows three submissions.
+    const { json: other } = await call('prepare_drill', { target: 'src/queue.ts#pickNext', kind: 'prediction', rule });
+    const outOfRange = goodPrediction({ ruleCheck: { ruleOption: 7, note: 'x' } });
+    assert.match((await call('submit_drill', { generationId: other.generationId, workout: outOfRange })).json.feedback, /ruleCheck\.ruleOption is 7: give the number \(1 to 4\)/);
+    const ruleCheck = { ruleOption: 1, note: 'On a tie, the job that arrived first runs first, as the rule says.' };
     const { json: saved } = await call('submit_drill', { generationId: prepared.generationId, workout: goodPrediction({ ruleCheck }) });
     assert.equal(saved.status, 'saved', JSON.stringify(saved));
     const record = await readJson(join(saved.workoutDir, 'workout.json'));
-    assert.deepEqual(record.rule, { text: rule, domain: 'Scheduling', source: 'understand-anything', ...ruleCheck });
+    assert.deepEqual(record.rule, { text: rule, domain: 'Scheduling', source: 'understand-anything', ...ruleCheck, agrees: true });
     assert.doesNotMatch(await readFile(join(saved.workoutDir, 'README.md'), 'utf8'), /serves the job submitted first/, 'the rule is never shown before answering');
   });
 

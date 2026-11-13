@@ -4,7 +4,7 @@ import { dirname, extname, join, relative } from 'node:path';
 import { execa } from 'execa';
 import { describeCost, type Cost } from '../cost/usage.ts';
 import type { LanguageProfile } from '../languages/profile.ts';
-import { answersOnly, type AnyWorkoutOutput, type DiagnosisCause, type PredictionOption, type WorkoutKind } from '../synthesis/schema.ts';
+import { answersOnly, ruleVerdict, type AnyWorkoutOutput, type DiagnosisCause, type PredictionOption, type WorkoutKind } from '../synthesis/schema.ts';
 import { findOriginalDefect, type OriginalDefect } from '../verify/defect.ts';
 import { aroundThisCode, answerTexts, otherVersions, type AroundThisCode } from './context.ts';
 import type { WorkspacePaths } from '../workspace.ts';
@@ -66,7 +66,12 @@ export interface RulePlacement {
   domain?: string;
   /** Absent on checks made before rules had sources: those were Understand-Anything's. */
   source?: 'rules-file' | 'understand-anything' | 'typed';
+  /** The option the rule predicts (1-based, as written); absent on checks made before it was asked for. */
+  ruleOption?: number;
+  /** Measured: the rule's option is the true one (before `ruleOption`, the model's judgement). */
   agrees: boolean;
+  /** From a commit: the rule's option is what the code did before it, so the commit changed what the rule describes. */
+  before?: boolean;
   note: string;
 }
 
@@ -314,9 +319,19 @@ export const WHAT_IF_LIMITS = 'Measured on a self-contained copy of this unit, n
 
 /** The change as the human put it, and as the model read it: that the code matches the sentence is the model's word. */
 /** After answering a Prediction about a rule: the rule as written, and whether the code follows it. */
-export function ruleLines({ text, domain, source = 'understand-anything', agrees, note }: RulePlacement): string[] {
+export function ruleLines({ text, domain, source = 'understand-anything', ruleOption, agrees, before, note }: RulePlacement): string[] {
   const from = { 'rules-file': '.fiu-rules.md', 'understand-anything': 'Understand-Anything', typed: 'as you wrote it' }[source];
-  return [`The rule this was about (${from}${domain ? `, ${domain}` : ''}): "${text}"`, `${agrees ? 'The code follows it' : 'The code does NOT follow it'}: ${note.trim()} (as measured; the comparison is the model's reading)`];
+  const verdict = agrees ? 'The code follows it' : before ? 'The code does NOT follow it any more: the rule describes the code before this commit' : 'The code does NOT follow it';
+  // Measured once the rule names its option; before that, the comparison was the model's judgement.
+  const how = ruleOption === undefined ? "as measured; the comparison is the model's reading" : "measured: the rule's outcome is the true one or not; the model matched the rule to that outcome";
+  return [`The rule this was about (${from}${domain ? `, ${domain}` : ''}): "${text}"`, `${verdict}. ${note.trim()} (${how})`];
+}
+
+/** The rule placement to save, with the verdict measured from which option is true. */
+export function rulePlacement(rule: { text: string; domain?: string; source?: RulePlacement['source'] }, output: { options?: { correct: boolean; previous?: boolean }[]; ruleCheck?: { ruleOption: number; note: string } }): RulePlacement | undefined {
+  const verdict = ruleVerdict(output);
+  if (!verdict || !output.ruleCheck) return undefined;
+  return { ...rule, ruleOption: output.ruleCheck.ruleOption, agrees: verdict.agrees, ...(verdict.before ? { before: true } : {}), note: output.ruleCheck.note };
 }
 
 export function whatIfLines({ sentence, modelled }: WhatIfPlacement): string[] {

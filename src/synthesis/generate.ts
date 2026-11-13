@@ -4,7 +4,7 @@ import { estimateCost, formatUsd, type Cost, type ModelUsage } from '../cost/usa
 import type { LanguageProfile } from '../languages/profile.ts';
 import type { Sandbox } from '../sandbox/sandbox.ts';
 import type { LanguageModel } from 'ai';
-import { newSeriesId, saveDrill, type Origin, type SourceRevision, type TrackPlacement, type WorkoutRecord } from '../workouts/save.ts';
+import { newSeriesId, rulePlacement, saveDrill, type Origin, type SourceRevision, type TrackPlacement, type WorkoutRecord } from '../workouts/save.ts';
 import { averageSpend, readState, recordSpend, type Spend } from '../workouts/store.ts';
 import type { WorkspacePaths } from '../workspace.ts';
 import type { createModel, ProviderOptions } from './model.ts';
@@ -115,7 +115,7 @@ export async function generateWorkout(options: GenerateOptions): Promise<Generat
       commit: options.commit,
       track: options.track,
       ...(target.whatIf ? { whatIf: { ...target.whatIf, modelled: result.workout.modelledAs ?? '' } } : {}),
-      ...(target.rule && result.workout.ruleCheck ? { rule: { ...target.rule, ...result.workout.ruleCheck } } : {}),
+      ...(target.rule && rulePlacement(target.rule, result.workout) ? { rule: rulePlacement(target.rule, result.workout)! } : {}),
       ...(config.context ? { contextProfiles: config.profiles } : {}),
     });
     Object.assign(spend, { result: 'verified', workoutId: record.id });

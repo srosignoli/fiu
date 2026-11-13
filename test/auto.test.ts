@@ -93,6 +93,24 @@ describe('fiu auto on / off / status', () => {
     assert.ok(!existsSync(hookFile(paths.repoRoot)));
   });
 
+  it('turns rule checks and a background model on only when asked, and says so', async () => {
+    const { paths } = await workspace();
+    const asked: string[] = [];
+    await enableAuto({ ...base, paths, repoConfig: {}, yes: false, caps: { ruleChecks: true, model: 'claude-haiku-5-5' }, confirm: async (m) => (asked.push(m), true) });
+    assert.match(asked[0]!, /to anthropic \(claude-haiku-5-5\)/);
+    assert.match(asked[0]!, /gets a rule check instead/);
+    const on = await loadRepoConfig(paths.configFile);
+    assert.deepEqual([on.auto?.ruleChecks, on.auto?.model], [true, 'claude-haiku-5-5']);
+    const status = await autoStatus(paths, on);
+    assert.deepEqual([status.ruleChecks, status.model], [true, 'claude-haiku-5-5']);
+
+    // Without the options: neither.
+    const plain = await workspace();
+    await enableAuto({ ...base, paths: plain.paths, repoConfig: {}, yes: true });
+    const plainStatus = await autoStatus(plain.paths, await loadRepoConfig(plain.paths.configFile));
+    assert.deepEqual([plainStatus.ruleChecks, plainStatus.model], [false, undefined]);
+  });
+
   it('records the consent and caps, installs the hook, and off keeps the caps', async () => {
     const { paths } = await workspace();
     const result = await enableAuto({ ...base, paths, repoConfig: {}, yes: false, caps: { dailyLimit: 2, aiOnly: true }, confirm: async () => true });

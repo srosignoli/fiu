@@ -84,7 +84,7 @@ export async function synthesizeDrill({
   const fromCommit = before !== undefined;
   const whatIf = kind === 'prediction' && target.whatIf !== undefined;
   // A Prediction about a business rule also says whether the code follows it.
-  const rule = kind === 'prediction' && !whatIf && !fromCommit ? target.rule?.text : undefined;
+  const rule = kind === 'prediction' && !whatIf ? target.rule?.text : undefined;
   const beforeLines = before?.replace(/\n$/, '').split('\n').length ?? 0;
   if (beforeLines > MAX_SOURCE_LINES) throw new SourceTooLargeError(`${target.path} (before the commit)`, beforeLines);
 

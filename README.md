@@ -89,6 +89,21 @@ Ask Claude Code for a Workout (or run `/fiu-drill src/queue.ts` and `/fiu-atlas`
 
 The binary is `fiu`. See [SPEC.md](./SPEC.md) for the specification, [GLOSSARY.md](./GLOSSARY.md) for domain terms, and [docs/adr/](./docs/adr/) for architecture decisions.
 
+## Practise on Fiu itself
+
+Fiu is practised on its own code. This repository carries two branches you can use from any clone, neither of which touches `main`:
+
+```sh
+# Workouts and Tracks generated from Fiu's own source, shared with `fiu share`
+fiu fetch
+
+# The Understand-Anything graph of Fiu, for flows, rule checks, and Atlas summaries
+git fetch origin understand-anything
+git restore --source=FETCH_HEAD --worktree -- .ua
+```
+
+The graph is a snapshot: its commit message names the commit it was built from, and summaries of files changed since then may describe older code.
+
 ## Principles
 
 - **Voluntary and non-blocking.** Fiu never touches commits, CI, or the build.

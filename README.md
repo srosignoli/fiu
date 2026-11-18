@@ -8,7 +8,7 @@ AI agents write more and more of the code we own. Fiu keeps you fluent in it. It
 
 ## Workouts
 
-Workouts support two paths: hands-on code fixes in an editor (**Drill**, **Kata**) or mental-model verification straight in the terminal without opening an IDE (**Prediction**, **What-if**, **Diagnosis**).
+Workouts support two paths: hands-on code fixes in an editor (**Drill**, **Kata**) or mental-model verification straight in the terminal without opening an IDE (**Prediction**, **What-if**, **Rule check**, **Diagnosis**).
 
 | Kind | Mode | You… | Start one with |
 | :--- | :--- | :--- | :--- |
@@ -21,9 +21,39 @@ Workouts support two paths: hands-on code fixes in an editor (**Drill**, **Kata*
 
 For **Drills** and **Katas**, `fiu train` copies the code and unit tests into a fresh `.fiu/attempts/<id>/<n>/` directory and prints its paths. You read `README.md`, inspect the unit tests, and edit the code in your preferred editor while `fiu train` re-runs the tests on every save. If `$VISUAL` is not set, open the printed `.fiu/attempts/...` files directly in your editor. If `$VISUAL` is set, Fiu spawns it detached so `fiu train` keeps your terminal: use a GUI editor (`VISUAL="code"`) or prefix a terminal editor with your terminal emulator (`VISUAL="kitty vim"` or `VISUAL="gnome-terminal -- vim"`). The original Workout in `.fiu/workouts/` stays untouched so you can redo it later or share it with your team.
 
-After every Workout, a **Debrief** shows where the code lives, what it is for, who calls it, its tensions (blast radius, churn, files that change with it without importing it), and which neighbours to practise next. Every Workout's README opens with **Around this code**: what the folder and file are for (the folder only, for a Prediction), what uses the code, what it uses, and what changes with it. It never describes the code you are working on itself (turn both off with `"context": false` in `.fiu/config.json`). If the repository has an [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything) knowledge graph, Fiu also uses its descriptions where its own Atlas has none, marked *(UA)* and never Verified (`"understandAnything": false` turns that off).
+Every Workout's README opens with **Around this code**: what the folder and file are for (the folder only, for a Prediction), what uses the code, what it uses, and what changes with it. It never describes the code you are working on itself (turn both off with `"context": false` in `.fiu/config.json`). After every Workout, a **Debrief** shows where the code lives, what it is for, which business flows it belongs to, rules it may enforce, who calls it, its tensions (blast radius, churn, hidden coupling), and which neighbours to practise next.
 
-Every answer is **measured by running code** inside an OS sandbox, never asserted by the model. The **Verified Gate** accepts a Workout only when its tests prove the real behavior and every distractor in isolation.
+Every answer is **measured by running code** inside an OS sandbox, never asserted by the model. The **Verified Gate** accepts a Workout only when its tests prove the real behavior and every distractor Variant in isolation. If a Drill's buggy lines match your actual source file verbatim, Fiu also flags that the bug may already exist for real once you finish the Attempt.
+
+## Passive vs. Active Learning: The Atlas and Understand-Anything
+
+In Fiu, the **Atlas** (`fiu atlas` and `fiu map`) is the entry point to your codebase. It describes what each folder, file, and key symbol is for. Alongside it, Fiu computes **Links** directly from imports and git history (`Uses`, `Used by`, `Changes with`).
+
+Tools like [Understand-Anything](https://github.com/Egonex-AI/Understand-Anything) (`UA`) offer a **passive** way to learn a codebase. They generate a static knowledge graph of summaries, architectural layers, business flows, and domain rules to read. Passive reading is a helpful starting point, but it neither tests your mental model nor proves that documented rules match the code. Fiu provides **active learning** through verified Workouts.
+
+Fiu's built-in Atlas is much lighter than Understand-Anything in both information depth and token consumption, so the two are not directly comparable. Fiu works standalone with its own Atlas (`fiu atlas build`). That built-in Atlas gives you everything needed to orient yourself and pick Workouts at a fraction of the token cost.
+
+However, if your team already uses Understand-Anything for other reasons (`.understand-anything/` or `.ua/`), combining the two tools gives you the best setup to unite both strategies. You get broad **passive** orientation from Understand-Anything alongside **active**, sandbox-verified practice from Fiu. Fiu reuses that existing graph with zero flags (`"understandAnything": false` turns it off):
+
+- **Zero-cost Atlas overlay:** Fiu uses current `(UA)` summaries where its own Atlas has none. Running `fiu atlas build` skips those files so you never pay twice for tokens already spent.
+- **Tracks along business flows (`fiu explore --flow "<name>"`):** Build multi-step Tracks that follow an end-to-end business flow in execution order instead of a single folder.
+- **Measured rule checks (`fiu predict --rule` and `fiu map --flows`):** Turn business rules—from `.fiu-rules.md`, Understand-Anything's domain graph, or typed on the CLI—into sandboxed Predictions that measure whether the code follows the rule.
+
+## Standard-Library Isolation and Supported Languages
+
+Every Workout in Fiu consists of one code file and one test file using **only the language's standard library and built-in test runner**. When Fiu extracts a unit of code, it replaces frameworks, third-party libraries, databases, and queues with small inline fakes or parameters. This serves two goals:
+
+1. **Focus on your core logic, not framework trivia:** You practise your application's real algorithms and business rules without wrestling with framework boilerplate or external library APIs.
+2. **Hermetic, portable verification:** Because Workouts never import `node_modules` or `.venv` and need no external services, they run in milliseconds inside the OS sandbox. They also behave identically on every teammate's machine when shared via `fiu fetch`.
+
+Out of the box, Fiu includes built-in **Language Profiles** for four languages:
+
+- **TypeScript** (`.ts`, `.mts`, `.cts`, `.tsx` via `node --test` with type stripping)
+- **JavaScript** (`.js`, `.mjs`, `.cjs`, `.jsx` via `node --test`)
+- **Python** (`.py` via `python3 -m unittest`)
+- **Go** (`.go` via `go test -json`)
+
+Extending Fiu to other languages—such as Rust, Ruby, Java, or C#—requires zero changes to the core engine. A Language Profile is pure configuration data. You can declare a new language under `"profiles"` in `.fiu/config.json` (or contribute a built-in profile in `src/languages/builtin.ts`). Each profile specifies `extensions`, `codeFilename`, `testFilename`, static `supportFiles`, `preflightCmd`, `testCmd` (emitting `tap` or `junit-xml`), an optional `declarationPattern` regex, and sandbox `cacheDirs`.
 
 ## Quick start
 
@@ -76,14 +106,15 @@ The binary is `fiu`. See [SPEC.md](./SPEC.md) for the specification, [GLOSSARY.m
 
 ## Blog & Tutorial Series
 
-- [Fiu: A Nose for Code You Never Typed](https://www.simonerosignoli.eu/posts/fiu-introduction/) — why comprehension debt matters and how the Verified Gate works.
-- [Tutorial 1: Workspace Setup, the Codebase Atlas, and Low-Cost Subagents](https://www.simonerosignoli.eu/posts/fiu-getting-started-and-mcp/)
-- [Tutorial 2: Troubleshooting Real Code with Drills and `fiu train`](https://www.simonerosignoli.eu/posts/fiu-drills-and-train/)
-- [Tutorial 3: Rebuilding Core Application Logic with Katas](https://www.simonerosignoli.eu/posts/fiu-katas/)
-- [Tutorial 4: Onboarding onto a Module with Mixed and Goal-Driven Tracks](https://www.simonerosignoli.eu/posts/fiu-explore-and-tracks/)
-- [Tutorial 5: Turning Idle Agent Wait Time into Practice with Quick Workouts](https://www.simonerosignoli.eu/posts/fiu-quick-workouts-and-wait-time/)
-- [Tutorial 6: Sharing the Atlas and Workouts on Git and Mapping Comprehension](https://www.simonerosignoli.eu/posts/fiu-team-sharing-and-map/)
-- [Tutorial 7: Mastering Your System Without Opening an IDE Using Predictions, What-Ifs, Diagnoses, and Calibration](https://www.simonerosignoli.eu/posts/fiu-predictions/)
+- [Fiu: A Nose for Code You Never Typed](https://www.simonerosignoli.eu/fiu/fiu-introduction/) — why comprehension debt matters and how the Verified Gate works.
+- [Tutorial 1: Workspace Setup, the Codebase Atlas, and Low-Cost Subagents](https://www.simonerosignoli.eu/fiu/fiu-getting-started-and-mcp/)
+- [Tutorial 2: Troubleshooting Real Code with Drills and `fiu train`](https://www.simonerosignoli.eu/fiu/fiu-drills-and-train/)
+- [Tutorial 3: Rebuilding Core Application Logic with Katas](https://www.simonerosignoli.eu/fiu/fiu-katas/)
+- [Tutorial 4: Onboarding onto a Module with Mixed and Goal-Driven Tracks](https://www.simonerosignoli.eu/fiu/fiu-explore-and-tracks/)
+- [Tutorial 5: Turning Idle Agent Wait Time into Practice with Quick Workouts](https://www.simonerosignoli.eu/fiu/fiu-quick-workouts-and-wait-time/)
+- [Tutorial 6: Sharing the Atlas and Workouts on Git and Mapping Comprehension](https://www.simonerosignoli.eu/fiu/fiu-team-sharing-and-map/)
+- [Tutorial 7: Mastering Your System Without Opening an IDE Using Predictions, What-Ifs, Diagnoses, and Calibration](https://www.simonerosignoli.eu/fiu/fiu-predictions/)
+- [Tutorial 8: From Passive Graphs to Active Mastery with Understand-Anything, Flow Tracks, and Rule Checks](https://www.simonerosignoli.eu/fiu/fiu-understand-anything/)
 
 ## Formerly Fiutsu and Kintsugi
 

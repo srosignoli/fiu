@@ -1,0 +1,2735 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "fiu",
+    "languages": [
+      "typescript"
+    ],
+    "frameworks": [
+      "commander",
+      "zod",
+      "Vercel AI SDK",
+      "Model Context Protocol SDK",
+      "node:test"
+    ],
+    "description": "Fiu is a CLI that keeps developers fluent in code they (or AI agents) did not write, by turning real repository code into small, verified practice Workouts (Drills, Katas, Predictions, What-ifs, Diagnoses), organising them into Tracks, mapping the repository in an Atlas, and tracking comprehension debt.",
+    "analyzedAt": "2026-11-13T09:43:07.000Z",
+    "gitCommitHash": "d6a57704ca706b5a396ad785e90c73208c5b5de1"
+  },
+  "nodes": [
+    {
+      "id": "domain:workout-generation",
+      "type": "domain",
+      "name": "Workout Generation & Verification",
+      "summary": "Turns real repository code into Workouts (Drills, Katas, Predictions, What-ifs, Diagnoses) and Tracks by calling an LLM with the user's API key. Every candidate passes the Verified gate, which measures each answer by running tests inside the OS sandbox rather than trusting the model.",
+      "tags": [
+        "synthesis",
+        "llm",
+        "verification",
+        "sandbox"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "Workout",
+          "Drill",
+          "Kata",
+          "Prediction",
+          "What-if",
+          "Diagnosis",
+          "Series",
+          "Track",
+          "Reference Solution",
+          "Starting Code",
+          "Variant",
+          "Cause",
+          "Symptom",
+          "Previous Version",
+          "Source Anchor",
+          "Language Profile",
+          "Sandbox",
+          "Consent"
+        ],
+        "businessRules": [
+          "Answers are measured by running code, never asserted by the model: a Workout is saved only after passing the Verified gate.",
+          "The Reference Solution must pass every test and the Starting Code must fail at least one test by assertion.",
+          "A Drill changes at most 3 lines (DRILL_MAX_CHANGED_LINES) and its named Regression Test must fail against the Starting Code.",
+          "A Kata removes 5-25 lines (5-12 for a Quick Kata) from otherwise working code.",
+          "A Prediction has exactly one true option: only the true option's test passes on the Reference Solution and each Variant passes only its own test.",
+          "A Diagnosis has exactly one true Cause: no Symptom test passes on healthy code and each Cause's Variant passes only its own Symptom test.",
+          "A Previous Version must be anchored to lines found only in the pre-commit file.",
+          "Model output that leaks the answer, contains spoiler comments, or uses code vocabulary in Scenario options is rejected before verification.",
+          "Synthesis is retried with gate feedback for at most 3 attempts (MAX_ATTEMPTS); a Series retries once for failed questions only.",
+          "Code is never sent to a provider without recorded per-repository, per-provider consent.",
+          "API keys come only from environment variables or user-level config, never from the repository.",
+          "All Workout code runs in an OS sandbox with scrubbed env, fresh scratch HOME/TMPDIR, denied secret paths and repo, and resource limits; a canary proves isolation (cached for a week).",
+          "Model spend is recorded in the ledger whatever the generation outcome.",
+          "A Track is an ordered sequence of 3 to 5 Workouts of mixed kinds, each from a different file, foundations first."
+        ],
+        "crossDomainInteractions": [
+          "Reads Atlas entries to annotate Track planning candidates and to resolve What-if targets via Atlas search.",
+          "Produces Workouts consumed by Training & Practice.",
+          "Is invoked by Background Generation for commit-originated Workouts.",
+          "Shares the same schema checks and Verified gate with Agent Mode submissions."
+        ]
+      }
+    },
+    {
+      "id": "domain:training",
+      "type": "domain",
+      "name": "Training & Practice",
+      "summary": "Runs a human's Attempts at Workouts: opens a fresh copy of the Starting Code, reruns sandboxed tests on every save, collects Prediction and Diagnosis answers with confidence, reveals the outcome, and records the result. Ends each Attempt with an Around-this-code context and a Debrief.",
+      "tags": [
+        "training",
+        "attempt",
+        "session",
+        "debrief"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "Attempt",
+          "Workout",
+          "Hint",
+          "Outcome",
+          "Debrief",
+          "Around this code",
+          "Quick Workout",
+          "Track"
+        ],
+        "businessRules": [
+          "Outcomes belong to Attempts, not Workouts; a Workout can be attempted any number of times.",
+          "Each Attempt starts from a fresh copy of the Starting Code with shuffled option order.",
+          "Tests rerun only when the content fingerprint of watched files actually changes.",
+          "Hints are a fixed ordered set revealed one at a time on request.",
+          "Around-this-code descriptions must never name the target or reveal tokens only the changed lines or true answer contain.",
+          "A Quick Workout fits about five minutes; the Quick queue prefers Workouts made from AI-written code.",
+          "The Debrief is computed from today's code and is never Verified."
+        ],
+        "crossDomainInteractions": [
+          "Consumes Workouts from Workout Generation and Background Generation.",
+          "Uses Atlas entries and Links to build Around-this-code and the Debrief.",
+          "Records Attempts and outcomes that Progress & Insights reads."
+        ]
+      }
+    },
+    {
+      "id": "domain:repository-atlas",
+      "type": "domain",
+      "name": "Repository Atlas",
+      "summary": "Maintains a map of the repository saying what each folder, file and key function is for. Structure and Links are computed from the code and git history; descriptions are written by a model, tied to content hashes, and may be overlaid by Understand-Anything's knowledge graph.",
+      "tags": [
+        "atlas",
+        "map",
+        "search",
+        "links"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "Atlas",
+          "Atlas Entry",
+          "Link",
+          "Skeleton",
+          "Key Function",
+          "Folder",
+          "Understand-Anything overlay"
+        ],
+        "businessRules": [
+          "Atlas Entries are tied to the blob hash of the content they describe and become stale when that content changes.",
+          "Links (imports and co-change) are computed by Fiu, never by a model, and are never Verified.",
+          "Folders are described bottom-up, deepest first.",
+          "An Atlas build shows a cost estimate and requires confirmation before calling the model.",
+          "Current Fiu entries win over Understand-Anything entries; UA entries only fill missing or stale ones, and saving never loses Fiu's own entries.",
+          "When sharing, the sharer's entry wins for identical content, otherwise the newer; when fetching, the local entry is kept unless the fetched one describes current code.",
+          "Atlas search is local and free, weighting name matches over entry matches and favouring unpractised code."
+        ],
+        "crossDomainInteractions": [
+          "Feeds Workout Generation (Track planning, What-if targeting) and Training (Around this code, Debrief).",
+          "Is merged and published through Team Sharing & Agent Mode."
+        ]
+      }
+    },
+    {
+      "id": "domain:background-generation",
+      "type": "domain",
+      "name": "Background Generation",
+      "summary": "Practises new code automatically: a post-commit hook runs `fiu refill`, which turns each commit into a Quick Workout under a per-repository lock, queue and daily caps, and logs every outcome.",
+      "tags": [
+        "background",
+        "git-hook",
+        "automation",
+        "queue"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entities": [
+          "Commit",
+          "Post-commit hook",
+          "Backlog",
+          "Quick queue",
+          "Refill log",
+          "Auto caps"
+        ],
+        "businessRules": [
+          "Enabling background generation requires consent to send code to the provider.",
+          "Default caps: queue cap 3, daily limit 5 generations, expiry 14 days, aiOnly off.",
+          "Only one generator runs per repository (lock file); further commits are queued in a backlog of 5.",
+          "Merge commits, commits made during a merge/rebase/cherry-pick/revert, commits by another author, and (with aiOnly) non-AI commits are skipped.",
+          "At most one drillable file per commit is chosen: the recognised source file with the most changed lines.",
+          "Background Workouts that sit in the queue past their expiry are discarded.",
+          "The hook installer only edits Fiu's marked block and never touches the user's own hook lines."
+        ],
+        "crossDomainInteractions": [
+          "Delegates generation to Workout Generation.",
+          "Fills the Quick queue consumed by Training & Practice."
+        ]
+      }
+    },
+    {
+      "id": "domain:progress-insights",
+      "type": "domain",
+      "name": "Progress & Insights",
+      "summary": "Tells developers where their comprehension debt lies and how well they answer: per-directory debt maps, answer accuracy and calibration with Blind Spots, and API spend reports.",
+      "tags": [
+        "analytics",
+        "stats",
+        "cost",
+        "map"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entities": [
+          "Comprehension debt",
+          "Blind Spot",
+          "Calibration",
+          "Spend",
+          "Logic score"
+        ],
+        "businessRules": [
+          "A Blind Spot is a file whose latest first answer was certain and wrong.",
+          "Statistics use only the first finished answer to each Prediction and Diagnosis.",
+          "Comprehension debt combines git history, AI-authored changes, practice Attempts and logic scores per directory.",
+          "Spend is bucketed by month and model using the built-in price table with configured overrides."
+        ],
+        "crossDomainInteractions": [
+          "Reads Attempts and Workout spend recorded by Training and Workout Generation."
+        ]
+      }
+    },
+    {
+      "id": "domain:collaboration",
+      "type": "domain",
+      "name": "Team Sharing & Agent Mode",
+      "summary": "Lets Workouts travel beyond one developer: publishing and fetching Workouts, Tracks and the Atlas over a shared git branch, and exposing Fiu to coding agents through an MCP server and installed Claude skill so agents can author Workouts that Fiu still verifies.",
+      "tags": [
+        "sharing",
+        "git",
+        "mcp",
+        "agent"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entities": [
+          "Shared branch",
+          "Fingerprint",
+          "MCP server",
+          "Claude skill",
+          "Slash command",
+          "Generator"
+        ],
+        "businessRules": [
+          "Fetched Workouts are re-verified in the sandbox before being imported.",
+          "Duplicate Workouts are detected by a stable content fingerprint.",
+          "Agent-written Workouts go through the same schema checks and Verified gate as Fiu's own.",
+          "Installs never modify git-tracked files; project-scope files are git-excluded.",
+          "Uninstall removes exactly what install added."
+        ],
+        "crossDomainInteractions": [
+          "Re-uses Workout Generation's Verified gate and save logic.",
+          "Merges and publishes Repository Atlas entries.",
+          "Agent-authored Workouts feed Training & Practice."
+        ]
+      }
+    },
+    {
+      "id": "flow:generate-workout-on-demand",
+      "type": "flow",
+      "name": "Generate a Workout on Demand",
+      "summary": "A developer asks for a Drill, Kata, Prediction/What-if or Diagnosis about a file or symbol; Fiu checks prerequisites, synthesises with the LLM, verifies in the sandbox and saves it.",
+      "tags": [
+        "cli",
+        "synthesis"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "fiu drill | kata | predict | diagnose <path#symbol>",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:generate-workout-on-demand:resolve-target",
+      "type": "step",
+      "name": "Resolve the target",
+      "filePath": "src/commands/drill.ts",
+      "lineRange": [
+        57,
+        63
+      ],
+      "summary": "Parses the `path#symbol` target, refuses paths outside the repository or inside Workouts, and for a What-if without a file finds the closest Atlas target.",
+      "tags": [
+        "target"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:generate-workout-on-demand:check-consent-and-key",
+      "type": "step",
+      "name": "Check consent and API key",
+      "filePath": "src/consent.ts",
+      "lineRange": [
+        18,
+        20
+      ],
+      "summary": "Requires recorded consent for the provider and resolves the API key from env or user config.",
+      "tags": [
+        "consent",
+        "credentials"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:generate-workout-on-demand:open-and-verify-sandbox",
+      "type": "step",
+      "name": "Open and verify the sandbox",
+      "filePath": "src/sandbox/canary.ts",
+      "lineRange": [
+        155,
+        165
+      ],
+      "summary": "Opens the OS sandbox and runs the canary probe proving network, filesystem, env and resource isolation.",
+      "tags": [
+        "sandbox"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:generate-workout-on-demand:preflight-toolchain",
+      "type": "step",
+      "name": "Preflight the language toolchain",
+      "filePath": "src/languages/run.ts",
+      "lineRange": [
+        24,
+        42
+      ],
+      "summary": "Runs the Language Profile's toolchain check inside the sandbox, warming caches.",
+      "tags": [
+        "language-profile"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:generate-workout-on-demand:synthesize-with-llm",
+      "type": "step",
+      "name": "Synthesise with the LLM",
+      "filePath": "src/synthesis/synthesize.ts",
+      "lineRange": [
+        67,
+        142
+      ],
+      "summary": "Prompts the model for structured Workout output, applies semantic schema checks, and retries with gate feedback up to three attempts.",
+      "tags": [
+        "llm",
+        "retry"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:generate-workout-on-demand:verified-gate",
+      "type": "step",
+      "name": "Run the Verified gate",
+      "filePath": "src/verify/gate.ts",
+      "lineRange": [
+        68,
+        72
+      ],
+      "summary": "Runs tests in fresh sandboxed temp dirs and applies kind-specific checks: reference passes, starting code fails, minimal diff, option outcomes, real variants.",
+      "tags": [
+        "verification"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:generate-workout-on-demand:save-workout",
+      "type": "step",
+      "name": "Save the Workout",
+      "filePath": "src/workouts/save.ts",
+      "lineRange": [
+        148,
+        225
+      ],
+      "summary": "Writes the Workout's files, solution, provenance and kind-specific README to the workspace.",
+      "tags": [
+        "persistence"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:generate-workout-on-demand:record-spend",
+      "type": "step",
+      "name": "Record model spend",
+      "filePath": "src/synthesis/generate.ts",
+      "lineRange": [
+        59,
+        136
+      ],
+      "summary": "Records token usage and cost in the ledger whatever the outcome.",
+      "tags": [
+        "cost"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:generate-prediction-series",
+      "type": "flow",
+      "name": "Generate a Prediction Series",
+      "summary": "Generates several Predictions about one unit in a single model call, verifies each question independently, and saves each verified question as its own Workout linked by a series id.",
+      "tags": [
+        "prediction",
+        "series"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "fiu predict <path#symbol> (predictionQuestions > 1)",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:generate-prediction-series:build-series-prompt",
+      "type": "step",
+      "name": "Build the series prompt",
+      "filePath": "src/synthesis/prompt.ts",
+      "lineRange": [
+        170,
+        177
+      ],
+      "summary": "Uses the Prediction system prompt with series rules for the requested number of questions.",
+      "tags": [
+        "prompt"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:generate-prediction-series:synthesize-series",
+      "type": "step",
+      "name": "Synthesise the series",
+      "filePath": "src/synthesis/synthesize.ts",
+      "lineRange": [
+        159,
+        225
+      ],
+      "summary": "Makes one structured call for all questions, verifies each and retries once for failed questions only.",
+      "tags": [
+        "llm"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:generate-prediction-series:reject-overlaps",
+      "type": "step",
+      "name": "Reject overlapping questions",
+      "filePath": "src/synthesis/schema.ts",
+      "lineRange": [
+        234,
+        251
+      ],
+      "summary": "Drops questions that duplicate each other or already-kept questions by normalised text.",
+      "tags": [
+        "validation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:generate-prediction-series:verify-each-prediction",
+      "type": "step",
+      "name": "Verify each Prediction",
+      "filePath": "src/verify/gate.ts",
+      "lineRange": [
+        202,
+        223
+      ],
+      "summary": "Checks only the true option's test passes on the reference and each Variant passes only its own test.",
+      "tags": [
+        "verification"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:generate-prediction-series:save-series",
+      "type": "step",
+      "name": "Save each question",
+      "filePath": "src/synthesis/generate.ts",
+      "lineRange": [
+        139,
+        141
+      ],
+      "summary": "Saves each verified question as its own Workout under a new series id and splits the cost.",
+      "tags": [
+        "persistence"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "flow:build-learning-track",
+      "type": "flow",
+      "name": "Build a Learning Track",
+      "summary": "Builds a Track of 3 to 5 Workouts teaching one module: shortlists logic-dense files, plans the steps with one model call enriched by the Atlas, confirms cost, then generates each step.",
+      "tags": [
+        "track",
+        "explore"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "fiu explore <module|goal>",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:build-learning-track:find-module",
+      "type": "step",
+      "name": "Find the module",
+      "filePath": "src/commands/explore.ts",
+      "lineRange": [
+        49,
+        65
+      ],
+      "summary": "Maps a learning goal to the folder holding most of the best Atlas search matches.",
+      "tags": [
+        "atlas",
+        "search"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:build-learning-track:shortlist-files",
+      "type": "step",
+      "name": "Shortlist logic-dense files",
+      "filePath": "src/explore/shortlist.ts",
+      "lineRange": [
+        38,
+        68
+      ],
+      "summary": "Scores files by branching per line and keeps the densest drillable ones.",
+      "tags": [
+        "logic-score"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:build-learning-track:plan-track",
+      "type": "step",
+      "name": "Plan the Track",
+      "filePath": "src/explore/plan.ts",
+      "lineRange": [
+        121,
+        147
+      ],
+      "summary": "One inexpensive model call (plus a retry) picks and orders steps from Atlas-annotated candidates.",
+      "tags": [
+        "llm",
+        "planning"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:build-learning-track:check-plan",
+      "type": "step",
+      "name": "Validate the plan",
+      "filePath": "src/explore/plan.ts",
+      "lineRange": [
+        89,
+        106
+      ],
+      "summary": "Rejects plans that use files outside the shortlist or disallowed Workout kinds.",
+      "tags": [
+        "validation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:build-learning-track:confirm-cost",
+      "type": "step",
+      "name": "Estimate and confirm cost",
+      "filePath": "src/commands/explore.ts",
+      "lineRange": [
+        72,
+        77
+      ],
+      "summary": "Shows a cost estimate and asks for confirmation before generating.",
+      "tags": [
+        "cost"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:build-learning-track:generate-steps",
+      "type": "step",
+      "name": "Generate every step",
+      "filePath": "src/synthesis/generate.ts",
+      "lineRange": [
+        59,
+        136
+      ],
+      "summary": "Generates each step through the shared generation pipeline in one sandbox, replacing failures with alternates.",
+      "tags": [
+        "synthesis"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:build-learning-track:save-track",
+      "type": "step",
+      "name": "Save the Track",
+      "filePath": "src/explore/tracks.ts",
+      "lineRange": [
+        39,
+        42
+      ],
+      "summary": "Persists the Track's ordered Workout ids in the workspace.",
+      "tags": [
+        "persistence"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:train-a-workout",
+      "type": "flow",
+      "name": "Train on a Workout",
+      "summary": "A developer picks a Workout and works an Attempt to completion: editing code with sandboxed test reruns for Drills/Katas, or answering Predictions/Diagnoses, then closes the Attempt with a Debrief.",
+      "tags": [
+        "train",
+        "attempt"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "fiu train [id]",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:train-a-workout:pick-workout",
+      "type": "step",
+      "name": "Pick a Workout",
+      "filePath": "src/commands/train.ts",
+      "lineRange": [
+        85,
+        90
+      ],
+      "summary": "Selects a Workout from the picker or by id, rejecting discarded ones.",
+      "tags": [
+        "selection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:train-a-workout:open-attempt",
+      "type": "step",
+      "name": "Open an Attempt",
+      "filePath": "src/workouts/attempts.ts",
+      "lineRange": [
+        55,
+        57
+      ],
+      "summary": "Opens or resumes an Attempt with a fresh copy of the Starting Code and shuffled options.",
+      "tags": [
+        "attempt"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:train-a-workout:watch-and-run-tests",
+      "type": "step",
+      "name": "Rerun tests on every save",
+      "filePath": "src/runner/watch.ts",
+      "lineRange": [
+        17,
+        48
+      ],
+      "summary": "Watches the Attempt directory and reruns tests in the sandbox only when contents really change.",
+      "tags": [
+        "watch",
+        "sandbox"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:train-a-workout:judge-and-hint",
+      "type": "step",
+      "name": "Judge verdicts and serve Hints",
+      "filePath": "src/runner/session.ts",
+      "lineRange": [
+        49,
+        211
+      ],
+      "summary": "Judges each run, detects edited tests, and serves Hints and the solution diff on request.",
+      "tags": [
+        "session"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:train-a-workout:answer-and-reveal",
+      "type": "step",
+      "name": "Answer and reveal",
+      "filePath": "src/commands/train.ts",
+      "lineRange": [
+        347,
+        388
+      ],
+      "summary": "For Predictions/What-ifs/Diagnoses, reads the chosen option and confidence, then reveals the measured outcome.",
+      "tags": [
+        "prediction",
+        "diagnosis"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:train-a-workout:close-attempt",
+      "type": "step",
+      "name": "Close the Attempt",
+      "filePath": "src/commands/train.ts",
+      "lineRange": [
+        240,
+        253
+      ],
+      "summary": "Asks about source bugs, shows the Debrief, collects a rating and records the outcome.",
+      "tags": [
+        "outcome"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:train-a-workout:record-outcome",
+      "type": "step",
+      "name": "Record the outcome",
+      "filePath": "src/workouts/store.ts",
+      "lineRange": [
+        211,
+        215
+      ],
+      "summary": "Records the Attempt's outcome on its Workout.",
+      "tags": [
+        "persistence"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:quick-practice-while-waiting",
+      "type": "flow",
+      "name": "Quick Practice While Waiting",
+      "summary": "Practises a Quick Workout, optionally while the developer's own slow command runs in the background.",
+      "tags": [
+        "quick",
+        "queue"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "fiu quick [--while <command>]",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:quick-practice-while-waiting:start-background-command",
+      "type": "step",
+      "name": "Start the user's command",
+      "filePath": "src/runner/background.ts",
+      "lineRange": [
+        31,
+        104
+      ],
+      "summary": "Runs the `--while` command in its own process group with output logged.",
+      "tags": [
+        "background"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:quick-practice-while-waiting:pick-quick-workout",
+      "type": "step",
+      "name": "Pick the next Quick Workout",
+      "filePath": "src/workouts/queue.ts",
+      "lineRange": [
+        26,
+        40
+      ],
+      "summary": "Selects the best queued Quick Workout, AI-written code first.",
+      "tags": [
+        "queue"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:quick-practice-while-waiting:run-session",
+      "type": "step",
+      "name": "Run the training session",
+      "filePath": "src/commands/train.ts",
+      "lineRange": [
+        159,
+        167
+      ],
+      "summary": "Runs the standard session loop for the chosen Workout.",
+      "tags": [
+        "session"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:quick-practice-while-waiting:report-command-result",
+      "type": "step",
+      "name": "Report the command's result",
+      "filePath": "src/runner/background.ts",
+      "lineRange": [
+        131,
+        139
+      ],
+      "summary": "Prints how the background command ended, with a log tail on failure.",
+      "tags": [
+        "reporting"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:continue-track",
+      "type": "flow",
+      "name": "Continue a Track",
+      "summary": "Lists saved Tracks with progress and resumes training on the next unfinished Workout of a Track.",
+      "tags": [
+        "track"
+      ],
+      "complexity": "simple",
+      "domainMeta": {
+        "entryPoint": "fiu track [id]",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:continue-track:list-tracks",
+      "type": "step",
+      "name": "List Tracks with progress",
+      "filePath": "src/commands/track.ts",
+      "lineRange": [
+        25,
+        33
+      ],
+      "summary": "Lists saved Tracks and formats completed/total progress.",
+      "tags": [
+        "listing"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:continue-track:compute-progress",
+      "type": "step",
+      "name": "Compute Track progress",
+      "filePath": "src/explore/tracks.ts",
+      "lineRange": [
+        76,
+        81
+      ],
+      "summary": "Determines which Workouts are done and which comes next.",
+      "tags": [
+        "progress"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:continue-track:train-next-step",
+      "type": "step",
+      "name": "Train the next step",
+      "filePath": "src/commands/track.ts",
+      "lineRange": [
+        38,
+        45
+      ],
+      "summary": "Hands the next unfinished Workout to the train session.",
+      "tags": [
+        "train"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:show-debrief",
+      "type": "flow",
+      "name": "Assemble Context and Debrief",
+      "summary": "Builds what the learner sees around a Workout: the Around-this-code README section at save time and the post-Attempt Debrief of purpose, callers, tensions and neighbours to practise next.",
+      "tags": [
+        "debrief",
+        "context"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "Attempt finished in fiu train",
+        "entryType": "event"
+      }
+    },
+    {
+      "id": "step:show-debrief:build-around-this-code",
+      "type": "step",
+      "name": "Build Around this code",
+      "filePath": "src/workouts/context.ts",
+      "lineRange": [
+        86,
+        132
+      ],
+      "summary": "Assembles folder and file descriptions and Links from the Atlas for the Workout README.",
+      "tags": [
+        "atlas"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:show-debrief:filter-leaks",
+      "type": "step",
+      "name": "Filter leaking descriptions",
+      "filePath": "src/workouts/context.ts",
+      "lineRange": [
+        201,
+        207
+      ],
+      "summary": "Drops descriptions that name the target or contain tokens unique to changed lines or the true answer.",
+      "tags": [
+        "leak-check"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:show-debrief:find-target",
+      "type": "step",
+      "name": "Find the target functions",
+      "filePath": "src/workouts/debrief.ts",
+      "lineRange": [
+        101,
+        125
+      ],
+      "summary": "Finds the functions the Workout is about from where its versions differ.",
+      "tags": [
+        "diff"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:show-debrief:build-debrief",
+      "type": "step",
+      "name": "Compute the Debrief",
+      "filePath": "src/workouts/debrief.ts",
+      "lineRange": [
+        48,
+        93
+      ],
+      "summary": "Computes target descriptions, callers, tension signals and try-next suggestions from today's code.",
+      "tags": [
+        "debrief"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:show-debrief:render-debrief",
+      "type": "step",
+      "name": "Render and keep debrief.md",
+      "filePath": "src/workouts/debrief.ts",
+      "lineRange": [
+        171,
+        186
+      ],
+      "summary": "Shows the Debrief in the terminal and writes debrief.md to the Attempt directory.",
+      "tags": [
+        "render"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:build-atlas",
+      "type": "flow",
+      "name": "Build the Atlas",
+      "summary": "Describes missing or stale Atlas entries bottom-up with model calls after a cost estimate and confirmation, honouring Understand-Anything coverage.",
+      "tags": [
+        "atlas",
+        "llm"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "fiu atlas build [path]",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:build-atlas:build-skeleton",
+      "type": "step",
+      "name": "Build the skeleton",
+      "filePath": "src/atlas/skeleton.ts",
+      "lineRange": [
+        52,
+        86
+      ],
+      "summary": "Collects drillable files, symbols, key functions and blob hashes, and the folder tree.",
+      "tags": [
+        "skeleton"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:build-atlas:overlay-ua",
+      "type": "step",
+      "name": "Overlay Understand-Anything",
+      "filePath": "src/atlas/overlay.ts",
+      "lineRange": [
+        48,
+        56
+      ],
+      "summary": "Lays UA's graph beneath Fiu's Atlas so current UA entries cover files needing no description.",
+      "tags": [
+        "understand-anything"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:build-atlas:plan-calls",
+      "type": "step",
+      "name": "Plan model calls",
+      "filePath": "src/commands/atlas.ts",
+      "lineRange": [
+        47,
+        59
+      ],
+      "summary": "Plans each folder's calls deepest first, batching files that are missing or stale.",
+      "tags": [
+        "planning"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:build-atlas:estimate-cost",
+      "type": "step",
+      "name": "Estimate and confirm cost",
+      "filePath": "src/commands/atlas.ts",
+      "lineRange": [
+        62,
+        74
+      ],
+      "summary": "Estimates token usage and cost from prompt sizes and prices before confirmation.",
+      "tags": [
+        "cost"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:build-atlas:describe-folder",
+      "type": "step",
+      "name": "Describe each folder",
+      "filePath": "src/atlas/describe.ts",
+      "lineRange": [
+        161,
+        187
+      ],
+      "summary": "One model call (with one retry) describes a folder's files and optionally the folder.",
+      "tags": [
+        "llm"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:build-atlas:check-and-apply",
+      "type": "step",
+      "name": "Check and apply entries",
+      "filePath": "src/atlas/describe.ts",
+      "lineRange": [
+        132,
+        144
+      ],
+      "summary": "Validates the description and saves it keyed by the content hash it describes.",
+      "tags": [
+        "validation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:build-atlas:write-atlas",
+      "type": "step",
+      "name": "Write Fiu's own entries",
+      "filePath": "src/atlas/store.ts",
+      "lineRange": [
+        46,
+        52
+      ],
+      "summary": "Persists only Fiu-written entries to the Atlas file.",
+      "tags": [
+        "persistence"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:view-atlas",
+      "type": "flow",
+      "name": "View the Atlas",
+      "summary": "Shows the Atlas for the repository, a folder, or a single file, with computed import and co-change Links.",
+      "tags": [
+        "atlas",
+        "render"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "fiu atlas [show] [path]",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:view-atlas:resolve-scope",
+      "type": "step",
+      "name": "Resolve the scope",
+      "filePath": "src/atlas/skeleton.ts",
+      "lineRange": [
+        114,
+        121
+      ],
+      "summary": "Resolves the folder argument to a repository-relative scope, rejecting unknown targets.",
+      "tags": [
+        "scope"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:view-atlas:load-links",
+      "type": "step",
+      "name": "Load Links",
+      "filePath": "src/atlas/links.ts",
+      "lineRange": [
+        65,
+        104
+      ],
+      "summary": "Computes or loads cached import-graph and git co-change Links.",
+      "tags": [
+        "links"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:view-atlas:render-atlas",
+      "type": "step",
+      "name": "Render the Atlas",
+      "filePath": "src/atlas/render.ts",
+      "lineRange": [
+        81,
+        107
+      ],
+      "summary": "Renders folders, files, key functions and Links as terminal text or Markdown.",
+      "tags": [
+        "render"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:search-atlas",
+      "type": "flow",
+      "name": "Search the Atlas",
+      "summary": "Ranks files and symbols against a learning goal locally and for free, returning drill targets with their map state.",
+      "tags": [
+        "search"
+      ],
+      "complexity": "simple",
+      "domainMeta": {
+        "entryPoint": "fiu atlas search <goal>",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:search-atlas:stem-goal",
+      "type": "step",
+      "name": "Split the goal into stems",
+      "filePath": "src/atlas/search.ts",
+      "lineRange": [
+        37,
+        44
+      ],
+      "summary": "Splits the goal and names into lowercase word stems.",
+      "tags": [
+        "text"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:search-atlas:rank-results",
+      "type": "step",
+      "name": "Rank files and symbols",
+      "filePath": "src/atlas/search.ts",
+      "lineRange": [
+        72,
+        77
+      ],
+      "summary": "Weights name matches over entry matches and favours functions and unpractised code.",
+      "tags": [
+        "ranking"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:search-atlas:format-targets",
+      "type": "step",
+      "name": "Format drill targets",
+      "filePath": "src/atlas/search.ts",
+      "lineRange": [
+        103,
+        103
+      ],
+      "summary": "Formats each result as a `file#symbol` target for drill, kata or predict.",
+      "tags": [
+        "target"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:enable-auto",
+      "type": "flow",
+      "name": "Enable Background Generation",
+      "summary": "Turns on automatic Workout generation by obtaining consent, writing the `auto` setting and installing a marked post-commit hook block.",
+      "tags": [
+        "auto",
+        "git-hook"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "fiu auto on",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:enable-auto:obtain-consent",
+      "type": "step",
+      "name": "Obtain consent",
+      "filePath": "src/background/auto.ts",
+      "lineRange": [
+        193,
+        210
+      ],
+      "summary": "Refuses to enable without consent to send code to the provider.",
+      "tags": [
+        "consent"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:enable-auto:set-auto",
+      "type": "step",
+      "name": "Turn auto on in config",
+      "filePath": "src/background/auto.ts",
+      "lineRange": [
+        123,
+        127
+      ],
+      "summary": "Writes the auto setting into .fiu/config.json preserving other settings.",
+      "tags": [
+        "config"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:enable-auto:install-hook",
+      "type": "step",
+      "name": "Install the post-commit hook",
+      "filePath": "src/background/auto.ts",
+      "lineRange": [
+        52,
+        67
+      ],
+      "summary": "Installs or refreshes Fiu's marked block without touching the user's own lines.",
+      "tags": [
+        "git-hook"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "flow:refill-from-commit",
+      "type": "flow",
+      "name": "Refill the Queue from a Commit",
+      "summary": "On each commit the hook runs `fiu refill --background`, which turns the commit into a Quick Workout while enforcing locks, skip rules and caps, and logs the outcome.",
+      "tags": [
+        "refill",
+        "commit"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "post-commit hook -> fiu refill --background --commit <sha>",
+        "entryType": "event"
+      }
+    },
+    {
+      "id": "step:refill-from-commit:expire-stale",
+      "type": "step",
+      "name": "Expire stale Workouts",
+      "filePath": "src/background/refill.ts",
+      "lineRange": [
+        270,
+        278
+      ],
+      "summary": "Discards background Workouts that sat in the queue past their expiry.",
+      "tags": [
+        "queue"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:refill-from-commit:acquire-lock",
+      "type": "step",
+      "name": "Acquire the repository lock",
+      "filePath": "src/background/refill.ts",
+      "lineRange": [
+        301,
+        318
+      ],
+      "summary": "Takes the per-repo lock, taking over dead or hung holders; otherwise queues the commit in the backlog.",
+      "tags": [
+        "lock"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:refill-from-commit:read-commit",
+      "type": "step",
+      "name": "Read and screen the commit",
+      "filePath": "src/background/commits.ts",
+      "lineRange": [
+        22,
+        26
+      ],
+      "summary": "Reads the commit, detects AI co-authorship, and skips merges, in-progress operations and other authors.",
+      "tags": [
+        "git",
+        "ai-detection"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:refill-from-commit:choose-target",
+      "type": "step",
+      "name": "Choose the target file",
+      "filePath": "src/background/commits.ts",
+      "lineRange": [
+        66,
+        98
+      ],
+      "summary": "Picks at most one drillable file: the recognised source file with the most changed lines.",
+      "tags": [
+        "target"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:refill-from-commit:enforce-caps",
+      "type": "step",
+      "name": "Enforce queue and daily caps",
+      "filePath": "src/background/refill.ts",
+      "lineRange": [
+        264,
+        267
+      ],
+      "summary": "Defers when the queue cap is reached or today's generation limit is used up.",
+      "tags": [
+        "caps"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:refill-from-commit:generate-quick-workout",
+      "type": "step",
+      "name": "Generate a Quick Workout",
+      "filePath": "src/synthesis/generate.ts",
+      "lineRange": [
+        59,
+        136
+      ],
+      "summary": "Generates, verifies and saves the Workout through the shared pipeline.",
+      "tags": [
+        "synthesis"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:refill-from-commit:log-outcome",
+      "type": "step",
+      "name": "Log the outcome",
+      "filePath": "src/background/log.ts",
+      "lineRange": [
+        23,
+        25
+      ],
+      "summary": "Appends the commit's outcome to the JSON-lines log for later failure summaries.",
+      "tags": [
+        "log"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:comprehension-debt-map",
+      "type": "flow",
+      "name": "Map Comprehension Debt",
+      "summary": "Computes per-directory comprehension debt from git history, AI-authored changes, practice Attempts and logic scores, with next-step suggestions.",
+      "tags": [
+        "map",
+        "debt"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "fiu map",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:comprehension-debt-map:practice-by-file",
+      "type": "step",
+      "name": "Collect practice per file",
+      "filePath": "src/map/map.ts",
+      "lineRange": [
+        192,
+        212
+      ],
+      "summary": "Maps each source file to its latest finished Attempt and that Workout's commit.",
+      "tags": [
+        "attempts"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:comprehension-debt-map:recent-ai-changes",
+      "type": "step",
+      "name": "Collect recent AI changes",
+      "filePath": "src/map/map.ts",
+      "lineRange": [
+        215,
+        225
+      ],
+      "summary": "Collects files touched by AI-authored commits in recent days.",
+      "tags": [
+        "ai-detection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:comprehension-debt-map:group-by-directory",
+      "type": "step",
+      "name": "Group by directory",
+      "filePath": "src/map/map.ts",
+      "lineRange": [
+        240,
+        253
+      ],
+      "summary": "Groups file entries into directory debt summaries.",
+      "tags": [
+        "aggregation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:comprehension-debt-map:suggest-next",
+      "type": "step",
+      "name": "Suggest next steps",
+      "filePath": "src/map/map.ts",
+      "lineRange": [
+        256,
+        275
+      ],
+      "summary": "Produces up to three next-step suggestions from directory debt.",
+      "tags": [
+        "suggestion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:comprehension-debt-map:render-map",
+      "type": "step",
+      "name": "Render the map",
+      "filePath": "src/map/render.ts",
+      "lineRange": [
+        14,
+        60
+      ],
+      "summary": "Renders the practice coverage view of files and directories.",
+      "tags": [
+        "render"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:answer-stats",
+      "type": "flow",
+      "name": "Report Answer Statistics",
+      "summary": "Reports accuracy, confidence calibration, recent trend and Blind Spots for Predictions and Diagnoses.",
+      "tags": [
+        "stats",
+        "calibration"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "fiu stats",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:answer-stats:first-answers",
+      "type": "step",
+      "name": "Collect first answers",
+      "filePath": "src/map/stats.ts",
+      "lineRange": [
+        51,
+        67
+      ],
+      "summary": "Collects the first finished answer to every Prediction and Diagnosis, oldest first.",
+      "tags": [
+        "attempts"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:answer-stats:compute-stats",
+      "type": "step",
+      "name": "Compute accuracy and calibration",
+      "filePath": "src/map/stats.ts",
+      "lineRange": [
+        82,
+        106
+      ],
+      "summary": "Computes per-kind and per-directory accuracy, calibration and trend.",
+      "tags": [
+        "analytics"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:answer-stats:find-blind-spots",
+      "type": "step",
+      "name": "Find Blind Spots",
+      "filePath": "src/map/stats.ts",
+      "lineRange": [
+        70,
+        77
+      ],
+      "summary": "Finds files whose latest first answer was certain and wrong.",
+      "tags": [
+        "blind-spot"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:answer-stats:render-stats",
+      "type": "step",
+      "name": "Render statistics",
+      "filePath": "src/map/render.ts",
+      "lineRange": [
+        103,
+        140
+      ],
+      "summary": "Renders accuracy, calibration, trend and Blind Spots.",
+      "tags": [
+        "render"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:cost-report",
+      "type": "flow",
+      "name": "Report API Spend",
+      "summary": "Aggregates recorded API spend from Workouts and Attempts into monthly and per-model cost reports.",
+      "tags": [
+        "cost"
+      ],
+      "complexity": "simple",
+      "domainMeta": {
+        "entryPoint": "fiu cost",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:cost-report:merge-usage",
+      "type": "step",
+      "name": "Merge usage by model",
+      "filePath": "src/cost/usage.ts",
+      "lineRange": [
+        75,
+        86
+      ],
+      "summary": "Sums recorded token usage per model.",
+      "tags": [
+        "usage"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:cost-report:estimate-usd",
+      "type": "step",
+      "name": "Price the usage",
+      "filePath": "src/cost/usage.ts",
+      "lineRange": [
+        88,
+        103
+      ],
+      "summary": "Estimates USD cost from the price table and configured overrides.",
+      "tags": [
+        "pricing"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:cost-report:build-report",
+      "type": "step",
+      "name": "Build the monthly report",
+      "filePath": "src/commands/cost.ts",
+      "lineRange": [
+        39,
+        82
+      ],
+      "summary": "Buckets spend by month and model into the report.",
+      "tags": [
+        "report"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:share-workouts",
+      "type": "flow",
+      "name": "Share Workouts with the Team",
+      "summary": "Publishes Workouts or Tracks, and optionally the merged Atlas, to a shared git branch.",
+      "tags": [
+        "share",
+        "git"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "fiu share",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:share-workouts:fingerprint",
+      "type": "step",
+      "name": "Fingerprint Workouts",
+      "filePath": "src/sharing/share.ts",
+      "lineRange": [
+        43,
+        54
+      ],
+      "summary": "Computes a stable content fingerprint to skip duplicates already shared.",
+      "tags": [
+        "dedup"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:share-workouts:merge-atlas-for-share",
+      "type": "step",
+      "name": "Merge the Atlas",
+      "filePath": "src/atlas/store.ts",
+      "lineRange": [
+        113,
+        125
+      ],
+      "summary": "Merges Atlases preferring the sharer's entry for identical content, otherwise the newer.",
+      "tags": [
+        "atlas"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:share-workouts:commit-shared-tree",
+      "type": "step",
+      "name": "Commit to the shared branch",
+      "filePath": "src/sharing/git.ts",
+      "lineRange": [
+        62,
+        76
+      ],
+      "summary": "Builds a tree and commits it on the shared branch.",
+      "tags": [
+        "git"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:share-workouts:push-shared",
+      "type": "step",
+      "name": "Push the shared branch",
+      "filePath": "src/sharing/git.ts",
+      "lineRange": [
+        79,
+        87
+      ],
+      "summary": "Pushes the shared branch to the remote.",
+      "tags": [
+        "git"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:fetch-shared-workouts",
+      "type": "flow",
+      "name": "Fetch Teammates' Workouts",
+      "summary": "Imports teammates' shared Workouts after re-verifying them in the sandbox, and merges the shared Atlas.",
+      "tags": [
+        "fetch",
+        "git"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "fiu fetch",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:fetch-shared-workouts:fetch-branch",
+      "type": "step",
+      "name": "Fetch the shared branch",
+      "filePath": "src/sharing/git.ts",
+      "lineRange": [
+        23,
+        32
+      ],
+      "summary": "Fetches the shared Workouts branch from the remote.",
+      "tags": [
+        "git"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:fetch-shared-workouts:read-shared-contents",
+      "type": "step",
+      "name": "Read shared contents",
+      "filePath": "src/sharing/share.ts",
+      "lineRange": [
+        67,
+        82
+      ],
+      "summary": "Groups the shared tree's Workouts and Tracks.",
+      "tags": [
+        "git"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:fetch-shared-workouts:reverify-and-import",
+      "type": "step",
+      "name": "Re-verify and import",
+      "filePath": "src/sharing/share.ts",
+      "lineRange": [
+        270,
+        389
+      ],
+      "summary": "Re-runs verification in the sandbox before importing each Workout.",
+      "tags": [
+        "verification",
+        "sandbox"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:fetch-shared-workouts:merge-atlas-on-fetch",
+      "type": "step",
+      "name": "Merge the fetched Atlas",
+      "filePath": "src/atlas/store.ts",
+      "lineRange": [
+        120,
+        125
+      ],
+      "summary": "Keeps local entries unless the fetched one describes current code.",
+      "tags": [
+        "atlas"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "flow:install-agent-integration",
+      "type": "flow",
+      "name": "Install Agent Integration",
+      "summary": "Installs Fiu for Claude Code: stamped skill, /fiu-drill and /fiu-atlas commands, an optional end-of-task CLAUDE.md block, and MCP server registration.",
+      "tags": [
+        "agent",
+        "install"
+      ],
+      "complexity": "moderate",
+      "domainMeta": {
+        "entryPoint": "fiu agent install claude [--project]",
+        "entryType": "cli"
+      }
+    },
+    {
+      "id": "step:install-agent-integration:resolve-targets",
+      "type": "step",
+      "name": "Resolve install targets",
+      "filePath": "src/agent/install.ts",
+      "lineRange": [
+        50,
+        75
+      ],
+      "summary": "Resolves user- or project-level paths and MCP scope.",
+      "tags": [
+        "paths"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:install-agent-integration:remove-legacy",
+      "type": "step",
+      "name": "Remove legacy installs",
+      "filePath": "src/agent/install.ts",
+      "lineRange": [
+        199,
+        222
+      ],
+      "summary": "Removes files and registrations left under former project names.",
+      "tags": [
+        "migration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "step:install-agent-integration:write-skill-and-commands",
+      "type": "step",
+      "name": "Write skill and commands",
+      "filePath": "src/agent/texts.ts",
+      "lineRange": [
+        54,
+        92
+      ],
+      "summary": "Writes version-stamped skill and slash-command markdown, refusing to modify tracked files.",
+      "tags": [
+        "skill"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:install-agent-integration:register-mcp",
+      "type": "step",
+      "name": "Register the MCP server",
+      "filePath": "src/agent/install.ts",
+      "lineRange": [
+        78,
+        112
+      ],
+      "summary": "Registers `fiu mcp` with the claude CLI and manages the CLAUDE.md block.",
+      "tags": [
+        "mcp"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "flow:agent-authored-workout",
+      "type": "flow",
+      "name": "Agent-Authored Workout via MCP",
+      "summary": "A coding agent calls prepare_drill to receive prompts and target material, writes the Workout itself, and submits it with submit_drill; Fiu verifies it in the sandbox and saves it.",
+      "tags": [
+        "mcp",
+        "agent"
+      ],
+      "complexity": "complex",
+      "domainMeta": {
+        "entryPoint": "MCP tools prepare_drill / submit_drill (fiu mcp)",
+        "entryType": "event"
+      }
+    },
+    {
+      "id": "step:agent-authored-workout:serve-mcp",
+      "type": "step",
+      "name": "Serve MCP tools",
+      "filePath": "src/agent/mcp.ts",
+      "lineRange": [
+        39,
+        143
+      ],
+      "summary": "Exposes prepare/submit drill, track, atlas, search and list tools to the agent.",
+      "tags": [
+        "mcp"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:agent-authored-workout:prepare-drill",
+      "type": "step",
+      "name": "Prepare the generation",
+      "filePath": "src/agent/drills.ts",
+      "lineRange": [
+        248,
+        320
+      ],
+      "summary": "Resolves the target and kind and hands the agent the system and user prompts.",
+      "tags": [
+        "prompt"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "step:agent-authored-workout:submit-drill",
+      "type": "step",
+      "name": "Check and verify the submission",
+      "filePath": "src/agent/drills.ts",
+      "lineRange": [
+        322,
+        423
+      ],
+      "summary": "Runs schema checks and the Verified gate in the sandbox on the agent-written Workout.",
+      "tags": [
+        "verification"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "step:agent-authored-workout:save-agent-workout",
+      "type": "step",
+      "name": "Save the Workout",
+      "filePath": "src/workouts/save.ts",
+      "lineRange": [
+        148,
+        225
+      ],
+      "summary": "Saves the verified Workout with the agent as Generator.",
+      "tags": [
+        "persistence"
+      ],
+      "complexity": "moderate"
+    }
+  ],
+  "edges": [
+    {
+      "source": "domain:workout-generation",
+      "target": "flow:generate-workout-on-demand",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:generate-workout-on-demand",
+      "target": "step:generate-workout-on-demand:resolve-target",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.12
+    },
+    {
+      "source": "flow:generate-workout-on-demand",
+      "target": "step:generate-workout-on-demand:check-consent-and-key",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.25
+    },
+    {
+      "source": "flow:generate-workout-on-demand",
+      "target": "step:generate-workout-on-demand:open-and-verify-sandbox",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.38
+    },
+    {
+      "source": "flow:generate-workout-on-demand",
+      "target": "step:generate-workout-on-demand:preflight-toolchain",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:generate-workout-on-demand",
+      "target": "step:generate-workout-on-demand:synthesize-with-llm",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.62
+    },
+    {
+      "source": "flow:generate-workout-on-demand",
+      "target": "step:generate-workout-on-demand:verified-gate",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.75
+    },
+    {
+      "source": "flow:generate-workout-on-demand",
+      "target": "step:generate-workout-on-demand:save-workout",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.88
+    },
+    {
+      "source": "flow:generate-workout-on-demand",
+      "target": "step:generate-workout-on-demand:record-spend",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:workout-generation",
+      "target": "flow:generate-prediction-series",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:generate-prediction-series",
+      "target": "step:generate-prediction-series:build-series-prompt",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:generate-prediction-series",
+      "target": "step:generate-prediction-series:synthesize-series",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:generate-prediction-series",
+      "target": "step:generate-prediction-series:reject-overlaps",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:generate-prediction-series",
+      "target": "step:generate-prediction-series:verify-each-prediction",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:generate-prediction-series",
+      "target": "step:generate-prediction-series:save-series",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:workout-generation",
+      "target": "flow:build-learning-track",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:build-learning-track",
+      "target": "step:build-learning-track:find-module",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.14
+    },
+    {
+      "source": "flow:build-learning-track",
+      "target": "step:build-learning-track:shortlist-files",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.29
+    },
+    {
+      "source": "flow:build-learning-track",
+      "target": "step:build-learning-track:plan-track",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.43
+    },
+    {
+      "source": "flow:build-learning-track",
+      "target": "step:build-learning-track:check-plan",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.57
+    },
+    {
+      "source": "flow:build-learning-track",
+      "target": "step:build-learning-track:confirm-cost",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.71
+    },
+    {
+      "source": "flow:build-learning-track",
+      "target": "step:build-learning-track:generate-steps",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.86
+    },
+    {
+      "source": "flow:build-learning-track",
+      "target": "step:build-learning-track:save-track",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:training",
+      "target": "flow:train-a-workout",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:train-a-workout",
+      "target": "step:train-a-workout:pick-workout",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.14
+    },
+    {
+      "source": "flow:train-a-workout",
+      "target": "step:train-a-workout:open-attempt",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.29
+    },
+    {
+      "source": "flow:train-a-workout",
+      "target": "step:train-a-workout:watch-and-run-tests",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.43
+    },
+    {
+      "source": "flow:train-a-workout",
+      "target": "step:train-a-workout:judge-and-hint",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.57
+    },
+    {
+      "source": "flow:train-a-workout",
+      "target": "step:train-a-workout:answer-and-reveal",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.71
+    },
+    {
+      "source": "flow:train-a-workout",
+      "target": "step:train-a-workout:close-attempt",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.86
+    },
+    {
+      "source": "flow:train-a-workout",
+      "target": "step:train-a-workout:record-outcome",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:training",
+      "target": "flow:quick-practice-while-waiting",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:quick-practice-while-waiting",
+      "target": "step:quick-practice-while-waiting:start-background-command",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.25
+    },
+    {
+      "source": "flow:quick-practice-while-waiting",
+      "target": "step:quick-practice-while-waiting:pick-quick-workout",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:quick-practice-while-waiting",
+      "target": "step:quick-practice-while-waiting:run-session",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.75
+    },
+    {
+      "source": "flow:quick-practice-while-waiting",
+      "target": "step:quick-practice-while-waiting:report-command-result",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:training",
+      "target": "flow:continue-track",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:continue-track",
+      "target": "step:continue-track:list-tracks",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.33
+    },
+    {
+      "source": "flow:continue-track",
+      "target": "step:continue-track:compute-progress",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.67
+    },
+    {
+      "source": "flow:continue-track",
+      "target": "step:continue-track:train-next-step",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:training",
+      "target": "flow:show-debrief",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:show-debrief",
+      "target": "step:show-debrief:build-around-this-code",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:show-debrief",
+      "target": "step:show-debrief:filter-leaks",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:show-debrief",
+      "target": "step:show-debrief:find-target",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:show-debrief",
+      "target": "step:show-debrief:build-debrief",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:show-debrief",
+      "target": "step:show-debrief:render-debrief",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:repository-atlas",
+      "target": "flow:build-atlas",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:build-atlas",
+      "target": "step:build-atlas:build-skeleton",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.14
+    },
+    {
+      "source": "flow:build-atlas",
+      "target": "step:build-atlas:overlay-ua",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.29
+    },
+    {
+      "source": "flow:build-atlas",
+      "target": "step:build-atlas:plan-calls",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.43
+    },
+    {
+      "source": "flow:build-atlas",
+      "target": "step:build-atlas:estimate-cost",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.57
+    },
+    {
+      "source": "flow:build-atlas",
+      "target": "step:build-atlas:describe-folder",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.71
+    },
+    {
+      "source": "flow:build-atlas",
+      "target": "step:build-atlas:check-and-apply",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.86
+    },
+    {
+      "source": "flow:build-atlas",
+      "target": "step:build-atlas:write-atlas",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:repository-atlas",
+      "target": "flow:view-atlas",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:view-atlas",
+      "target": "step:view-atlas:resolve-scope",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.33
+    },
+    {
+      "source": "flow:view-atlas",
+      "target": "step:view-atlas:load-links",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.67
+    },
+    {
+      "source": "flow:view-atlas",
+      "target": "step:view-atlas:render-atlas",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:repository-atlas",
+      "target": "flow:search-atlas",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:search-atlas",
+      "target": "step:search-atlas:stem-goal",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.33
+    },
+    {
+      "source": "flow:search-atlas",
+      "target": "step:search-atlas:rank-results",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.67
+    },
+    {
+      "source": "flow:search-atlas",
+      "target": "step:search-atlas:format-targets",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:background-generation",
+      "target": "flow:enable-auto",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:enable-auto",
+      "target": "step:enable-auto:obtain-consent",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.33
+    },
+    {
+      "source": "flow:enable-auto",
+      "target": "step:enable-auto:set-auto",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.67
+    },
+    {
+      "source": "flow:enable-auto",
+      "target": "step:enable-auto:install-hook",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:background-generation",
+      "target": "flow:refill-from-commit",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:expire-stale",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.14
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:acquire-lock",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.29
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:read-commit",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.43
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:choose-target",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.57
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:enforce-caps",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.71
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:generate-quick-workout",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.86
+    },
+    {
+      "source": "flow:refill-from-commit",
+      "target": "step:refill-from-commit:log-outcome",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:progress-insights",
+      "target": "flow:comprehension-debt-map",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:comprehension-debt-map",
+      "target": "step:comprehension-debt-map:practice-by-file",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.2
+    },
+    {
+      "source": "flow:comprehension-debt-map",
+      "target": "step:comprehension-debt-map:recent-ai-changes",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.4
+    },
+    {
+      "source": "flow:comprehension-debt-map",
+      "target": "step:comprehension-debt-map:group-by-directory",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "flow:comprehension-debt-map",
+      "target": "step:comprehension-debt-map:suggest-next",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "flow:comprehension-debt-map",
+      "target": "step:comprehension-debt-map:render-map",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:progress-insights",
+      "target": "flow:answer-stats",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:answer-stats",
+      "target": "step:answer-stats:first-answers",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.25
+    },
+    {
+      "source": "flow:answer-stats",
+      "target": "step:answer-stats:compute-stats",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:answer-stats",
+      "target": "step:answer-stats:find-blind-spots",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.75
+    },
+    {
+      "source": "flow:answer-stats",
+      "target": "step:answer-stats:render-stats",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:progress-insights",
+      "target": "flow:cost-report",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:cost-report",
+      "target": "step:cost-report:merge-usage",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.33
+    },
+    {
+      "source": "flow:cost-report",
+      "target": "step:cost-report:estimate-usd",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.67
+    },
+    {
+      "source": "flow:cost-report",
+      "target": "step:cost-report:build-report",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:collaboration",
+      "target": "flow:share-workouts",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:share-workouts",
+      "target": "step:share-workouts:fingerprint",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.25
+    },
+    {
+      "source": "flow:share-workouts",
+      "target": "step:share-workouts:merge-atlas-for-share",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:share-workouts",
+      "target": "step:share-workouts:commit-shared-tree",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.75
+    },
+    {
+      "source": "flow:share-workouts",
+      "target": "step:share-workouts:push-shared",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:collaboration",
+      "target": "flow:fetch-shared-workouts",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:fetch-shared-workouts",
+      "target": "step:fetch-shared-workouts:fetch-branch",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.25
+    },
+    {
+      "source": "flow:fetch-shared-workouts",
+      "target": "step:fetch-shared-workouts:read-shared-contents",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:fetch-shared-workouts",
+      "target": "step:fetch-shared-workouts:reverify-and-import",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.75
+    },
+    {
+      "source": "flow:fetch-shared-workouts",
+      "target": "step:fetch-shared-workouts:merge-atlas-on-fetch",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:collaboration",
+      "target": "flow:install-agent-integration",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:install-agent-integration",
+      "target": "step:install-agent-integration:resolve-targets",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.25
+    },
+    {
+      "source": "flow:install-agent-integration",
+      "target": "step:install-agent-integration:remove-legacy",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:install-agent-integration",
+      "target": "step:install-agent-integration:write-skill-and-commands",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.75
+    },
+    {
+      "source": "flow:install-agent-integration",
+      "target": "step:install-agent-integration:register-mcp",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:collaboration",
+      "target": "flow:agent-authored-workout",
+      "type": "contains_flow",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "flow:agent-authored-workout",
+      "target": "step:agent-authored-workout:serve-mcp",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.25
+    },
+    {
+      "source": "flow:agent-authored-workout",
+      "target": "step:agent-authored-workout:prepare-drill",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "flow:agent-authored-workout",
+      "target": "step:agent-authored-workout:submit-drill",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 0.75
+    },
+    {
+      "source": "flow:agent-authored-workout",
+      "target": "step:agent-authored-workout:save-agent-workout",
+      "type": "flow_step",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "domain:workout-generation",
+      "target": "domain:repository-atlas",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Annotates Track candidates with Atlas entries and resolves What-if and explore goals through Atlas search.",
+      "weight": 0.6
+    },
+    {
+      "source": "domain:training",
+      "target": "domain:workout-generation",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Trains on Workouts produced by generation; Attempts reuse the sandbox and Language Profiles to run tests.",
+      "weight": 0.8
+    },
+    {
+      "source": "domain:training",
+      "target": "domain:repository-atlas",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Builds Around-this-code and the Debrief from Atlas entries and Links.",
+      "weight": 0.6
+    },
+    {
+      "source": "domain:background-generation",
+      "target": "domain:workout-generation",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Delegates each commit's Workout to the shared generate-verify-save pipeline.",
+      "weight": 0.8
+    },
+    {
+      "source": "domain:background-generation",
+      "target": "domain:training",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Fills the Quick queue that `fiu quick` draws from.",
+      "weight": 0.5
+    },
+    {
+      "source": "domain:progress-insights",
+      "target": "domain:training",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Reads Attempts and outcomes to compute debt maps, accuracy and Blind Spots.",
+      "weight": 0.6
+    },
+    {
+      "source": "domain:progress-insights",
+      "target": "domain:workout-generation",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Aggregates generation spend recorded in the ledger for cost reports.",
+      "weight": 0.4
+    },
+    {
+      "source": "domain:collaboration",
+      "target": "domain:workout-generation",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Re-verifies fetched and agent-written Workouts with the same schema checks and Verified gate.",
+      "weight": 0.8
+    },
+    {
+      "source": "domain:collaboration",
+      "target": "domain:repository-atlas",
+      "type": "cross_domain",
+      "direction": "forward",
+      "description": "Merges and publishes Atlas entries; agents author Atlas entries via prepare_atlas/submit_atlas.",
+      "weight": 0.5
+    }
+  ],
+  "layers": [],
+  "tour": []
+}

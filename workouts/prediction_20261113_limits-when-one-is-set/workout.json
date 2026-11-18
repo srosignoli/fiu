@@ -1,0 +1,102 @@
+{
+  "id": "prediction_20261113_limits-when-one-is-set",
+  "kind": "prediction",
+  "generator": "agent",
+  "origin": "manual",
+  "rule": {
+    "text": "Default caps: queue cap 3, daily limit 5 generations, expiry 14 days, aiOnly off.",
+    "domain": "Background Generation",
+    "agrees": true,
+    "note": "The built-in queue of 3, the 14-day expiry and AI-written commits not required all hold, as the rule says; a team's own daily limit replaces the built-in 5 without touching the others."
+  },
+  "title": "The limits when only one is set",
+  "slug": "limits-when-one-is-set",
+  "pillar": "pattern",
+  "estimatedMinutes": 3,
+  "language": "typescript",
+  "createdAt": "2026-11-13T12:54:20.972Z",
+  "source": {
+    "path": "src/background/auto.ts",
+    "symbol": "autoCaps",
+    "commit": "2369eb8a686efcdedd2cfa45f03a5d2be9d32c20",
+    "dirty": false
+  },
+  "sourceAnchors": [
+    {
+      "path": "src/background/auto.ts",
+      "startLine": 129,
+      "endLine": 138,
+      "explanation": "Works out the limits background generation runs under, from the repository settings and the built-in values.",
+      "commit": "2369eb8a686efcdedd2cfa45f03a5d2be9d32c20"
+    }
+  ],
+  "hints": [],
+  "prediction": {
+    "scenario": "Your team turns on background Workouts after each commit. In the repository settings, it sets just one limit: at most 2 generations a day. It sets nothing about how many Workouts may wait in the queue, or how long an untouched Workout is kept. What limits does background generation now run under?",
+    "explanation": "Each limit has a built-in value: 3 Workouts waiting, 5 generations a day, AI-written commits not required, and 14 days before an untouched Workout is discarded. A limit set in the repository's settings replaces only its own built-in value. Setting the daily limit to 2 leaves the queue at 3 and the expiry at 14 days.",
+    "options": [
+      {
+        "text": "Up to 3 Workouts waiting, 2 generations a day, and untouched ones discarded after 14 days.",
+        "testName": "keeps 3 waiting, allows 2 a day, and discards after 14 days",
+        "correct": true,
+        "variant": {
+          "original": "",
+          "changed": ""
+        },
+        "misunderstanding": ""
+      },
+      {
+        "text": "Up to 3 Workouts waiting, 5 generations a day, and untouched ones discarded after 14 days.",
+        "testName": "keeps 3 waiting, allows 5 a day, and discards after 14 days",
+        "correct": false,
+        "variant": {
+          "original": "dailyLimit: auto.dailyLimit ?? AUTO_DEFAULTS.dailyLimit,",
+          "changed": "dailyLimit: AUTO_DEFAULTS.dailyLimit,"
+        },
+        "misunderstanding": "You were picturing fixed limits that a team cannot change. Each limit the team sets replaces the built-in one."
+      },
+      {
+        "text": "Up to 3 Workouts waiting, 2 generations a day, and untouched ones discarded after 7 days.",
+        "testName": "keeps 3 waiting, allows 2 a day, and discards after 7 days",
+        "correct": false,
+        "variant": {
+          "original": "expiryDays: 14",
+          "changed": "expiryDays: 7"
+        },
+        "misunderstanding": "You were picturing a one-week life for a waiting Workout. Untouched background Workouts are kept for two weeks."
+      },
+      {
+        "text": "Up to 5 Workouts waiting, 2 generations a day, and untouched ones discarded after 14 days.",
+        "testName": "keeps 5 waiting, allows 2 a day, and discards after 14 days",
+        "correct": false,
+        "variant": {
+          "original": "queueCap: 3",
+          "changed": "queueCap: 5"
+        },
+        "misunderstanding": "You were picturing a queue of 5. At most 3 background Workouts wait at once; 5 is how many commits can wait to be looked at while another is being generated."
+      }
+    ]
+  },
+  "around": {
+    "lines": [
+      "## Around this code",
+      "",
+      "- **Used by:** `src/cli.ts`, `src/legacy.ts`",
+      "- **Uses:** `src/background/log.ts`, `src/background/refill.ts`, `src/config.ts`, and 4 more",
+      "",
+      "*Links are computed from imports and git history. Run `fiu atlas build` for what these files are for.*"
+    ],
+    "dropped": 0
+  },
+  "files": {
+    "code": ".solution/kata.ts",
+    "test": ".solution/kata.test.ts",
+    "solution": ".solution/kata.ts",
+    "originalTest": ".solution/kata.test.ts"
+  },
+  "sharedBy": {
+    "name": "Simone Rosignoli",
+    "email": "srosignoli@gmail.com",
+    "at": "2026-11-18T09:50:41.445Z"
+  }
+}

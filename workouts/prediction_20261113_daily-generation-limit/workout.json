@@ -1,0 +1,102 @@
+{
+  "id": "prediction_20261113_daily-generation-limit",
+  "kind": "prediction",
+  "generator": "agent",
+  "origin": "explore",
+  "track": {
+    "id": "track_20261113_refill-the-queue-from-a",
+    "module": "src",
+    "why": "Decides whether a commit may still spend a generation today: the daily cap counts commit generations, retries included, since local midnight."
+  },
+  "title": "What the daily limit counts",
+  "slug": "daily-generation-limit",
+  "pillar": "algorithm",
+  "estimatedMinutes": 3,
+  "language": "typescript",
+  "createdAt": "2026-11-13T11:59:51.106Z",
+  "source": {
+    "path": "src/background/refill.ts",
+    "symbol": "generationsToday",
+    "commit": "cf3bf7a4779e3276232939117c611b14136f1d28",
+    "dirty": false
+  },
+  "sourceAnchors": [
+    {
+      "path": "src/background/refill.ts",
+      "startLine": 263,
+      "endLine": 267,
+      "explanation": "Adds up the generation attempts recorded in the spend ledger for Workouts made from commits, from local midnight on.",
+      "commit": "cf3bf7a4779e3276232939117c611b14136f1d28"
+    }
+  ],
+  "hints": [],
+  "prediction": {
+    "scenario": "After each commit, Fiu makes a practice Workout in the background, with a limit of 5 generation attempts a day. It is 9:00 in the morning. At 11:50 last night, a commit's Workout took 2 attempts. At 7:30 this morning, another commit's Workout took 3 attempts before it passed. At 8:15 you asked Fiu for a Drill on a file yourself, which took 1 attempt. How many of today's 5 attempts does the limit count as used?",
+    "explanation": "The limit counts generation attempts, not Workouts, and only for Workouts made from commits in the background. It counts from local midnight. Last night's 2 attempts belong to yesterday, and the Drill you asked for doesn't count. That leaves this morning's commit Workout, whose 3 attempts all count, retries included: 2 of today's 5 are left.",
+    "options": [
+      {
+        "text": "3: only this morning's commit Workout counts, every one of its attempts included.",
+        "testName": "counts 3 attempts as used today",
+        "correct": true,
+        "variant": {
+          "original": "",
+          "changed": ""
+        },
+        "misunderstanding": ""
+      },
+      {
+        "text": "4: this morning's commit Workout and the Drill you asked for both count.",
+        "testName": "counts 4 attempts as used today",
+        "correct": false,
+        "variant": {
+          "original": "s.origin === 'commit' && ",
+          "changed": ""
+        },
+        "misunderstanding": "You were picturing one shared daily budget for everything Fiu generates. The limit only guards background generation: Workouts you ask for by hand never use it up."
+      },
+      {
+        "text": "5: commit Workouts from the last 24 hours count, last night's included.",
+        "testName": "counts 5 attempts as used today",
+        "correct": false,
+        "variant": {
+          "original": "const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();",
+          "changed": "const midnight = now.getTime() - 24 * 60 * 60 * 1000;"
+        },
+        "misunderstanding": "You were picturing a rolling 24-hour window. The day starts at local midnight, so last night's attempts belong to yesterday."
+      },
+      {
+        "text": "1: each commit Workout counts once today, however many attempts it took.",
+        "testName": "counts 1 attempt as used today",
+        "correct": false,
+        "variant": {
+          "original": "sum + s.generationAttempts",
+          "changed": "sum + 1"
+        },
+        "misunderstanding": "You were picturing a limit on Workouts made. It limits attempts: a Workout that needed 3 tries to pass uses 3 of the 5."
+      }
+    ]
+  },
+  "around": {
+    "lines": [
+      "## Around this code",
+      "",
+      "- **Used by:** `src/background/auto.ts`, `src/cli.ts`, `src/commands/train.ts`",
+      "- **Uses:** `src/background/commits.ts`, `src/background/log.ts`, `src/commands/drill.ts`, and 13 more",
+      "- **Changes with:** `src/workouts/save.ts`, `src/synthesis/generate.ts`, `src/synthesis/prompt.ts`",
+      "",
+      "*Links are computed from imports and git history. Run `fiu atlas build` for what these files are for.*"
+    ],
+    "dropped": 0
+  },
+  "files": {
+    "code": ".solution/kata.ts",
+    "test": ".solution/kata.test.ts",
+    "solution": ".solution/kata.ts",
+    "originalTest": ".solution/kata.test.ts"
+  },
+  "sharedBy": {
+    "name": "Simone Rosignoli",
+    "email": "srosignoli@gmail.com",
+    "at": "2026-11-18T09:50:41.445Z"
+  }
+}

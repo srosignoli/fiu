@@ -1,0 +1,404 @@
+{
+  "version": 1,
+  "folders": {
+    "": {
+      "hash": "8b19660f9661fc3839b29075749e01764554c044",
+      "text": "Fiu turns real code from a repository into small Verified Workouts (Drills, Katas, Predictions, Diagnoses) that keep people fluent in code they didn't write.\nsrc: the TypeScript CLI, one folder per concern: generation and the Verified Gate, the sandbox, training, the Atlas, Tracks, the map, sharing, background generation, and agent mode.\ntest: the node --test suite covering each of those areas, with a mock model in place of a real provider.\ndocs/adr: the architecture decisions; SPEC.md and GLOSSARY.md hold the specification and the domain terms.",
+      "writtenAt": "2026-11-18T09:45:13.682Z"
+    },
+    "src": {
+      "hash": "8e7d82f8bb473cd1ea91fa1a2db288f8b77e3621",
+      "text": "Fiu's source: the CLI entry point and configuration, with one folder per concern from generating and verifying Workouts to the Atlas, Tracks, sharing, and agent mode.",
+      "writtenAt": "2026-11-18T09:45:00.856Z"
+    },
+    "src/agent": {
+      "hash": "85a14a626fcf351f9461558f0681a959cb708711",
+      "text": "Agent mode: lets a coding agent such as Claude Code generate Workouts, Tracks, and the Atlas through Fiu's MCP server, and installs the skill and slash commands that drive it.",
+      "writtenAt": "2026-11-18T09:42:15.763Z"
+    },
+    "src/atlas": {
+      "hash": "be31f5ae71af47c9e481685b65a84a92cd4e51e4",
+      "text": "The Atlas: Fiu's map of what each folder, file, and key function is for, with computed links, search, business rules, and the Understand-Anything overlay.",
+      "writtenAt": "2026-11-18T09:42:34.076Z"
+    },
+    "src/background": {
+      "hash": "3b216d28eb5cf4ceda341b176d2eaa98ba11ab5d",
+      "text": "Background generation: the post-commit hook behind `fiu auto`, and the refill that turns each commit into a queued Quick Drill or rule check within consent and caps.",
+      "writtenAt": "2026-11-18T09:42:46.171Z"
+    },
+    "src/commands": {
+      "hash": "90094aba947adbe9d896a142cd071c3b1dd4d4c2",
+      "text": "The CLI's command handlers: generating Workouts, exploring modules and flows into Tracks, training, the Atlas, costs, and workspace setup.",
+      "writtenAt": "2026-11-18T09:43:06.595Z"
+    },
+    "src/cost": {
+      "hash": "85a2caba298db1fbfac319cdddf167dd4cd20ace",
+      "text": "Generation cost: per-model token prices and the arithmetic that turns token usage into the dollar amounts Fiu estimates and reports.",
+      "writtenAt": "2026-11-18T09:43:12.123Z"
+    },
+    "src/explore": {
+      "hash": "275b960ad2c9f12692da69f46f85695b839ff138",
+      "text": "Tracks: choosing 3 to 5 files of a module or business flow worth practising, planning their order and kinds with the model, and storing Track progress.",
+      "writtenAt": "2026-11-18T09:43:26.679Z"
+    },
+    "src/languages": {
+      "hash": "cc53ec2ba2bb96a8be03437acd81baea2d2f2511",
+      "text": "Language Profiles: the data that tells Fiu how to build, test, and parse results for each language, plus the built-in TypeScript, JavaScript, Python, and Go ones.",
+      "writtenAt": "2026-11-18T09:43:32.216Z"
+    },
+    "src/map": {
+      "hash": "d4b2b9474a8bca13a455043515b44f17723b3d79",
+      "text": "The comprehension map and statistics: which files and business flows have been practised, which are risky or out of date, rule check results, and what to practise next.",
+      "writtenAt": "2026-11-18T09:43:42.218Z"
+    },
+    "src/runner": {
+      "hash": "5b1a80db5c65900630158b19aec0719dd95f8259",
+      "text": "The training runner: drives an Attempt, re-running tests on each save, serving hints, recording answers and outcomes, and running the user's own command alongside.",
+      "writtenAt": "2026-11-18T09:43:47.292Z"
+    },
+    "src/sandbox": {
+      "hash": "a855f6c8a51c36baba8cb5834cb8361d79f21bc6",
+      "text": "The OS sandbox every piece of Workout code runs in: no network, no secrets, no writes outside scratch space, resource limits, and a canary that proves the isolation holds.",
+      "writtenAt": "2026-11-18T09:43:52.785Z"
+    },
+    "src/sharing": {
+      "hash": "1c9ce1926d00c0d98d89a344190ff88355b40374",
+      "text": "Team sharing: publishes Workouts, Tracks, and the Atlas to the fiu/workouts branch with git plumbing, and fetches teammates' Workouts, re-verifying them in the sandbox.",
+      "writtenAt": "2026-11-18T09:43:57.771Z"
+    },
+    "src/synthesis": {
+      "hash": "2210884f7c911efbd5497c5b25d76ff2024117ef",
+      "text": "Workout generation: prompts the model for a Drill, Kata, Prediction, Series, or Diagnosis, checks its answer's shape, verifies it in the sandbox, and retries with feedback.",
+      "writtenAt": "2026-11-18T09:44:28.632Z"
+    },
+    "src/verify": {
+      "hash": "43ca95ca3a5e085df6781c306dd39258bccae5df",
+      "text": "The Verified Gate: runs every generated Workout's tests in the sandbox to prove its answer and each Variant, and spots generated bugs that already exist in the real source.",
+      "writtenAt": "2026-11-18T09:44:33.899Z"
+    },
+    "src/workouts": {
+      "hash": "6f6e3daa72a1eabdd076404bfd6396cb2bf0d124",
+      "text": "Workouts and Attempts on disk: saving Verified Workouts with their README, opening Attempts, the queue, rule check results, and the Debrief shown after each Workout.",
+      "writtenAt": "2026-11-18T09:44:51.044Z"
+    },
+    "test": {
+      "hash": "6fe2e3fe981bec8c92a9da568817e8267f49b8dd",
+      "text": "Fiu's test suite (node --test): one file per area, from generation and the Verified Gate to the sandbox, sharing, and the Atlas, with a mock model and shared helpers.",
+      "writtenAt": "2026-11-18T09:45:06.881Z"
+    }
+  },
+  "files": {
+    "src/agent/drills.ts": {
+      "hash": "b39e558964923f90d5d27ca8266d23123191ca7e",
+      "text": "Agent mode's engine: prepares requests for Drills, Katas, Predictions, Diagnoses, Tracks, and Atlas folders, then checks, verifies, and saves what the coding agent submits.",
+      "writtenAt": "2026-11-18T09:42:15.763Z",
+      "functions": {
+        "AgentDrills.prepareTrack": "Starts a Track over a module directory or a business flow: checks the module, shortlists enough candidate files with their Atlas notes, and returns the Track's rules and kinds."
+      }
+    },
+    "src/agent/mcp.ts": {
+      "hash": "1bc3bec58bb7bbbb54828688910f87fe5577b1a2",
+      "text": "The fiu MCP server: registers the tools a coding agent calls (prepare/submit Drills, Tracks, rules, Atlas, search) and turns their results or expected errors into tool replies.",
+      "writtenAt": "2026-11-18T09:42:15.763Z",
+      "functions": {
+        "respond": "Wraps a tool's work as a JSON text reply, turning agent-facing errors into error replies the agent can read and rethrowing anything unexpected.",
+        "staleInstallNotice": "Warns when the Fiu skill installed for the agent is older than the running Fiu, telling the user to reinstall it.",
+        "createMcpServer": "Builds the MCP server and registers every Fiu tool with its description and input schema, delegating each to agent mode."
+      }
+    },
+    "src/agent/texts.ts": {
+      "hash": "94221bef381660ac348d78849a4fbcdc6d46233d",
+      "text": "The text Fiu installs into a coding agent: the Fiu skill's instructions, the /fiu-drill and /fiu-atlas commands, and the optional end-of-task block, each stamped with Fiu's version.",
+      "writtenAt": "2026-11-18T09:42:15.763Z",
+      "functions": {
+        "skillMarkdown": "The Fiu skill: how the agent chooses targets, delegates generation of Workouts, Tracks, and the Atlas to a subagent, reports outcomes, and coaches without giving answers away.",
+        "atlasCommandMarkdown": "The /fiu-atlas slash command, which asks the skill to build the Atlas for a named folder or the whole repository.",
+        "commandMarkdown": "The /fiu-drill slash command, which asks the skill to create a Workout for a file, symbol, or learning goal.",
+        "afterTasksBlock": "The CLAUDE.md block asking the agent to create a quick Drill from the file it changed most after each coding task that changed logic."
+      }
+    },
+    "src/atlas/rules.ts": {
+      "hash": "ff07cf841ead7735d2b5354d605b0fde845a65cb",
+      "text": "Business rules Fiu can check: reads them from .fiu-rules.md and Understand-Anything's domain graph, finds a rule from the user's words, and locates the functions that should enforce it.",
+      "writtenAt": "2026-11-18T09:42:34.076Z",
+      "functions": {
+        "locateRule": "Finds where a rule should be enforced: its pinned function, functions or constants the rule names, or else Atlas search results sharing several of the rule's words.",
+        "readRules": "Collects the repository's business rules: the team's .fiu-rules.md first, then Understand-Anything's rules not already listed there.",
+        "findRule": "Picks the one rule the user means by exact text or by matching all their words, otherwise explains whether none or several rules match and lists some.",
+        "parseRulesFile": "Reads .fiu-rules.md: headings become domains, list items become rules, and an arrow pins a rule to a file or file#function."
+      }
+    },
+    "src/atlas/search.ts": {
+      "hash": "18b0881f853c2d140c440e29ee39d42b100c59cc",
+      "text": "Finds the files and functions behind a learning goal by matching its words against paths, symbol names, Atlas text, and Understand-Anything tags, rarer words weighing more.",
+      "writtenAt": "2026-11-18T09:42:34.076Z",
+      "functions": {
+        "searchAtlas": "Scores every described file and function against the goal and ranks them by score, then callability, practice state, and whether the Atlas describes them.",
+        "sameWord": "Treats two words as the same when equal or when the shorter is a long enough prefix of the other, so related word forms match.",
+        "stem": "Strips common English endings (plurals, -ing, -ed) so different forms of a word compare equal.",
+        "words": "Splits text into meaningful search words: breaks camelCase, lowercases, drops short words and stopwords, and stems the rest."
+      }
+    },
+    "src/atlas/symbols.ts": {
+      "hash": "2150c1e710ebb74201dc00efe63f0fbbe8384200",
+      "text": "Finds the declarations in a source file and their line ranges without a parser, and picks the key functions worth describing by their branching density and size.",
+      "writtenAt": "2026-11-18T09:42:34.076Z",
+      "functions": {
+        "endOf": "Works out where a declaration ends: by balancing braces for brace languages, at a terminating semicolon, or by indentation for colon-and-indent languages.",
+        "extractSymbols": "Lists a file's top-level functions, classes, and methods with line ranges and a complexity score, skipping functions nested inside other functions.",
+        "keyFunctions": "Chooses a file's key functions: callable, not constructors, long enough, ranked by complexity score and length."
+      }
+    },
+    "src/atlas/ua.ts": {
+      "hash": "44edb13af121ac9c22471dc23cfb12180df830d2",
+      "text": "Reads an Understand-Anything graph (.understand-anything/ or .ua/) as foreign orientation: file and symbol summaries, layers, tour, business flows and their rules, and which are current.",
+      "writtenAt": "2026-11-18T09:42:34.076Z",
+      "functions": {
+        "resolveFlows": "Turns the domain graph into business flows with their domain, entry point, and ordered steps, each step mapped to a file and marked current when unchanged.",
+        "resolveRules": "Collects the business rules attached to domains, flows, and steps, with the domain, flow, and files each rule concerns.",
+        "firstSentence": "Shortens a summary to its first sentence, cutting at a clause or word boundary with an ellipsis when it is still too long.",
+        "symbolOf": "Matches a graph node to a symbol in the file, by full name or unique last name part, preferring symbols of the same kind.",
+        "flowsThrough": "Lists the business flows that pass through a file, marking whether a current step overlaps the given code or only the file."
+      }
+    },
+    "src/background/auto.ts": {
+      "hash": "476e66d6801931e5af417838860ccbe6e8608a9d",
+      "text": "Turns background generation on and off: asks consent with the cost and limits, records the setting, and installs, migrates, or removes Fiu's block in the git post-commit hook.",
+      "writtenAt": "2026-11-18T09:42:46.171Z",
+      "functions": {
+        "removeHook": "Removes Fiu's block from the post-commit hook, deleting the hook file when Fiu created it and nothing else remains.",
+        "migrateLegacyHook": "Replaces a hook block written under Fiu's former names (Fiutsu, Kintsugi) with the current one, unless hooks live in a custom hooksPath.",
+        "enableAuto": "Turns on background generation: unless pre-approved, shows what will be sent, the caps, and average spend and asks consent, then records it and installs the hook.",
+        "installHook": "Adds Fiu's block to the post-commit hook, creating an executable hook if needed, or returns the snippet to add by hand when core.hooksPath is set.",
+        "autoCaps": "The background limits in effect: queue cap, daily generation limit, AI-only commits, and expiry days, from the repository config or defaults."
+      }
+    },
+    "src/background/refill.ts": {
+      "hash": "c1e2c3dfa0c027e6b9970d1440bb637d3e70008d",
+      "text": "Turns a commit into a queued Workout: checks consent and API key, takes a lock or defers to a backlog, expires stale Drills, and generates a Drill or rule check per commit.",
+      "writtenAt": "2026-11-18T09:42:46.171Z",
+      "functions": {
+        "refill": "Processes a commit (and in the background any backlog) into a Quick Drill or rule check, logging each outcome: skipped, deferred, failed, or saved.",
+        "acquireLock": "Takes the refill lock so only one generator runs, reclaiming a lock left by a dead or long-stale process.",
+        "expireStaleWorkouts": "Discards the user's own background Drills left untouched past the expiry age, never a teammate's shared ones.",
+        "backgroundRefusal": "Says why background generation must not run: it is switched off, or there is no consent to send code to the configured provider.",
+        "resolveCommit": "Resolves a revision such as HEAD to a full commit hash, failing when it names no commit in the repository."
+      }
+    },
+    "src/cli.ts": {
+      "hash": "a49394003beac09ab2bbe2b5b79bc5b2031946d6",
+      "text": "The `fiu` command line: declares every command and flag, validates options, and wires each command to its handler with terminal output, prompts, and exit codes.",
+      "writtenAt": "2026-11-18T09:45:00.856Z",
+      "functions": {
+        "positive": "Reads a flag that must be a whole number of at least 1, rejecting anything else with a clear message.",
+        "quickWhileCommand": "`fiu quick --while`: offers Quick Workouts while the user's command runs, or just runs the command when there is no terminal, workspace, or ready Workout.",
+        "runRefill": "`fiu refill`: silently in the background from the hook, or interactively reporting each commit's outcome and offering to train the Workout it saved.",
+        "trackKindList": "Parses --kinds into the Workout kinds a Track may use, rejecting unknown ones.",
+        "questionCount": "Parses --questions: how many Predictions a Series asks, within the allowed range."
+      }
+    },
+    "src/commands/drill.ts": {
+      "hash": "418b6204a3af3247831a37d38dedd630936f291b",
+      "text": "`fiu drill`, `kata`, `predict`, and `diagnose`: resolves the target (a file, a folder, a What-if, or a business rule), checks key, sandbox, and consent, then generates the Workout.",
+      "writtenAt": "2026-11-18T09:43:06.595Z",
+      "functions": {
+        "closestTo": "For a What-if without a file, finds the best Atlas match for the user's sentence and asks them to confirm modelling the change there.",
+        "ruleTarget": "Resolves a rule check: finds the rule (or takes the user's words as one) and locates the function enforcing it, asking the user to confirm the place.",
+        "directoryTarget": "Recognises a folder target for a Prediction or Diagnosis, refusing folders outside the repository or inside the Fiu workspace.",
+        "drill": "Generates one Workout of any kind: picks the target, fails early on a missing API key, checks the sandbox and toolchain, asks consent to send code, then generates.",
+        "pickUnpractised": "Picks the first file in a folder worth asking about that the user has not practised yet."
+      }
+    },
+    "src/commands/explore.ts": {
+      "hash": "04bf5e2e49b17c8140d2eca5f920d3bfd2a452d9",
+      "text": "`fiu explore`: builds a Track of 3 to 5 Workouts over a module, the module closest to a goal, or an Understand-Anything business flow, with a cost estimate and fallbacks.",
+      "writtenAt": "2026-11-18T09:43:06.595Z",
+      "functions": {
+        "explore": "Starts a Track for a module, a goal, or a flow: resolves the module, requires an API key, and gathers enough candidate files with their Atlas notes.",
+        "buildTrack": "Asks consent, lets the model plan the steps, confirms them with an estimated cost, then generates each step, falling back to alternate files when one can't be Verified.",
+        "exploreFlow": "Builds a Track that follows a named business flow, its steps in the flow's order, when enough of its files can be drilled.",
+        "moduleAbout": "Chooses the module for a learning goal: the folder holding the best Atlas search results, widened to a parent until it has enough files for a Track.",
+        "listFlows": "Lists the Understand-Anything business flows that pass through enough files to make a Track."
+      }
+    },
+    "src/commands/track.ts": {
+      "hash": "d9b5baee5c0faeceb921517557bdacf2370e4211",
+      "text": "`fiu track`: lists Tracks with their progress and continues one by training its next unfinished step.",
+      "writtenAt": "2026-11-18T09:43:06.595Z",
+      "functions": {
+        "continueTrack": "Shows a Track's progress and trains its next step, or reports the Track complete.",
+        "trackListing": "Lists every Track with how many of its steps have been attempted.",
+        "formatProgress": "Writes a Track's progress: its module or flow, steps done, and each step's mark, kind, file, and why, pointing at the next one."
+      }
+    },
+    "src/commands/train.ts": {
+      "hash": "2767ec7d632b6a16a8894cda3135bb5965068471",
+      "text": "`fiu train` and `fiu quick --while`: runs an Attempt at a Workout, from the watch-and-test loop for Drills and Katas to answering Predictions and Diagnoses, then the Debrief.",
+      "writtenAt": "2026-11-18T09:43:06.595Z",
+      "functions": {
+        "train": "Opens an Attempt at the chosen or pending Workout: Predictions and Diagnoses are answered in the terminal (a Series offers its next question), Drills and Katas run tests in the sandbox.",
+        "quickWhile": "Runs the user's command in the background and offers Quick Workouts until it finishes, then waits for it, never letting a Fiu failure cost the command.",
+        "readKeys": "Handles keys during a Drill or Kata: hints, giving up to see the Reference Solution, the background command's status, and quitting.",
+        "readAnswer": "Reads the user's choice for a Prediction or Diagnosis and how sure they were, reporting the background command if it finishes meanwhile.",
+        "closeAttempt": "Ends an Attempt: reveals an injected bug that may also exist in the real source, shows the Debrief, asks for a rating, and records the outcome."
+      }
+    },
+    "src/config.ts": {
+      "hash": "30a53cccf809e23650dec46d242123c4c6a7f302",
+      "text": "Fiu's settings: the repository's .fiu/config.json and the user's own config, validated, merged with defaults, and kept free of API keys inside the repository.",
+      "writtenAt": "2026-11-18T09:45:00.856Z",
+      "functions": {
+        "resolveConfig": "Merges repository and user settings over the defaults: provider, model, Language Profiles, prices, Workout kinds, Series length, and context.",
+        "loadRepoConfig": "Reads the repository's config, refusing API keys there because it lives inside the repository.",
+        "readJson": "Reads a JSON settings file, treating a missing file as no settings and reporting invalid JSON by path.",
+        "parse": "Validates settings against their schema, reporting every problem with the file's path.",
+        "loadUserConfig": "Reads the user's own config from their home config directory, where API keys may live."
+      }
+    },
+    "src/explore/flows.ts": {
+      "hash": "f739b6a5b738a9d967b925f6f07a5f8a6aa8e7e0",
+      "text": "Business flows as Track sources: reads Understand-Anything's flows, finds the one the user names, and turns its files into Track candidates in the flow's order.",
+      "writtenAt": "2026-11-18T09:43:26.679Z",
+      "functions": {
+        "findFlow": "Finds the flow the user means by exact name or by all their words, otherwise lists the matching flows or all of them.",
+        "readFlows": "Reads the repository's Understand-Anything flows, explaining how to produce them when the integration is off or none exist.",
+        "flowModule": "The deepest folder shared by all of a flow's files, used as the Track's module.",
+        "flowCandidates": "Turns each drillable file a flow passes through into a candidate, noting which of the flow's steps it runs."
+      }
+    },
+    "src/explore/plan.ts": {
+      "hash": "148bbb96239448b7b368202b5e8999416865de62",
+      "text": "Plans a Track with the model: presents the candidate files, asks for ordered steps with kinds and why lines plus alternates, and checks the plan against the rules.",
+      "writtenAt": "2026-11-18T09:43:26.679Z",
+      "functions": {
+        "checkPlan": "Lists what is wrong with a plan: step count, unknown or repeated files, empty why lines, disallowed kinds, a broken flow order, or a single kind used throughout.",
+        "candidatesPrompt": "Describes the module or flow and each candidate file with its size, flow steps, and Atlas notes or declarations for the planner.",
+        "withAtlas": "Attaches each candidate's Atlas description and key function notes, so the planner reads what files are for instead of their declarations.",
+        "planTrack": "Asks the model for a Track plan, sending back the problems once for a corrected plan, and returns the plan or its problems with the token usage.",
+        "flowRules": "Adapts the Track planning rules to a business flow: steps follow the flow's order and each why says what the file does in the flow."
+      }
+    },
+    "src/explore/shortlist.ts": {
+      "hash": "901d1eb04d4dab239cb3205d51d746379e41bdf5",
+      "text": "Shortlists the files of a module worth practising: tracked, drillable, of a workable size, ranked by how much branching logic they hold.",
+      "writtenAt": "2026-11-18T09:43:26.679Z",
+      "functions": {
+        "candidateFor": "Makes a file a Track candidate when it is drillable, in a supported language, and of workable size, with its logic score and a short outline of declarations.",
+        "shortlist": "Lists the git-tracked files of a module directory as candidates, richest logic first, capped at the shortlist size.",
+        "logicScore": "Scores a file's logic density from its branches per line, weighted by size; files too short or too long don't qualify."
+      }
+    },
+    "src/explore/tracks.ts": {
+      "hash": "6974ec108cc6abd66585091c27acae7fe2483ac2",
+      "text": "Stores Tracks in the workspace: saving and loading them, giving each a dated id, and working out each step's status and the next one to train.",
+      "writtenAt": "2026-11-18T09:43:26.679Z",
+      "functions": {
+        "trackProgress": "Each step's status from its Workout, and the next step to train: one in progress first, else the first queued.",
+        "listTracks": "Reads every saved Track, newest first.",
+        "loadTrack": "Loads one Track by id, failing when there is none.",
+        "trackId": "A unique id for a new Track from the date and its module or flow name, numbered when the name is already taken."
+      }
+    },
+    "src/map/flows.ts": {
+      "hash": "d67f1484ee31fc99e15d8436eb7dd09baa0d7189",
+      "text": "`fiu map --flows`: practice coverage by Understand-Anything domain and business flow, each rule's measured status, and suggestions for what to check or explore next.",
+      "writtenAt": "2026-11-18T09:43:42.218Z",
+      "functions": {
+        "buildFlowMap": "Groups flows and rules by domain with each flow's practised files and each rule's status (follows, breaks, stale, waiting, unchecked), then suggests next steps.",
+        "renderFlowMap": "Writes the flow map as terminal text: a legend, each domain's rule tally and flows with file marks, the rules worth a look, and the suggestions."
+      }
+    },
+    "src/map/map.ts": {
+      "hash": "ce631f49fd9ca5fcfeeb9dfca8522b6feb9df351",
+      "text": "`fiu map`: colours every source file by practice state (complex and unpractised, out of date or AI-changed, practised), flags Blind Spots, attaches Atlas notes, and suggests next steps.",
+      "writtenAt": "2026-11-18T09:43:42.218Z",
+      "functions": {
+        "suggest": "Picks up to three next steps: re-check Blind Spots, train waiting Workouts on risky files, explore the folder with most unpractised complex files, or drill one.",
+        "practiceByFile": "The latest practice outcome per source file and the Workout kinds used on it, from Attempts and from outcomes recorded before Attempts existed.",
+        "buildMap": "Builds the map: scores tracked files, marks the repository's most complex quarter red when unpractised, practised files amber once their code changed enough, and AI-changed ones amber.",
+        "groupByDirectory": "Groups file entries by folder, counting states and Blind Spots, giving each folder its worst state, and sorting files worst first.",
+        "changedSince": "How many lines of a file were added or removed since a commit, used to tell when practice has gone out of date."
+      }
+    },
+    "src/synthesis/generate.ts": {
+      "hash": "52a26a9b0ce93438f448089e3b59c866a77408a0",
+      "text": "Generates and saves one Workout or a Series of Predictions: runs synthesis with progress messages, saves what was Verified, and records every paid token in the spend ledger.",
+      "writtenAt": "2026-11-18T09:44:28.632Z",
+      "functions": {
+        "describeEvent": "Turns a generation event (generating, verifying, rejected with feedback) into a progress line naming the attempt.",
+        "generateWorkout": "Generates a Workout from a target, saving it with its cost and context once Verified, and records the spend even when generation fails midway.",
+        "generateSeries": "Generates a Series of Predictions about one unit and saves each question with its share of the cost and its place in the Series."
+      }
+    },
+    "src/synthesis/prompt.ts": {
+      "hash": "fc163b6cc28fc96be120acc1e3af007b20b49f3d",
+      "text": "The instructions the model follows for each Workout kind, and the user prompt carrying the numbered source plus any commit, What-if, Track step, or business rule.",
+      "writtenAt": "2026-11-18T09:44:28.632Z",
+      "functions": {
+        "kataSystemPrompt": "Rules for a Kata: extract a self-contained unit, remove one contiguous piece of its logic behind a wrong-value placeholder, and write a brief, tests, and two hints.",
+        "drillSystemPrompt": "Rules for a Drill: extract a self-contained unit, inject one realistic bug in at most 3 lines, and write symptom-only tests, an incident report, and two hints.",
+        "predictionSystemPrompt": "Rules for a Prediction: a plain-English Scenario with four measured outcomes, wrong ones as Variants, with extra rules for commit Predictions and What-ifs.",
+        "drillUserPrompt": "The request for one Workout: the numbered source, what to build it around (a symbol, commit, or What-if), plus any Track step and business rule to ask about.",
+        "diagnosisSystemPrompt": "Rules for a Diagnosis: a practice incident and four plausible Causes, each a Variant whose test shows its Symptom, so only knowing the system picks the right one."
+      }
+    },
+    "src/synthesis/schema.ts": {
+      "hash": "0aa5b4ca84fa1cb85af96193ee1d076fca787f71",
+      "text": "The shapes the model must return for each Workout kind and the checks run before verifying: required fields, Variants, no code names shown to non-coders, no spoilers.",
+      "writtenAt": "2026-11-18T09:44:28.632Z",
+      "functions": {
+        "predictionProblems": "Checks a Prediction: four options with one correct, an old or today option for commit or What-if ones, valid Variants, and no code names in what non-coders read.",
+        "seriesOverlaps": "Finds Series questions that repeat another's Scenario, true outcome, or Variant, so each question tests a different misunderstanding.",
+        "ruleProblems": "Checks a rule check: it names which option the rule predicts with a note, and neither Scenario nor options quote the rule and give the answer away.",
+        "checkWorkoutOutput": "Lists everything wrong with a generated Workout before running it: slug, time, source anchors, Quick limits, hints, spoilers, and the kind-specific checks.",
+        "diagnosisProblems": "Checks a Diagnosis: four Causes with one correct, each with its own symptom, test, and a Variant that occurs exactly once in the healthy code."
+      }
+    },
+    "src/synthesis/synthesize.ts": {
+      "hash": "415f8fa067e0a2f56cc540a3342e89eb9cdea1c0",
+      "text": "The generate-check-verify loop: asks the model, checks the answer's shape, runs the Verified Gate in the sandbox, and feeds problems back until it passes or attempts run out.",
+      "writtenAt": "2026-11-18T09:44:28.632Z",
+      "functions": {
+        "synthesizeSeries": "Generates a Series of Predictions, keeping each question that is Verified and asking only for the missing ones until the Series is complete.",
+        "synthesizeDrill": "Generates one Workout, retrying with feedback from schema checks or the Verified Gate, and stops early when the file isn't worth practising.",
+        "generate": "One model call for structured output; a malformed answer is kept with its error and billed usage so the retry can fix it, while other failures stop generation."
+      }
+    },
+    "src/workouts/debrief.ts": {
+      "hash": "7e80ff3303b3fd52633da6e8c552b1f96f7bf8f0",
+      "text": "The Debrief after a Workout: where the code lives, what it is for, the business flows it runs in, rules it may enforce, who calls it, computed tensions, and neighbours to try next.",
+      "writtenAt": "2026-11-18T09:44:51.044Z",
+      "functions": {
+        "renderDebriefText": "Writes the Debrief for the terminal, section by section, with the Try next commands aligned.",
+        "renderDebriefMarkdown": "Writes the Debrief as a Markdown document titled after the Workout.",
+        "buildDebrief": "Gathers the Debrief from the Atlas, links, rules, and flows: target functions, callers, blast radius, churn, hidden coupling, and up to a few next Workouts as commands.",
+        "findTarget": "Works out which real functions a Workout is about, from where its versions differ, else from its named symbol and source anchors.",
+        "calling": "Says which of the target's functions the files using it call, more briefly when every user calls the same one."
+      }
+    },
+    "src/workouts/rulechecks.ts": {
+      "hash": "dfa3854ab1182112d258b50a023a8d80c190bb79",
+      "text": "What rule checks have found: each rule's latest answered verdict, checks still waiting for an answer, which went stale as the code changed, and which commits should trigger a new one.",
+      "writtenAt": "2026-11-18T09:44:51.044Z",
+      "functions": {
+        "changedSinceCheck": "Says why a rule check is out of date: its file or function is gone, the function changed since, or the file changed by enough lines.",
+        "commitRuleTriggers": "Finds the rules whose checked or pinned function a commit changed, ranking rules that held before first, so the commit gets a rule check.",
+        "bodyAt": "A function's body at a given revision, whitespace-trimmed, so two versions can be compared.",
+        "ruleChecksWaiting": "The rules whose newest rule check is generated but not yet answered.",
+        "ruleChecks": "Each rule's latest answered rule check: whether the code followed it, where it was checked, and whether it has gone stale."
+      }
+    },
+    "src/workouts/save.ts": {
+      "hash": "52e3b230cbc5be469c8958262deec94d0c695928",
+      "text": "Saves a Verified Workout to the workspace: its record and provenance, code and test files, and a README per kind, with Around this code, Track, What-if, and rule context.",
+      "writtenAt": "2026-11-18T09:44:51.044Z",
+      "functions": {
+        "newSeriesId": "A unique dated id for a new Series of Predictions, numbered when the name is already taken.",
+        "sourceRevision": "The commit a Workout's source comes from and whether the file has uncommitted changes.",
+        "rulePlacement": "Records a rule check's verdict: which option the rule predicts, whether the code follows it, or whether the rule describes the code before the commit.",
+        "uniqueId": "A Workout id not used by any current or finished Workout, numbered when the base is taken.",
+        "trackPlacement": "The README line saying which Track a Workout belongs to and why its file matters."
+      }
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "id": "drill_20261113_ai-trailer-missed",
+  "kind": "drill",
+  "generator": "agent",
+  "origin": "explore",
+  "track": {
+    "id": "track_20261113_refill-the-queue-from-a",
+    "module": "src",
+    "why": "Screens each commit: a Co-Authored-By trailer naming an AI assistant marks it as AI-written, which decides whether it is drilled when only AI-written commits count."
+  },
+  "title": "AI-written commits go unnoticed",
+  "slug": "ai-trailer-missed",
+  "pillar": "library",
+  "estimatedMinutes": 8,
+  "language": "typescript",
+  "createdAt": "2026-11-13T12:00:35.277Z",
+  "source": {
+    "path": "src/background/commits.ts",
+    "symbol": "isAiAuthored",
+    "commit": "cf3bf7a4779e3276232939117c611b14136f1d28",
+    "dirty": false
+  },
+  "sourceAnchors": [
+    {
+      "path": "src/background/commits.ts",
+      "startLine": 17,
+      "endLine": 20,
+      "explanation": "The pattern for a Co-Authored-By trailer that names a coding assistant, and the check that applies it to a commit message.",
+      "commit": "cf3bf7a4779e3276232939117c611b14136f1d28"
+    },
+    {
+      "path": "src/background/commits.ts",
+      "startLine": 22,
+      "endLine": 26,
+      "explanation": "Reads a commit's hash, parents, author email, subject and full message from git, and records whether an assistant co-authored it.",
+      "commit": "cf3bf7a4779e3276232939117c611b14136f1d28"
+    }
+  ],
+  "hints": [
+    "Compare the commit that was picked up with the ones that were skipped: where in the message does the assistant line sit in each?",
+    "The pattern is anchored. Ask what that anchor matches in a message of several lines, and whether it can reach the last one."
+  ],
+  "regressionTestName": "marks a Claude co-authored commit as AI-written",
+  "injectedBugDescription": "The trailer pattern lost its multiline flag (/im became /i), so ^ only matches at the start of the whole message. A Co-Authored-By trailer is at the end of a multi-line message, so it is never found; a message that is only the trailer still matches. The regression test (and the readCommit test) use a full message with the trailer last.",
+  "around": {
+    "lines": [
+      "## Around this code",
+      "",
+      "- **Used by:** `src/background/refill.ts`, `src/map/map.ts`",
+      "- **Uses:** `src/languages/paths.ts`, `src/languages/profile.ts`, `src/languages/registry.ts`",
+      "",
+      "*Links are computed from imports and git history. Run `fiu atlas build` for what these files are for.*"
+    ],
+    "dropped": 1
+  },
+  "files": {
+    "code": "kata.ts",
+    "test": "kata.test.ts",
+    "solution": ".solution/kata.ts",
+    "originalTest": ".solution/kata.test.ts"
+  },
+  "sharedBy": {
+    "name": "Simone Rosignoli",
+    "email": "srosignoli@gmail.com",
+    "at": "2026-11-18T09:50:41.445Z"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "id": "track_20261113_refill-the-queue-from-a",
+  "title": "From a commit to a Quick Workout",
+  "module": "src",
+  "flow": "Refill the Queue from a Commit",
+  "createdAt": "2026-11-13T12:01:25.378Z",
+  "generator": "agent",
+  "steps": [
+    {
+      "workoutId": "prediction_20261113_daily-generation-limit",
+      "path": "src/background/refill.ts",
+      "kind": "prediction",
+      "pillar": "algorithm",
+      "why": "Decides whether a commit may still spend a generation today: the daily cap counts commit generations, retries included, since local midnight."
+    },
+    {
+      "workoutId": "drill_20261113_ai-trailer-missed",
+      "path": "src/background/commits.ts",
+      "kind": "drill",
+      "pillar": "library",
+      "why": "Screens each commit: a Co-Authored-By trailer naming an AI assistant marks it as AI-written, which decides whether it is drilled when only AI-written commits count."
+    },
+    {
+      "workoutId": "kata_20261113_read-the-refill-log",
+      "path": "src/background/log.ts",
+      "kind": "kata",
+      "pillar": "pattern",
+      "why": "Ends the flow: every refill outcome is appended to the log, and reading it back must survive a line cut short by a crash."
+    }
+  ],
+  "sharedBy": {
+    "name": "Simone Rosignoli",
+    "email": "srosignoli@gmail.com",
+    "at": "2026-11-18T09:50:41.445Z"
+  }
+}

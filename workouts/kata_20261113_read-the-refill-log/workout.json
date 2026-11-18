@@ -1,0 +1,74 @@
+{
+  "id": "kata_20261113_read-the-refill-log",
+  "kind": "kata",
+  "generator": "agent",
+  "origin": "explore",
+  "track": {
+    "id": "track_20261113_refill-the-queue-from-a",
+    "module": "src",
+    "why": "Ends the flow: every refill outcome is appended to the log, and reading it back must survive a line cut short by a crash."
+  },
+  "title": "Read the refill log back",
+  "slug": "read-the-refill-log",
+  "pillar": "pattern",
+  "estimatedMinutes": 6,
+  "language": "typescript",
+  "createdAt": "2026-11-13T12:01:19.525Z",
+  "source": {
+    "path": "src/background/log.ts",
+    "symbol": "readLog",
+    "commit": "cf3bf7a4779e3276232939117c611b14136f1d28",
+    "dirty": false
+  },
+  "sourceAnchors": [
+    {
+      "path": "src/background/log.ts",
+      "startLine": 22,
+      "endLine": 25,
+      "explanation": "Appends one outcome to the log as a single line of JSON, stamped with the time.",
+      "commit": "cf3bf7a4779e3276232939117c611b14136f1d28"
+    },
+    {
+      "path": "src/background/log.ts",
+      "startLine": 27,
+      "endLine": 39,
+      "explanation": "Reads the log back into its entries.",
+      "commit": "cf3bf7a4779e3276232939117c611b14136f1d28"
+    },
+    {
+      "path": "src/background/log.ts",
+      "startLine": 41,
+      "endLine": 53,
+      "explanation": "Builds the one-line notice about background failures the user hasn't seen yet, and records that they have now seen them.",
+      "commit": "cf3bf7a4779e3276232939117c611b14136f1d28"
+    }
+  ],
+  "hints": [
+    "Treat the file as lines, and decide for each line on its own whether it holds an entry.",
+    "Parsing a damaged line will fail: let that failure mean \"no entry here\" instead of ending the read."
+  ],
+  "gapSummary": "The body of readLog was removed: return [] for undefined; otherwise split on newlines, drop empty lines, JSON.parse each, and skip (not throw on) any line that fails to parse.",
+  "around": {
+    "lines": [
+      "## Around this code",
+      "",
+      "- **This file:** Append-only JSON-lines log of what `fiu refill` did with each commit, with readers and a summary of unseen failures for the user. (UA)",
+      "- **Used by:** `src/background/auto.ts`, `src/background/refill.ts`, `src/cli.ts`",
+      "- **Uses:** `src/workouts/store.ts`, `src/workspace.ts`",
+      "",
+      "*Descriptions are written by a model from the code, not Verified (those marked (UA) by Understand-Anything); links are computed from imports and git history.*"
+    ],
+    "dropped": 0
+  },
+  "files": {
+    "code": "kata.ts",
+    "test": "kata.test.ts",
+    "solution": ".solution/kata.ts",
+    "originalTest": ".solution/kata.test.ts"
+  },
+  "sharedBy": {
+    "name": "Simone Rosignoli",
+    "email": "srosignoli@gmail.com",
+    "at": "2026-11-18T09:50:41.445Z"
+  }
+}
